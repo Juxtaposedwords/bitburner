@@ -1,10 +1,10 @@
 /** @param {import("../../..").NS } ns */
-// write sends a structured status message to port 1.  Ex:
+// log sends a structured status message to port 1.  Ex:
 //
 //   await write(ns, 'hack', 'some-server', 100000)
 //
 // will write "thisserver,hack,some-server,100000" to port 1.
-export async function write(ns, method, target, amt) {
+export async function log(ns, method, target, amt) {
     const p = ns.getPortHandle(1);
     const msg = [
         new Date().toISOString(),

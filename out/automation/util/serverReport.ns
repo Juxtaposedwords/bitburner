@@ -1,0 +1,47 @@
+import { allServers } from "/automation/lib/scan.ns"
+export async function main(ns) {
+    const which = ns.args[0]
+    let by = ns.args[1]
+    if (which != "open" && which != "closed") {
+        ns.tprint("WARN:  Usage: run serverReport.ns open|closed")
+        return
+    }
+    if (by == undefined) { by = "moneyAvailable"}
+    const fields = [
+        "hostname",
+        "hackingLevel",
+        "securityLevel",
+        "moneyAvailable",
+        "maxMoney",
+        "requiredPorts",
+    ]
+    let field = undefined;
+    for (let i = 0; i < fields.length; i++) {
+        if (by == fields[i]) { 
+            field = i;
+            break;
+        }
+    }
+    if (field == undefined) {
+        ns.tprint("ERROR: unknown field " + by + ", valid values are " + fields.join(',') + ".");
+        return;
+    }
+    const servers = allServers(ns);
+    const result = [fields];
+    for (let s of servers) {
+        const hasRoot = ns.hasRootAccess(s);
+        if (which == "open" && !hasRoot) { continue }
+        if (which == "closed" && hasRoot) { continue }
+        result.push([
+            s, 
+            ns.getServerRequiredHackingLevel(s),
+            Math.floor(ns.getServerSecurityLevel(s)),
+            Math.floor(ns.getServerMoneyAvailable(s)), 
+            ns.getServerMaxMoney(s),
+            ns.getServerNumPortsRequired(s),
+        ])
+    }
+ 
+    result.sort((a, b) => a[field] > b[field] ? -1 : 1);
+    ns.tprint("\n" + result.join('\n'));
+}
