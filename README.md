@@ -30,3 +30,4 @@
 ## Configuration information
 
 * Files in the `out/` directory are written to the desktop.
+* Bitburner netscript2 scripts do not allow for a relative path. So we have to instead use the absolute value of `/automation/lib/log.ns` instead of `../lib/log.ns`.
