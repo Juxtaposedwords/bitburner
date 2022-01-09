@@ -1,0 +1,28 @@
+/** @param {import("../../..").NS } ns */
+
+export async function getRoot(ns, target) {
+
+    const cracks = [
+        ["FTPCrack.exe", ns.ftpcrack],
+        ["BruteSSH.exe", ns.brutessh],
+        ["HTTPWorm.exe", ns.httpworm],
+        ["relaySMTP.exe", ns.relaysmtp],
+        ["SQLInject.exe", ns.sqlinject],
+    ]
+
+    let ports = 0;
+    for (const c of cracks) {
+        if (ns.fileExists(c[0], "home")) {
+            c[1](target);
+            ports++;
+        }
+    }
+    const needed = ns.getServerNumPortsRequired(target)
+    if (ports < needed) {
+        ns.tprint(`WARN: Not enough ports opened for target ${target} needed ${needed}, got ${ports}.`);
+    } else {
+        ns.nuke(target);
+    }
+    // await ns.installBackdoor(target);
+    return ns.hasRootAccess(target);
+}

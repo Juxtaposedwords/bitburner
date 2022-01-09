@@ -1,9 +1,10 @@
 /** @param {import("../../..").NS } ns */
+
 // log sends a structured status message to port 1.  Ex:
 //
-//   await write(ns, 'hack', 'some-server', 100000)
+//   await log(ns, 'hack', 'some-server', 100000)
 //
-// will write "thisserver,hack,some-server,100000" to port 1.
+// will write "thisserver,hack,some-server,100k" to port 1.
 export async function log(ns, method, target, amt) {
     const p = ns.getPortHandle(1);
     const msg = [
@@ -15,6 +16,6 @@ export async function log(ns, method, target, amt) {
     ].join(',');
     if (!await p.tryWrite(msg)) {
         ns.print('WARN: failed to write msg ${msg}')
-    }
+    } 
 }
  

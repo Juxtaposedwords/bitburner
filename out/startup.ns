@@ -1,0 +1,42 @@
+/** @param {NS} ns **/
+
+import { allServers } from "/automation/lib/allServers.ns";
+import { getRoot } from "/automation/lib/getRoot.ns"
+
+export async function main(ns) {
+
+    if (!ns.isRunning('/automation/util/logger.ns', 'home')) {
+        ns.exec('/automation/util/logger.ns', 'home', 1);
+    }
+
+    while (true) {
+        const all = allServers(ns, true);
+        const h = [];
+        for (const s of all) {
+            if (s == "home" || s == "darkweb") {
+                continue;
+            }
+            if (ns.getServerRequiredHackingLevel(s) > ns.getHackingLevel()) {
+                continue;
+            }
+            if (ns.isRunning("/automation/util/weaken.ns", "home", s)) {
+                continue;
+            }
+            h.push(s);
+        }
+        for (const s of h) {
+            ns.tprint(`INFO: getting root on ${s}...`);
+            if (!getRoot(ns, s)) {
+                continue;
+            }
+            if (ns.getServerMaxMoney(s) == 0) {
+                ns.tprint(`INFO: not starting hack script for ${s}, there's no money in it.`)
+                continue;
+            }
+            ns.tprint(`INFO: starting hack script for ${s}...`);
+            ns.exec("/automation/util/start-hack.ns", "home", 1, "home", s);
+        }
+        // Try again in a minute.
+        await ns.sleep(60000)
+    }
+}

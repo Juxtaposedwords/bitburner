@@ -1,0 +1,26 @@
+/** @param {import("../../..").NS } ns */
+
+// Return a list of all reachable servers.  This will exclude
+// purchased servers (if specified) and the server ".", but will
+// include "home".
+export function allServers(ns, removePurchased=true) {
+	const pservs = ns.getPurchasedServers();
+	const nodes = new Set;
+
+	function dfs(node) {
+		if (node == "." || node == "") {
+			return;
+		}
+		if (removePurchased && pservs.includes(node)) {
+			return;
+		}
+		nodes.add(node);
+		for (const neighbor of ns.scan(node)) {
+			if (!nodes.has(neighbor)) {
+				dfs(neighbor);
+			}
+		}
+	}
+	dfs("home");
+	return [...nodes]
+}

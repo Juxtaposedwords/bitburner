@@ -1,4 +1,5 @@
 /** @param {import("../../..").NS } ns */
+
 // Return a list of all reachable servers.  This will exclude
 // purchased servers (if specified) and the server ".", but will
 // include "home".

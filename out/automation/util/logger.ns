@@ -1,4 +1,4 @@
-// listener-1 listens to port 1 and logs all values received.
+// logger listens to port 1 and logs all values received.
 export async function main(ns) {
     ns.disableLog('ALL')
     const h = ns.getPortHandle(1);
@@ -9,6 +9,6 @@ export async function main(ns) {
         }
         const v = await ns.readPort(1);
         ns.print(v);
-        await ns.write('listener-1.txt', v)
+        await ns.write('log.txt', v)
     }
 }
