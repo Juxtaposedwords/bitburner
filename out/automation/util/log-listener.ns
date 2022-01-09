@@ -14,20 +14,21 @@ export async function main(ns) {
         }
         let v = await ns.readPort(1);
         // Log any string objects.
-        if (!(typeof v === string)) {
-            ns.write('log.txt', v)
+        if (!(typeof v === 'string')) {
+            ns.write('log.txt', v + '/n');
             continue
         }
         let input = v + "";
         if (input.startsWith("{") && input.endsWith("}")) {
             // Handle our pretty json printing.
             let entry = JSON.parse(input);
-            let line = "{entry.date} {entry.method}.ns : target={entry.target} start={entry.} amount={entry.amount} "
-            await ns.write('logs/{entry.host}.log', v)
-            await ns.write('logs/all.log', input)
+            // don't know what this is supposed to do, but it's unused.
+            // let line = `${entry.date} ${entry.method}.ns : target=${entry.target} start=${entry.} amount=${entry.amount}`
+            await ns.write(`logs/${entry.host}.log`, v + '\n')
+            await ns.write('logs/all.log', input + '\n')
         } else {
             // this is the current non-json behavior route.
-            await ns.write('log.txt', v)
+            await ns.write('log.txt', v + '\n');
         }
     }
 }

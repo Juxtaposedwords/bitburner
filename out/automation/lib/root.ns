@@ -1,11 +1,11 @@
 export async function root(ns, target) {
-    return basicRoot(ns,target,false)
+    return basicRoot(ns, target, false)
 }
 export async function safeRoot(ns, target) {
-    return basicRoot(ns,target,true)
+    return basicRoot(ns, target, true)
 }
 /** @param {import("../../..").NS } ns */
-function basicRoot(ns, target,safe){
+function basicRoot(ns, target, safe){
 
     const cracks = [
         ["FTPCrack.exe", ns.ftpcrack],
@@ -14,7 +14,6 @@ function basicRoot(ns, target,safe){
         ["relaySMTP.exe", ns.relaysmtp],
         ["SQLInject.exe", ns.sqlinject],
     ]
-    
 
     let ports = 0;
     for (const c of cracks) {
@@ -27,9 +26,9 @@ function basicRoot(ns, target,safe){
     if (ports < needed) {
         ns.tprint("WARN: Not enough ports opened for target " + target + "; needed " + needed, ", got " + ports + ".");
     } else if (ns.hasRootAccess(target)==true) {
-        ns.tprintf("INFO: skiping rooting %s as is already rooted",target)
+        ns.tprintf("INFO: skipping rooting %s as is already rooted",target)
     } else if ((safe==true) && (ns.getHackingLevel()< ns.getServerRequiredHackingLevel(target))){
-        ns.tprinf("INFO: skipping rooting %s as %d is higher than current hacking level (%d)",0, ns.getHackingLevel())
+        ns.tprintf("INFO: skipping rooting %s as %d is higher than current hacking level (%d)",0, ns.getHackingLevel())
     } else { 
         ns.nuke(target);
         if (!(ns.hasRootAccess(target) == true )){
