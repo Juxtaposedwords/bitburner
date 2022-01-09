@@ -1,0 +1,13 @@
+import { dfs } from  "/automation/lib/scan.ns"
+
+/** @param {import("../../..").NS } ns */
+export async function main(ns) {
+    const toFind = ns.args[0];
+    const path = [];
+    if (await dfs(ns, path, "home", toFind)) {
+      ns.tprintf("INFO: path: %s",path.join(" → "));
+      return;
+    }
+    ns.tprint(`${toFind} not found.`);
+  }
+  
