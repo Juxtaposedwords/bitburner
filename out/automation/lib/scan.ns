@@ -1,8 +1,8 @@
-/** @param {import("../../..").NS } ns */
 
 // Return a list of all reachable servers.  This will exclude
 // purchased servers (if specified) and the server ".", but will
 // include "home".
+/** @param {import("../../..").NS } ns */
 export function servers(ns, removePurchased=true) {
     const pservs = ns.getPurchasedServers();
     const nodes = new Set;
@@ -23,6 +23,11 @@ export function servers(ns, removePurchased=true) {
     dfs("home");
     return [...nodes]
 }
+
+export function allServers(ns, removePurchased=false) {
+    return servers(ns,false)
+}
+
 
 export async function dfs(ns, path, fromS, dest) {
     if (path.includes(fromS)) {
