@@ -31,7 +31,7 @@ export async function main(ns) {
             if (verbose) {
                 ns.tprint(`INFO: getting root on ${s}...`)
             };
-            if (!root(ns, s)) {
+            if (!root(ns, s, false, verbose)) {
                 continue;
             }
             if (ns.getServerMaxMoney(s) == 0) {

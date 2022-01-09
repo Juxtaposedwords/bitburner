@@ -1,11 +1,11 @@
-export async function root(ns, target) {
-    return basicRoot(ns, target, false)
+export async function root(ns, target, verbose=false) {
+    return basicRoot(ns, target, false, verbose)
 }
-export async function safeRoot(ns, target) {
-    return basicRoot(ns, target, true)
+export async function safeRoot(ns, target, verbose=false) {
+    return basicRoot(ns, target, true, verbose)
 }
 /** @param {import("../../..").NS } ns */
-function basicRoot(ns, target, safe){
+function basicRoot(ns, target, safe, verbose=false){
 
     const cracks = [
         ["FTPCrack.exe", ns.ftpcrack],
@@ -22,17 +22,22 @@ function basicRoot(ns, target, safe){
             ports++;
         }
     }
+    const log = (f, ...s) => {
+        if (verbose) {
+            ns.tprintf(f, s);
+        }
+    }
     const needed = ns.getServerNumPortsRequired(target)
     if (ports < needed) {
-        ns.tprint("WARN: Not enough ports opened for target " + target + "; needed " + needed, ", got " + ports + ".");
+        log("WARN: Not enough ports opened for target " + target + "; needed " + needed, ", got " + ports + ".");
     } else if (ns.hasRootAccess(target)==true) {
-        ns.tprintf("INFO: skipping rooting %s as is already rooted",target)
+        log("INFO: skipping rooting %s as is already rooted",target)
     } else if ((safe==true) && (ns.getHackingLevel()< ns.getServerRequiredHackingLevel(target))){
-        ns.tprintf("INFO: skipping rooting %s as %d is higher than current hacking level (%d)",0, ns.getHackingLevel())
+        log("INFO: skipping rooting %s as %d is higher than current hacking level (%d)",0, ns.getHackingLevel())
     } else { 
         ns.nuke(target);
         if (!(ns.hasRootAccess(target) == true )){
-            ns.tprintf("Error: Failed to nuke target: %s",target)
+            ns.tprintf("ERROR: Failed to nuke target: %s",target)
         }
     }
     return ns.hasRootAccess(target)
