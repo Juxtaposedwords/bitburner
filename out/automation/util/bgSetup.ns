@@ -1,0 +1,31 @@
+import { servers } from "/automation/lib/scan.ns";
+/**
+ *  @param {import("../../..").NS } ns */
+
+export async function main(ns) {
+    var target = ns.args[0] + ""
+
+    // add flag for:
+    //      * restart
+    let hackedServers = servers(ns).filter(function (server) {
+        return (ns.hasRootAccess(server) && server != "home")
+    })
+    ns.tprintf("starting for %d servers",hackedServers.length)
+
+    for (let server of hackedServers) {
+        ns.tprintf("starting: %s",server)
+        // Stop any existing scripts. This way we can support updates.
+        ns.killall(server)
+        if (!(target == "")) {
+            target = server
+        }
+        await ns.scp("bg.ns", "home", server)
+        var maxRam = ns.getServerMaxRam(server);
+        var progRam = ns.getScriptRam("bg.ns", server);
+        var memCount = (maxRam / progRam)
+        if (memCount <1) {
+            continue
+        }
+        ns.exec("bg.ns", server, memCount, target);
+    }
+}
