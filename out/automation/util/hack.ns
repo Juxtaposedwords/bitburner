@@ -13,7 +13,7 @@ export async function main(ns) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;
     }
-	await log(ns, 'hack:start', target, 0);
+    await log(ns, 'hack:start', target, 0);
 
     // Infinite loop that continously hacks the target server
     while (true) {
