@@ -1,14 +1,16 @@
-import { log } from  "/automation/lib/log.ns"
 /** @param {import("../../..").NS } ns */
+
+import { log } from  "/automation/lib/log.ns"
+
 // weaken continuously weakens the target server.
 export async function main(ns) {
     if (ns.args.length != 1) {
-        ns.tprintf("ERROR: Usage: run `grow.ns <target>`.  recieved %d arguments not 1.", ns.args.length);
+        ns.tprintf("ERROR: Usage: run `weaken.ns <target>`.  received %d arguments not 1.", ns.args.length);
         return;
     }
     const target = ns.args[0]
     if (!ns.hasRootAccess(target)) {
-        ns.tprint("ERROR: Need root access on ${target}.");
+        ns.tprint(`ERROR: Need root access on ${target}.`);
         return;
     }
     await log(ns, 'weaken:start', target, 0);
