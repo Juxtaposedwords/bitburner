@@ -7,20 +7,17 @@ import { servers } from "/automation/lib/scan.ns";
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
 
-    for(let server of servers(ns,false).sort() ){
+    for (let server of servers(ns, false).sort()) {
 
-        let files = ns.ls(server).filter(function(name){
+        let files = ns.ls(server).filter(function (name) {
             return !(name.endsWith(".ns"))
         })
-        if ((files.length == 0 ) || (server=="home")){
+        if ((files.length == 0) || (server == "home")) {
             continue
         }
         ns.tprintf("%s", server)
-        for(let file of files.sort()){
-            ns.tprintf("  %s",file)
-
-        } 
-
+        for (let file of files.sort()) {
+            ns.tprintf("  %s", file)
+        }
     }
-
 }

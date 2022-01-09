@@ -1,4 +1,4 @@
-import { dfs } from  "/automation/lib/scan.ns"
+import { dfs } from "/automation/lib/scan.ns"
 
 /**
  *  Prints the path to a server.
@@ -8,9 +8,8 @@ export async function main(ns) {
     const toFind = ns.args[0];
     const path = [];
     if (await dfs(ns, path, "home", toFind)) {
-      ns.tprintf("INFO: path: %s",path.join(" → "));
-      return;
+        ns.tprintf("INFO: path: %s", path.join(" → "));
+        return;
     }
     ns.tprint(`${toFind} not found.`);
-  }
-  
+}
