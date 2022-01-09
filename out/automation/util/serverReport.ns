@@ -1,6 +1,6 @@
 /** @param {NS} ns **/
 
-import { allServers } from "./lib-allServers.ns"
+import { allServers } from "/automation/lib/allServers.ns"
 
 export async function main(ns) {
 	const which = ns.args[0]
