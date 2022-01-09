@@ -1,7 +1,7 @@
 /** @param {NS} ns **/
 
-import { allServers } from "/automation/lib/allServers.ns";
-import { getRoot } from "/automation/lib/getRoot.ns"
+import { servers } from "/automation/lib/allServers.ns";
+import { root } from "/automation/lib/root.ns"
 
 export async function main(ns) {
 
@@ -10,7 +10,7 @@ export async function main(ns) {
     }
 
     while (true) {
-        const all = allServers(ns, true);
+        const all = servers(ns, true);
         const h = [];
         for (const s of all) {
             if (s == "home" || s == "darkweb") {
@@ -26,7 +26,7 @@ export async function main(ns) {
         }
         for (const s of h) {
             ns.tprint(`INFO: getting root on ${s}...`);
-            if (!getRoot(ns, s)) {
+            if (!root(ns, s)) {
                 continue;
             }
             if (ns.getServerMaxMoney(s) == 0) {
