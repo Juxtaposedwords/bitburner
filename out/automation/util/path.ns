@@ -1,6 +1,9 @@
 import { dfs } from  "/automation/lib/scan.ns"
 
-/** @param {import("../../..").NS } ns */
+/**
+ *  Prints the path to a server.
+ * 
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
     const toFind = ns.args[0];
     const path = [];

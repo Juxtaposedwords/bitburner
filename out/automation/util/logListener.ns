@@ -1,5 +1,7 @@
 /**   
- * logger listens to port 1 and logs all values received.
+ * Listen to port 1 and logs all values received.
+ *   Strings written out which begin and end with bracktes are assumed to be json objects.
+ *   Json printing also prints to a single file with all json objects and to individual log files for each host.
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
@@ -17,7 +19,8 @@ export async function main(ns) {
             continue
         }
         let input = v + "";
-        if (input.endsWith("}")) {
+        if (input.startsWith("{") && input.endsWith("}")) {
+            // Handle our pretty json printing.
             let entry = JSON.parse(input);
             let line = "{entry.date} {entry.method}.ns : target={entry.target} start={entry.} amount={entry.amount} "
             await ns.write('logs/{entry.host}.log', v)
