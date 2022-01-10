@@ -16,7 +16,7 @@ export async function main(ns) {
         ns.tprintf("starting: %s",server)
         // Stop any existing scripts. This way we can support updates.
         ns.killall(server)
-        if (!(target == "")) {
+        if (target == undefined) {
             target = server
         }
         await ns.scp("bg.ns", "home", server)

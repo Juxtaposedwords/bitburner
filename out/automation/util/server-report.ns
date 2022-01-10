@@ -49,4 +49,19 @@ export async function main(ns) {
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
 	ns.tprint("\n" + result.join('\n'));
+
+	if (ns.args[2] == undefined ){
+		return
+	}
+	result.shift()
+	
+	for (let i = 1; i < result.length; i++) {
+		ns.tprintf("%s\n",result[i][0])
+		ns.tprintf("  Hack Level      : %d\n", result[i][1])
+		ns.tprintf("  Security Level  : %d\n", result[i][2])
+		ns.tprintf("  Money Available : $%s\n", result[i][3])
+		ns.tprintf("  Max Money       : $%s\n",result[i][4])
+	}
+
+
 }
