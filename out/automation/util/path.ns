@@ -12,7 +12,7 @@ export async function main(ns) {
         ns.tprint("connect " + path.join("; connect "))
         return
       }
-      ns.tprint(path);
+      ns.tprint(path).join(" → ");
       return;
     }
     ns.tprint(`${toFind} not found.`);
