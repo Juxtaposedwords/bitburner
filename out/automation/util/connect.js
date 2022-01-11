@@ -2,7 +2,16 @@
 import { dfs } from "/automation/lib/scan.js"
 import { run } from "/automation/lib/terminal.js"
 
-/** @param {import("../../..").NS } ns */
+
+/**
+* Connect to a server.
+* @remarks
+*  Ram Cost: 0 GB
+*  
+* Run the connect HOSTNAME command in the terminal.  Can connect to any machine.
+*  
+* @param {import("../../..").NS } ns 
+*/
 export async function main(ns) {
   const destination = ns.args[0];
   const path = [];
