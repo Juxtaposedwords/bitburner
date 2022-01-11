@@ -1,6 +1,6 @@
 /** @param {import("../../..").NS } ns */
 
-import { log } from  "/automation/lib/log.js"
+import { log } from  "./automation/lib/log.js"
 
 // weaken continuously weakens the target server.
 export async function main(ns) {
