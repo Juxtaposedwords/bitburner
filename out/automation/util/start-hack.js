@@ -1,6 +1,6 @@
 /** @param {import("../../..").NS } ns */
 
-// start-hack.ns starts scripts that:
+// start-hack.js starts scripts that:
 //
 //   weaken the target's security by 20 every iteration,
 //   grow the target by 4 every iteration, and
@@ -14,7 +14,7 @@
 export async function main(ns) {
 	const server = ns.args[0]; // the server that will run the scripts
 	const target = ns.args[1]; // the target server
-	const usage = "WARN: Usage: start-hack.ns <server> <target>"
+	const usage = "WARN: Usage: start-hack.js <server> <target>"
 	if (target == undefined || server == undefined) {
 		ns.tprint(usage)
 		return;
@@ -26,10 +26,10 @@ export async function main(ns) {
 
 	if (server != "home") {
 		await ns.scp([
-			"/automation/util/weaken.ns",
-			"/automation/util/grow.ns",
-			"/automation/util/hack.ns",
-			"/automation/lib/log.ns",
+			"/automation/util/weaken.js",
+			"/automation/util/grow.js",
+			"/automation/util/hack.js",
+			"/automation/lib/log.js",
 		], "home", server)
 	}
 
@@ -37,9 +37,9 @@ export async function main(ns) {
 	const growThreads = Math.floor(ns.growthAnalyze(target, 4));
 	const hackThreads = Math.floor(.25 / ns.hackAnalyze(target))
 
-	const weakenRam = ns.getScriptRam("/automation/util/weaken.ns");
-	const growRam = ns.getScriptRam("/automation/util/grow.ns");
-	const hackRam = ns.getScriptRam("/automation/util/hack.ns")
+	const weakenRam = ns.getScriptRam("/automation/util/weaken.js");
+	const growRam = ns.getScriptRam("/automation/util/grow.js");
+	const hackRam = ns.getScriptRam("/automation/util/hack.js")
 
 	//ns.tprint(`weakenThreads=${weakenThreads}, growThreads=${growThreads}, hackThreads=${hackThreads}`)
 
@@ -53,7 +53,7 @@ export async function main(ns) {
 		return;
 	}
 
-	ns.exec("/automation/util/weaken.ns", server, weakenThreads, target);
-	ns.exec("/automation/util/grow.ns", server, growThreads, target);
-	ns.exec("/automation/util/hack.ns", server, hackThreads, target);
+	ns.exec("/automation/util/weaken.js", server, weakenThreads, target);
+	ns.exec("/automation/util/grow.js", server, growThreads, target);
+	ns.exec("/automation/util/hack.js", server, hackThreads, target);
 }

@@ -2,7 +2,7 @@
 
 // Runs continuously until it has bought all servers you can buy
 // (it will wait until you can afford them).  Each purchased server
-// will have purchased-server-hack.ns installed on it.
+// will have purchased-server-hack.js installed on it.
 
 function isPowerOfTwo(x) {
 	return (Math.log(x)/Math.log(2)) % 1 === 0
@@ -14,7 +14,7 @@ export async function main(ns) {
 	const target = ns.args[1]
 
 	if (target == undefined || ram == undefined) {
-		ns.tprint("WARN: Usage: run purchaseServers.ns <ram> <target>")
+		ns.tprint("WARN: Usage: run purchaseServers.js <ram> <target>")
 		return;
 	}
 
@@ -26,7 +26,7 @@ export async function main(ns) {
 		ns.tprint("ERROR: server " + target + " does not exist.")
 		return;
 	}
-	const scriptName = "/automation/util/purchased-server-hack.ns"
+	const scriptName = "/automation/util/purchased-server-hack.js"
 	const scriptRam = ns.getScriptRam(scriptName);
 	const threads = Math.floor(ram / scriptRam);
 

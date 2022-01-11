@@ -6,11 +6,11 @@ export async function main(ns) {
 	const target = ns.args[0]
     // TODO: These scripts don't presently exist.
 	const scripts = [
-		"hack-no-grow.ns",
-		"grow-server.ns",
+		"hack-no-grow.js",
+		"grow-server.js",
 	];
 	if (target == undefined) {
-		ns.tprint("WARN: Usage: run restartPurchasedServers.ns <target>")
+		ns.tprint("WARN: Usage: run restartPurchasedServers.js <target>")
 		return;
 	}
 

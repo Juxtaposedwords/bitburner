@@ -1,10 +1,11 @@
+/** @param {import("../../..").NS } ns */
+
 export async function root(ns, target, verbose=false) {
     return basicRoot(ns, target, false, verbose)
 }
 export async function safeRoot(ns, target, verbose=false) {
     return basicRoot(ns, target, true, verbose)
 }
-/** @param {import("../../..").NS } ns */
 function basicRoot(ns, target, safe, verbose=false){
 
     const cracks = [

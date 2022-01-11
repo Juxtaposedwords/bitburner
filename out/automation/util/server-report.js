@@ -1,11 +1,12 @@
-import { servers } from "/automation/lib/scan.ns"
-
 /** @param {import("../../..").NS } ns */
+
+import { servers } from "/automation/lib/scan.js"
+
 export async function main(ns) {
 	const which = ns.args[0]
 	let by = ns.args[1]
 	if (which != "open" && which != "closed") {
-		ns.tprint("WARN:  Usage: run server-report.ns open|closed ?sort-by")
+		ns.tprint("WARN:  Usage: run server-report.js open|closed ?sort-by")
 		return
 	}
 	if (by == undefined) { by = "moneyAvailable"}

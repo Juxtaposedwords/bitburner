@@ -1,15 +1,15 @@
 /** @param {NS} ns **/
 
-import { servers } from "/automation/lib/scan.ns";
-import { root } from "/automation/lib/root.ns"
+import { servers } from "/automation/lib/scan.js";
+import { root } from "/automation/lib/root.js"
 
 // Startup all start-of-game automation.  Use "verbose" argument if
 // you want info logs written to the console.
 export async function main(ns) {
     const verbose = (ns.args.length > 0 && ns.args[0] == "verbose");
 
-    if (!ns.isRunning('/automation/util/log-listener.ns', 'home')) {
-        ns.exec('/automation/util/log-listener.ns', 'home', 1);
+    if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
+        ns.exec('/automation/util/log-listener.js', 'home', 1);
     }
 
     while (true) {
@@ -22,7 +22,7 @@ export async function main(ns) {
             if (ns.getServerRequiredHackingLevel(s) > ns.getHackingLevel()) {
                 continue;
             }
-            if (ns.isRunning("/automation/util/weaken.ns", "home", s)) {
+            if (ns.isRunning("/automation/util/weaken.js", "home", s)) {
                 continue;
             }
             h.push(s);
@@ -42,7 +42,7 @@ export async function main(ns) {
             }
             // This is only printed once per server, so display it even in non-verbose mode.
             ns.tprint(`INFO: starting hack script for ${s}...`);
-            ns.exec("/automation/util/start-hack.ns", "home", 1, "home", s);
+            ns.exec("/automation/util/start-hack.js", "home", 1, "home", s);
         }
         // Try again in a minute.
         await ns.sleep(60000)

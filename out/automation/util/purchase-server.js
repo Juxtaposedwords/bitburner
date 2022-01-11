@@ -11,7 +11,7 @@ export async function main(ns) {
 	const ram = ns.args[0];
 
 	if (ram == undefined) {
-		ns.tprint("WARN: Usage: run purchaseServer.ns <ram>")
+		ns.tprint("WARN: Usage: run purchaseServer.js <ram>")
 		return;
 	}
 

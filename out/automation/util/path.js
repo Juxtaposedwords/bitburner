@@ -1,6 +1,6 @@
 /** @param {import("../../..").NS } ns */
 
-import { dfs } from  "/automation/lib/scan.ns"
+import { dfs } from  "/automation/lib/scan.js"
 
 export async function main(ns) {
     const toFind = ns.args[0];

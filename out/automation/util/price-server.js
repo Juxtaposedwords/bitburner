@@ -5,7 +5,7 @@ export async function main(ns) {
 	const target = ns.args[1]
 
 	if (target == undefined || ram == undefined) {
-		ns.tprint("WARN: Usage: run purchaseServers.ns <ram> <target>")
+		ns.tprint("WARN: Usage: run purchaseServers.js <ram> <target>")
 		return;
 	}
 
@@ -17,7 +17,7 @@ export async function main(ns) {
 		ns.tprint("ERROR: server " + target + " does not exist.")
 		return;
 	}
-	const scriptName = "standard-hack.ns"
+	const scriptName = "standard-hack.js"
 	const scriptRam = ns.getScriptRam(scriptName);
 	const threads = Math.floor(ram / scriptRam);
 

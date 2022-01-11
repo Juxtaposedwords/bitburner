@@ -23,7 +23,7 @@ export async function main(ns) {
             // Handle our pretty json printing.
             let entry = JSON.parse(input);
             // don't know what this is supposed to do, but it's unused.
-            // let line = `${entry.date} ${entry.method}.ns : target=${entry.target} start=${entry.} amount=${entry.amount}`
+            // let line = `${entry.date} ${entry.method}.js : target=${entry.target} start=${entry.} amount=${entry.amount}`
             await ns.write(`logs/${entry.host}.log`, v + '\n')
             await ns.write('logs/all.log', input + '\n')
         } else {

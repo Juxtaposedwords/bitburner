@@ -1,11 +1,11 @@
 /** @param {import("../../..").NS } ns */
 
-import { log } from  "/automation/lib/log.ns"
+import { log } from  "/automation/lib/log.js"
 
 // grow continuously grows the target server.
 export async function main(ns) {
     if (ns.args.length != 1) {
-        ns.tprintf("ERROR: Usage: run `grow.ns <target>`.  recved %d arguments not 1.", ns.args.length);
+        ns.tprintf("ERROR: Usage: run `grow.js <target>`.  recved %d arguments not 1.", ns.args.length);
         return;
     }
     const target = ns.args[0]

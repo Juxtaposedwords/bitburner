@@ -1,4 +1,4 @@
-import { servers } from "/automation/lib/scan.ns";
+import { servers } from "/automation/lib/scan.js";
 /**
  *  @param {import("../../..").NS } ns */
 
@@ -19,13 +19,13 @@ export async function main(ns) {
         if (target == undefined) {
             target = server
         }
-        await ns.scp("bg.ns", "home", server)
+        await ns.scp("bg.js", "home", server)
         var maxRam = ns.getServerMaxRam(server);
-        var progRam = ns.getScriptRam("bg.ns", server);
+        var progRam = ns.getScriptRam("bg.js", server);
         var memCount = (maxRam / progRam)
         if (memCount <1) {
             continue
         }
-        ns.exec("bg.ns", server, memCount, target);
+        ns.exec("bg.js", server, memCount, target);
     }
 }

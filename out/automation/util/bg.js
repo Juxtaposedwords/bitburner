@@ -1,10 +1,10 @@
-import { jsonLog } from  "/automation/lib/log.ns"
+import { jsonLog } from  "/automation/lib/log.js"
 
 /**
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
     if (ns.args.length != 1) {
-        ns.tprintf("ERROR: Usage: run `grow.ns <target>`.  received %d arguments not 1.", ns.args.length);
+        ns.tprintf("ERROR: Usage: run `grow.js <target>`.  received %d arguments not 1.", ns.args.length);
         return;
     }
     var target = ns.args[0];
