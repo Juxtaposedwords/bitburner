@@ -1,5 +1,3 @@
-import { jsonLog } from  "/automation/lib/log.js"
-
 /**
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
