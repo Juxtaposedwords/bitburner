@@ -1,14 +1,6 @@
 # bitburner
 
 ## Setup
-### Treat NS work as JS files
-TODO(maloy): rename all files to .js and remove this section.
-1. Open the CMD palette (Power + CTRL + P) 
-2. Type "Open user Settings" and select the option
-3. In the search bar at the top type "Files: Association" and select "Files(1)"
-4. Click "Add Item" and enter:
-   * item: `*.ns`
-   * value: `javascript`
 
 ### Install bitburner extension
 1. Find your extensions folder
