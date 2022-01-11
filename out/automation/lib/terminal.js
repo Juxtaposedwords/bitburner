@@ -1,8 +1,7 @@
 /** @param {import("../../..").NS } ns */
 
-// Return a list of all reachable servers.  This will exclude
-// purchased servers (if specified) and the server ".", but will
-// include "home".
+// Run a string on the terminal. Requires the program to
+//  currently have the terminal page up.
 export function run(ns, input) {
 // Acquire a reference to the terminal text field
 const terminalInput =  document.getElementById("terminal-input");
