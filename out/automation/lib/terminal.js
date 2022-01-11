@@ -1,7 +1,14 @@
 /** @param {import("../../..").NS } ns */
 
-// Run a string on the terminal. Requires the program to
-//  currently have the terminal page up.
+/**
+* Run a string on the terminal. 
+* @remarks
+*  Requires the terminal to have focus.
+*  
+* Run any string via the terminal
+*
+* @param input - command to be run on terminal.
+*/
 export function run(ns, input) {
 // Acquire a reference to the terminal text field
 const terminalInput =  document.getElementById("terminal-input");
