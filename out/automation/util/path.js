@@ -9,11 +9,7 @@ export async function main(ns) {
     if (await dfs(ns, path, "home", toFind)) {
       if (command) {
         path.shift(); // get rid of "home"
-        ns.tprint("Connect to:")
         ns.tprint("  connect " + path.join("; connect ") )
-        ns.tprint("Connect back:")
-        path.pop()
-        ns.tprint("  connect " + path.reverse().join("; connect ") + "; connect home")
         return
       }
       ns.tprint(path.join(" → "));
