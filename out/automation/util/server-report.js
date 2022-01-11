@@ -70,8 +70,9 @@ export async function main(ns) {
 	var length = (data['top']>0 && result.length>data['top']) ? data['top'] : result.length; 
 	for (let i = 1; i < length; i++) {
 		ns.tprintf("%s\n", result[i][0])
-		ns.tprintf("  Hack Level      : %d/%d\n", result[i][1],result[i][5])
+		ns.tprintf("  Hack Level      : %d\n", result[i][1])
 		ns.tprintf("  Security Level  : %d\n", result[i][2])
+		ns.tprintf("  Min. Sec. Level : %d\n", result[i][5])
 		ns.tprintf("  Money Available : $%s\n", result[i][3])
 		ns.tprintf("  Max Money       : $%s\n", result[i][4])
 	}
