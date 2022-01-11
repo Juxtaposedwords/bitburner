@@ -13,19 +13,19 @@ export async function main(ns) {
     ns.tprintf("starting for %d servers",hackedServers.length)
 
     for (let server of hackedServers) {
-        ns.tprintf("starting: %s",server)
         // Stop any existing scripts. This way we can support updates.
         ns.killall(server)
         if (target == undefined) {
             target = server
         }
-        await ns.scp("bg.js", "home", server)
+        const fileName = "/automation/util/bg.js";
+        await ns.scp(fileName, "home", server)
         var maxRam = ns.getServerMaxRam(server);
-        var progRam = ns.getScriptRam("bg.js", server);
+        var progRam = ns.getScriptRam(fileName, server);
         var memCount = (maxRam / progRam)
         if (memCount <1) {
             continue
         }
-        ns.exec("bg.js", server, memCount, target);
+        ns.exec(fileName, server, memCount, target);
     }
 }
