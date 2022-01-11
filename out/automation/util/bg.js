@@ -8,8 +8,7 @@ export async function main(ns) {
         return;
     }
     var target = ns.args[0];
-    var hacklevelOffset = Math.floor((ns.getHackingLevel-200) /100)*.7;
-    var moneyThresh = ns.getServerMaxMoney(target) * (0.75-hacklevelOffset);
+    var moneyThresh = ns.getServerMaxMoney(target) ;
     var securityThresh = ns.getServerMinSecurityLevel(target) + 5;
     while(true) {
         if (ns.getServerSecurityLevel(target) > securityThresh) {
