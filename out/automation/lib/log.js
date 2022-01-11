@@ -14,22 +14,21 @@ export async function log(ns, method, target, amt) {
         target,
         ns.nFormat(amt, '0.0a'),
     ].join(',');
-    if (!await p.tryWrite(msg)) {
+    if (!await p.tryWritePort(msg)) {
         ns.print('WARN: failed to write msg ${msg}')
     }
 }
 
-export async function jsonLog(ns, method, target, amt) {
-    const p = ns.getPortHandle(1);
-    JSON.stringify()
-    const msg = JSON.stringify({
-        "date": new Date().toISOString(),
+
+/** @param {import("../../..").NS } ns */
+export async function jsonLog(ns, program, message) {
+    const jsonEntry = [{
+        "message": message,
         "host": ns.getHostname(),
-        "method": method,
-        "target": target,
-        "amount": ns.nFormat(amt, '0.0a'),
-    })
-    if (!await p.tryWrite(msg)) {
+        "datetime": new Date().toISOString(),
+        "program": program,
+    }]
+    if (!await ns.tryWritePort(2, jsonEntry)) {
         ns.print('WARN: failed to write msg ${msg}')
     }
 }
