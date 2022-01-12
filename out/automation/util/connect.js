@@ -6,7 +6,7 @@ import { run } from "/automation/lib/terminal.js"
 /**
 * Connect to a server.
 * @remarks
-*  Ram Cost: 0 GB
+*  Ram Cost: 0.05 GB
 *  
 * Run the connect HOSTNAME command in the terminal.  Can connect to any machine.
 *  
