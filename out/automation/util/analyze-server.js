@@ -21,6 +21,7 @@ export async function main(ns) {
 ${server}:
     RAM        : ${ramUsed} / ${ramMax} (${ramUsed / ramMax * 100}%)
     $          : ${ns.nFormat(money, "$0.000a")} / ${ns.nFormat(maxMoney, "$0.000a")} (${(money / maxMoney * 100).toFixed(2)}%)
+    backdoored : ${ns.getServer(server).backdoorInstalled}
     hack req'd : ${reqHack}
     security   : ${minSec.toFixed(2)} / ${sec.toFixed(2)}
     growth     : ${ns.getServerGrowth(server)}

@@ -7,32 +7,39 @@ import { root } from "/automation/lib/root.js"
 // you want info logs written to the console.
 export async function main(ns) {
     const data = ns.flags([
-		["verbose", false], 
-	]);
+        ["verbose", false],
+    ]);
     const verbose = data["verbose"];
 
     if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
         ns.exec('/automation/util/log-listener.js', 'home', 1);
     }
 
+    const exclude = ["home", "darkweb"]
+    const log = (message) => {
+        if (verbose) {
+            ns.tprint(message)
+        }
+    }
     while (true) {
         const all = servers(ns, true);
         const h = all.filter(function (server) {
             return !(
-                (server == "home" || server == "darkweb") ||
+                (exclude.includes(server)) ||
                 (ns.getServerRequiredHackingLevel(server) > ns.getHackingLevel()) ||
-                ns.isRunning("/automation/util/weaken.js", "home", server))});
+                ns.isRunning("/automation/util/weaken.js", "home", server))
+        });
 
         for (const server of h) {
             if (verbose) {
-                ns.tprint(`INFO: getting root on ${server}...`)
+                log(`INFO: getting root on ${server}...`)
             };
             if (!root(ns, server, verbose)) {
                 continue;
             }
             if (ns.getServerMaxMoney(server) == 0) {
                 if (verbose) {
-                    ns.tprint(`INFO: not starting hack script for ${server}, there's no money in it.`)
+                    log(`INFO: not starting hack script for ${server}, there's no money in it.`)
                 }
                 continue;
             }
