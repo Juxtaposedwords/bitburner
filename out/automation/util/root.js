@@ -1,5 +1,6 @@
-
+// @ts-ignore
 import { root } from  "/automation/lib/root.js"
+// @ts-ignore
 import { scan } from "/automation/lib/scan.js"
 
 /** @param {import("../../..").NS } ns */

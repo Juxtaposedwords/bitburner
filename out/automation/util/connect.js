@@ -1,4 +1,6 @@
+// @ts-ignore
 import { dfs } from "/automation/lib/scan.js"
+// @ts-ignore
 import { run } from "/automation/lib/terminal.js"
 
 

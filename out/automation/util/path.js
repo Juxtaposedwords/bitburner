@@ -1,5 +1,6 @@
 /** @param {import("../../..").NS } ns */
 
+// @ts-ignore
 import { dfs } from  "/automation/lib/scan.js"
 
 export async function main(ns) {

@@ -1,5 +1,6 @@
 /** @param {import("../../..").NS } ns */
 
+// @ts-ignore
 import { log } from  "./automation/lib/log.js"
 
 // weaken continuously weakens the target server.
