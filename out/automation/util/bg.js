@@ -7,7 +7,6 @@ export async function main(ns) {
     }
     var target = ns.args[0];
     var moneyThresh = ns.getServerMaxMoney(target) ;
-    var securityThresh = ns.getServerMinSecurityLevel(target) + 5;
     while(true) {
         if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target)) {
             await ns.weaken(target);
