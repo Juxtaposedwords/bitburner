@@ -61,7 +61,6 @@ export async function main(ns) {
 		return
 	} 
 	result.shift()
-
 	if (!data['pretty'] && data['top'] > 0) {
 		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
 		return
