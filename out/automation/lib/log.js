@@ -21,14 +21,17 @@ export async function log(ns, method, target, amt) {
 
 
 /** @param {import("../../..").NS } ns */
-export async function jsonLog(ns, program, message) {
-    const jsonEntry = [{
-        "message": message,
-        "host": ns.getHostname(),
-        "datetime": new Date().toISOString(),
-        "program": program,
-    }]
-    if (!await ns.tryWritePort(2, jsonEntry)) {
+export async function jsonLog(ns, program, message, rawJSON = {}) {
+    const entry = JSON.stringify({
+        ...{
+            "message": message,
+            "host": ns.getHostname(),
+            "datetime": new Date().toISOString(),
+            "program": program,
+        },
+        ...rawJSON,
+    })
+    if (!await ns.tryWritePort(2, [entry])) {
         ns.print('WARN: failed to write msg ${msg}')
     }
 }
