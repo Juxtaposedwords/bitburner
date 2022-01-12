@@ -32,13 +32,6 @@ export function allServers(ns) {
   return scan(ns, false)
 }
 
-export async function path(ns, source, destination) {
-  const path = [];
-  if (await dfs(ns, path, source, destination)) {
-    return []
-  }
-  return path;
-}
 
 export async function dfs(ns, path, fromS, dest) {
   if (path.includes(fromS)) {
