@@ -3,10 +3,13 @@
 import { servers } from "/automation/lib/scan.js";
 import { root } from "/automation/lib/root.js"
 
-// Startup all start-of-game automation.  Use "verbose" argument if
+// Startup all start-of-game automation.  Use "--verbose" argument if
 // you want info logs written to the console.
 export async function main(ns) {
-    const verbose = (ns.args.length > 0 && ns.args[0] == "verbose");
+    const data = ns.flags([
+		["verbose", false], 
+	]);
+    const verbose = data["verbose"];
 
     if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
         ns.exec('/automation/util/log-listener.js', 'home', 1);
@@ -14,35 +17,28 @@ export async function main(ns) {
 
     while (true) {
         const all = servers(ns, true);
-        const h = [];
-        for (const s of all) {
-            if (s == "home" || s == "darkweb") {
-                continue;
-            }
-            if (ns.getServerRequiredHackingLevel(s) > ns.getHackingLevel()) {
-                continue;
-            }
-            if (ns.isRunning("/automation/util/weaken.js", "home", s)) {
-                continue;
-            }
-            h.push(s);
-        }
-        for (const s of h) {
+        const h = all.filter(function (server) {
+            return !(
+                (server == "home" || server == "darkweb") ||
+                (ns.getServerRequiredHackingLevel(server) > ns.getHackingLevel()) ||
+                ns.isRunning("/automation/util/weaken.js", "home", server))});
+
+        for (const server of h) {
             if (verbose) {
-                ns.tprint(`INFO: getting root on ${s}...`)
+                ns.tprint(`INFO: getting root on ${server}...`)
             };
-            if (!root(ns, s, false, verbose)) {
+            if (!root(ns, server, verbose)) {
                 continue;
             }
-            if (ns.getServerMaxMoney(s) == 0) {
+            if (ns.getServerMaxMoney(server) == 0) {
                 if (verbose) {
-                    ns.tprint(`INFO: not starting hack script for ${s}, there's no money in it.`)
+                    ns.tprint(`INFO: not starting hack script for ${server}, there's no money in it.`)
                 }
                 continue;
             }
             // This is only printed once per server, so display it even in non-verbose mode.
-            ns.tprint(`INFO: starting hack script for ${s}...`);
-            ns.exec("/automation/util/start-hack.js", "home", 1, "home", s);
+            ns.tprint(`INFO: starting hack script for ${server}...`);
+            ns.exec("/automation/util/start-hack.js", "home", 1, "home", server);
         }
         // Try again in a minute.
         await ns.sleep(60000)
