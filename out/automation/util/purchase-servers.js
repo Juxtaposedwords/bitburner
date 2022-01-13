@@ -10,9 +10,9 @@ function isPowerOfTwo(x) {
 
 export async function main(ns) {
 	// When you run this script, specify the target on the command line.
-	const ram = ns.args[0];
-	const target = ns.args[1];
-	const minThreshold = (ns.args[2] == undefined) ? 0 : ns.args[2];
+	const ram = Number(ns.args[0]);
+	const target = String(ns.args[1]);
+	const minMoneyThreshold = (ns.args[2] == undefined) ? 0 : ns.args[2];
 
 	if (target == undefined || ram == undefined) {
 		ns.tprint("WARN: Usage: run purchaseServers.js <ram> <target>")
@@ -27,14 +27,14 @@ export async function main(ns) {
 		ns.tprint("ERROR: server " + target + " does not exist.")
 		return;
 	}
-	const scriptName = "/automation/util/grow-weak-hack.js"
+	const scriptName = "/automation/util/grow-hack-weak.js"
 	const scriptRam = ns.getScriptRam(scriptName);
 	const threads = Math.floor(ram / scriptRam);
 
 	// Suffix for server names.
 	let i = ns.getPurchasedServers().length;
 
-	while (ns.getServerMoneyAvailable("home") > minThreshold && i < ns.getPurchasedServerLimit()) {
+	while (ns.getServerMoneyAvailable("home") > minMoneyThreshold && i < ns.getPurchasedServerLimit()) {
 		await ns.sleep(500);
 		// Check if we have enough money to purchase a server.  If we don't,
 		// this script will wait until we do.  This is useful in the early

@@ -9,7 +9,7 @@
 *
 * @param input - command to be run on terminal.
 */
-export function run(ns, input) {
+export function run( input) {
     // Acquire a reference to the terminal text field
     const terminalInput = document.getElementById("terminal-input");
 

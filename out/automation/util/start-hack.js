@@ -12,10 +12,10 @@
 // If the server doesn't have enough RAM to run all of these scripts
 // with the required threads, this script will leave it alone.
 export async function main(ns) {
-	const server = ns.args[0]; // the server that will run the scripts
-	const target = ns.args[1]; // the target server
+	const server = String(ns.args[0]); // the server that will run the scripts
+	const target = String(ns.args[1]); // the target server
 	const usage = "WARN: Usage: start-hack.js <server> <target>"
-	if (target == undefined || server == undefined) {
+	if (ns.args[0] == undefined || ns.args[1] == undefined) {
 		ns.tprint(usage)
 		return;
 	}

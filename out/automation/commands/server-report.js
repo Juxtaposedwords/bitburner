@@ -3,6 +3,7 @@
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js"
 
+/** @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const data = ns.flags([
 		["ports", "open"], // whether to use servers which have open prots or not
@@ -47,6 +48,7 @@ export async function main(ns) {
 			Math.floor(ns.getServerMoneyAvailable(s)),
 			ns.getServerMaxMoney(s),
 			ns.getServerMinSecurityLevel(s),
+			ns.getServer(s).backdoorInstalled,
 		])
 	}
 
@@ -75,7 +77,7 @@ export async function main(ns) {
 		ns.tprintf("  Min. Sec. Level : %d\n", result[i][5])
 		ns.tprintf("  Money Available : $%s\n", result[i][3])
 		ns.tprintf("  Max Money       : $%s\n", result[i][4])
+		ns.tprintf("  Backdoored      : %t\n", result[i][6])
+
 	}
-
-
 }

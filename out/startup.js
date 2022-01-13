@@ -1,6 +1,8 @@
-/** @param {NS} ns **/
+/** @param {import("../").NS } ns */
 
+// @ts-ignore
 import { servers } from "/automation/lib/scan.js";
+// @ts-ignore
 import { root } from "/automation/lib/root.js"
 
 // Startup all start-of-game automation.  Use "--verbose" argument if
@@ -8,6 +10,7 @@ import { root } from "/automation/lib/root.js"
 export async function main(ns) {
     const data = ns.flags([
         ["verbose", false],
+        ["minimum-server-purchase", 0]
     ]);
     const verbose = data["verbose"];
 
@@ -31,16 +34,12 @@ export async function main(ns) {
         });
 
         for (const server of h) {
-            if (verbose) {
-                log(`INFO: getting root on ${server}...`)
-            };
+            log(`INFO: getting root on ${server}...`)
             if (!root(ns, server, verbose)) {
                 continue;
             }
             if (ns.getServerMaxMoney(server) == 0) {
-                if (verbose) {
-                    log(`INFO: not starting hack script for ${server}, there's no money in it.`)
-                }
+                log(`INFO: not starting hack script for ${server}, there's no money in it.`)
                 continue;
             }
             // This is only printed once per server, so display it even in non-verbose mode.

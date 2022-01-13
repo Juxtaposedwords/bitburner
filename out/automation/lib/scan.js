@@ -24,6 +24,13 @@ export function scan(ns, removePurchased = true) {
   return [...nodes]
 }
 
+export async function path(ns, source, dest) {
+  let output = [];
+  await dfs(ns, output, source, dest)
+  output.shift() // Remove the source itself.
+  return output
+
+}
 export function servers(ns) {
   return scan(ns, true)
 }
@@ -33,23 +40,23 @@ export function allServers(ns) {
 }
 
 
-export async function dfs(ns, path, fromS, dest) {
-  if (path.includes(fromS)) {
+export async function dfs(ns, output, fromS, dest) {
+  if (output.includes(fromS)) {
     return false;
   }
-  path.push(fromS)
+  output.push(fromS)
   const neighbors = ns.scan(fromS);
   if (neighbors.includes(dest)) {
-    path.push(dest)
+    output.push(dest)
     return true;
   }
   // visit each neighbor and search from there.
   for (let fromN of neighbors) {
-    if (await dfs(ns, path, fromN, dest)) {
+    if (await dfs(ns, output, fromN, dest)) {
       return true
     }
     await ns.sleep(10);
   }
-  path.pop();
+  output.pop();
   return false;
 }

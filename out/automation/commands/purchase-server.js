@@ -27,3 +27,6 @@ export async function main(ns) {
 		return;
 	}
 }
+export function autocomplete(data, args) {
+	return [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144]; // autocomplete powers of 2 for when the game goes CRAY
+}

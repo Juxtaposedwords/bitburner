@@ -1,5 +1,5 @@
 // @ts-ignore
-import { dfs } from "/automation/lib/scan.js"
+import { path } from "/automation/lib/scan.js"
 // @ts-ignore
 import { run } from "/automation/lib/terminal.js"
 
@@ -15,11 +15,9 @@ import { run } from "/automation/lib/terminal.js"
 */
 export async function main(ns) {
   const destination = ns.args[0];
-  const path = [];
-  await dfs(ns, path, ns.getHostname(), destination);
-  path.shift(); // get rid of "home"
-  if (path.length > 0) {
-    run(ns, "  connect " + path.join("; connect "))
+  const hops = await path(ns,ns.getHostname(), destination)
+  if (hops.length > 0) {
+    run( "  connect " + hops.join("; connect "))
   }    
 }
 export function autocomplete(data, args) {

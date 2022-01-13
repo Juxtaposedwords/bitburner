@@ -18,4 +18,7 @@ export async function main(ns) {
     }
     ns.tprint(`${toFind} not found.`);
   }
-  
+
+  export function autocomplete(data, args) {
+    return [...data.servers]; // This script autocompletes the list of servers.
+  }

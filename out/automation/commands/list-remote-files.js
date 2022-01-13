@@ -8,10 +8,12 @@ import { servers } from "/automation/lib/scan.js";
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
 
+    const data = ns.flags([
+        ['exclude-extension', 'js'],
+    ]);
     for (let server of servers(ns, false).sort()) {
-
         let files = ns.ls(server).filter(function (name) {
-            return !(name.endsWith(".js"))
+            return !(name.endsWith(data['exclude-extension']))
         })
         if ((files.length == 0) || (server == "home")) {
             continue

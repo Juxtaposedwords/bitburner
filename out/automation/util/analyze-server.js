@@ -2,8 +2,8 @@
 
 export async function main(ns) {
     const args = ns.flags([["help", false]]);
-    const server = ns.args[0];
-    if (args.help || !server) {
+    const server = String(ns.args[0]);
+    if (args.help || ns.args[0] == undefined) {
         ns.tprint("This script does a more detailed analysis of a server.");
         ns.tprint(`Usage: run ${ns.getScriptName()} SERVER`);
         ns.tprint("Example:");

@@ -1,7 +1,7 @@
 /** @param {import("../../..").NS } ns */
 
 // @ts-ignore
-import { log } from  "./automation/lib/log.js"
+import { log } from  "/automation/lib/log.js"
 
 // grow continuously grows the target server.
 export async function main(ns) {

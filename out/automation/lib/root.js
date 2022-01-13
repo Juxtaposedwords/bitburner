@@ -33,7 +33,7 @@ function basicRoot(ns, target, safe, verbose=false){
         log("WARN: Not enough ports opened for target " + target + "; needed " + needed, ", got " + ports + ".");
     } else if (ns.hasRootAccess(target)==true) {
         log("INFO: skipping rooting %s as is already rooted",target)
-    } else if ((safe==true) && (ns.getHackingLevel()< ns.getServerRequiredHackingLevel(target))){
+    } else if ((safe) && (ns.getHackingLevel()< ns.getServerRequiredHackingLevel(target))){
         log("INFO: skipping rooting %s as %d is higher than current hacking level (%d)",0, ns.getHackingLevel())
     } else { 
         ns.nuke(target);
