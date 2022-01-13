@@ -16,8 +16,12 @@ export async function main(ns) {
         const server = ns.getServer(name);
         return !server.backdoorInstalled && server.requiredHackingSkill <= ns.getHackingLevel() && server.hostname != 'home' && !ns.getPurchasedServers().includes(name)
     })
-    eligible.sort(function cmp(left, right) { //sort by easiest to hardest
-        return ns.getServer(left).requiredHackingSkill > ns.getServer(right).requiredHackingSkill
+    eligible.sort((left, right) => { //sort by easiest to hardest
+        const l = ns.getServer(left).requiredHackingSkill
+        const r = ns.getServer(right).requiredHackingSkill
+        if (l > r) return 1
+        if (l < r) return -1
+        return 0;
     })
     let source = ns.getHostname()
     await ns.tprintf("INFO: %s", eligible)
@@ -25,7 +29,7 @@ export async function main(ns) {
         let dest = eligible.shift()
         await ns.tprintf("INFO: Connecitng to %s", dest)
         await safeRoot(ns, dest)
-        const hops = await path(ns,source, dest)
+        const hops = await path(ns, source, dest)
         let command = "connect " + hops.join("; connect ") + "; backdoor";
         await run(command);
         const serverLevel = await ns.getServer(dest).requiredHackingSkill
