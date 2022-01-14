@@ -37,7 +37,11 @@ export async function main(ns) {
 		return;
 	}
 	const result = [fields];
+
 	for (let s of servers(ns)) {
+		if (s == "home") {
+			continue
+		}
 		const hasRoot = ns.hasRootAccess(s);
 		if (which == "open" && !hasRoot) { continue }
 		if (which == "closed" && hasRoot) { continue }
@@ -56,9 +60,16 @@ export async function main(ns) {
 
 	for (let i = 1; i < result.length; i++) {
 		const r = result[i];
-		r[3] = ns.nFormat(r[3], '0.0a');
-		r[4] = ns.nFormat(r[4], '0.0a');
+		r[0] = String(r[0]).padEnd(20, " ");
+		r[1] = String(r[1]).padEnd(9, " ");
+		r[2] = String(r[5]+"/"+r[2]).padEnd(7, " ");
+		r[3] = ns.nFormat(r[3], '0.0a').padEnd(8, " ");
+		r[4] = ns.nFormat(r[4], '0.0a').padEnd(8, " ");
+		r[5] = ""
+		result[i] = r.join(" ")
 	}
+	result[0] = "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") +  "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor"
+
 	if (!data['pretty']) {
 		ns.tprint("\n" + result.join('\n'));
 		return
@@ -70,7 +81,7 @@ export async function main(ns) {
 	}
 
 	var length = (data['top'] > 0 && result.length > data['top']) ? data['top'] : result.length;
-	for (let i = 1; i < length+1; i++) {
+	for (let i = 1; i < length + 1; i++) {
 		ns.tprintf("%s\n", result[i][0])
 		ns.tprintf("  Hack Level      : %d\n", result[i][1])
 		ns.tprintf("  Security Level  : %d\n", result[i][2])
