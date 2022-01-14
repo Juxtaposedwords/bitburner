@@ -77,7 +77,7 @@ export async function main(ns) {
 	}
 
 	var length = (data['top'] > 0 && result.length > data['top']) ? data['top'] : result.length;
-	for (let i = 1; i < length; i++) {
+	for (let i = 1; i < length+1; i++) {
 		ns.tprintf("%s\n", result[i][0])
 		ns.tprintf("  Hack Level      : %d\n", result[i][1])
 		ns.tprintf("  Security Level  : %d\n", result[i][2])
