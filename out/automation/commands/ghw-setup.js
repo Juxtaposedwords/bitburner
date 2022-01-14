@@ -4,7 +4,7 @@ import { safeRoot } from "/automation/lib/root.js";
 import { servers } from "/automation/lib/scan.js";
 /**
  *  Quick and easy way to point your fleet at one target with:
- *   gwh-setup <target>
+ *   ghw-setup <target>
  * 
  *  If no target is provided, the scripts run against the machine where they're located
  * 
