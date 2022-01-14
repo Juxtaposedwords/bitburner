@@ -12,9 +12,10 @@ import { run } from "/automation/lib/terminal.js"
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
+    const purchased = ns.getPurchasedServers()
     let eligible = scan(ns).filter(function (name) {
         const server = ns.getServer(name);
-        return !server.backdoorInstalled && server.requiredHackingSkill <= ns.getHackingLevel() && server.hostname != 'home' && !ns.getPurchasedServers().includes(name)
+        return !server.backdoorInstalled && server.requiredHackingSkill <= ns.getHackingLevel() && server.hostname != 'home' && !purchased.includes(name)
     })
     eligible.sort((left, right) => { //sort by easiest to hardest
         const l = ns.getServer(left).requiredHackingSkill
