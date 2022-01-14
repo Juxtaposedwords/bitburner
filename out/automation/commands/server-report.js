@@ -1,5 +1,3 @@
-/** @param {import("../../..").NS } ns */
-
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js"
 
