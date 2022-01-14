@@ -29,31 +29,31 @@ export async function main(ns) {
         ...ns.ls("home").filter(input => { return String(input).startsWith("/automation/lib/") }), // all of our libraries
     ];
 
-    for (let server of eligible) {
+    for (const server of eligible) {
         ns.tprintf("starting for %s", server)
         // Just to make sure we have root
         safeRoot(ns, server)
 
         var offset = 0
         if (server == "home") {
-            // Depending on who you are you'll want ot run some beefy command at home
+            // Depending on who you are you'll want to run some beefy command at home
             offset = 500
         }
         // Stop any existing scripts. This way we can support updates.
         if (server != "home") {
             ns.killall(server)
-            for (let script of files) {
+            for (const script of files) {
                 await ns.scp(script, "home", server)
             }
         }
         if (target == undefined) {
             target = server
         } else if (target == undefined && (!ns.getPurchasedServers().includes(server) || server == "home")) {
-            ns.tprintf("WARN: unable to start script on %s as no target was provided and the machine as purchased  cannot hack itself", server)
+            ns.tprintf("WARN: unable to start script on %s as no target was provided and the machine as purchased cannot hack itself", server)
             continue
         }
         if (server != "home") {
-            for (let script of files) {
+            for (const script of files) {
                 await ns.scp(script, "home", server)
             }
         }
