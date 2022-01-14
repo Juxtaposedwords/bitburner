@@ -90,8 +90,6 @@ async function killGHW(ns, server, filename, target, force) {
         return (filename == process.filename)
     })
     for (const process of processes) {
-        ns.tprint(process)
-
         if (
             force ||
             (process.args[0] != undefined && target != process.args[0])) {
