@@ -13,25 +13,18 @@ const fields = [
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const data = ns.flags([
-		["ports", "open"], // whether to use servers which have open prots or not
+		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
-		["pretty", false], // determines whether ot use pretty format or not
+		["pretty", false], // determines whether to use pretty format or not
 		["top", 0], // print only the top X entries. by default all are printed
 	]);
 	const which = data["ports"]
 	let by = data["sort_by"]
 	if (which != "open" && which != "closed") {
-		ns.tprint("WARN:  Usage: run server-report.js open|closed ?sort_by")
+		ns.tprint("WARN:  Usage: run server-report.js --ports=(open|closed)")
 		return
 	}
 	if (by == undefined) { by = "moneyAvailable" }
-	const fields = [
-		"hostname",
-		"hackingLevel",
-		"securityLevel",
-		"moneyAvailable",
-		"maxMoney",
-	]
 	let field = undefined;
 	for (let i = 0; i < fields.length; i++) {
 		if (by == fields[i]) {
@@ -91,14 +84,14 @@ export async function main(ns) {
 
 export function autocomplete(data, args) {
 	data.flags([
-		["ports", "open"], // whether to use servers which have open prots or not
+		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
 		["pretty", false], // determines whether ot use pretty format or not
 		["top", 0], // print only the top X entries. by default all are printed
 	])
 	const options = {
 		'ports': ["open", "closed"],
-		'sort_by': ["hostname", "hackLevel", "securityLevel", "moneyAvailable", "maxMoney"],
+		'sort_by': fields,
 	}
 
 	for (let arg of args.slice(-2)) {
