@@ -14,7 +14,7 @@ export async function log(ns, method, target, amt) {
         target,
         ns.nFormat(amt, '0.0a'),
     ].join(',');
-    if (!await ns.tryWritePort(1,msg)) {
+    if (!await ns.tryWritePort(1,[msg])) {
         ns.print('WARN: failed to write msg ${msg}')
     }
 }
