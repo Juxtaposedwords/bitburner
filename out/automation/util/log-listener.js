@@ -1,7 +1,6 @@
-/**   
- * Listen to port 1 and logs all values received.
- *   Strings written out which begin and end with bracktes are assumed to be json objects.
- *   Json printing also prints to a single file with all json objects and to individual log files for each host.
+/**  Listen to port 1 and logs all values received.
+ *    Strings written out which begin and end with bracktes are assumed to be json objects.
+ *    Json printing also prints to a single file with all json objects and to individual log files for each host.
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
