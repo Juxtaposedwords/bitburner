@@ -1,13 +1,7 @@
-/** @param {import("../../..").NS } ns */
-
-// Runs continuously until it has bought all servers you can buy
-// (it will wait until you can afford them).  Each purchased server
-// will have purchased-server-hack.js installed on it.
-
-function isPowerOfTwo(x) {
-	return (Math.log(x) / Math.log(2)) % 1 === 0
-}
-
+/** Runs continuously until it has bought all servers you can buy
+ *  (it will wait until you can afford them).  Each purchased server
+ * will have purchased-server-hack.js installed on it.
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
 	// When you run this script, specify the target on the command line.
 	const ram = Number(ns.args[0]);
@@ -18,7 +12,6 @@ export async function main(ns) {
 		ns.tprint("WARN: Usage: run purchaseServers.js <ram> <target>")
 		return;
 	}
-
 	if (!isPowerOfTwo(ram)) {
 		ns.tprint("ERROR: ram (" + ram + ") must be a power of two.")
 		return;
@@ -50,7 +43,7 @@ export async function main(ns) {
 		const files = [
 			scriptName,
 		]
-		await ns.scp(files, hostname);
+		await ns.scp(files, "home", hostname);
 		if (ns.exec(scriptName, hostname, threads, target) == 0) {
 			ns.tprint("ERROR: Launching " + scriptName + " failed on hostname " + hostname);
 			return;
@@ -58,4 +51,8 @@ export async function main(ns) {
 		i++;
 	}
 	ns.tprint("INFO: Congratulations, purchased server limit of " + i + " reached.")
+}
+
+function isPowerOfTwo(x) {
+	return (Math.log(x) / Math.log(2)) % 1 === 0
 }

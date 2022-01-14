@@ -57,7 +57,7 @@ export async function main(ns) {
 	}
 
 	result.sort((a, b) => a[field] > b[field] ? -1 : 1);
-
+	let formattedResults = []
 	for (let i = 1; i < result.length; i++) {
 		const r = result[i];
 		r[0] = String(r[0]).padEnd(20, " ");
@@ -66,11 +66,11 @@ export async function main(ns) {
 		r[3] = ns.nFormat(r[3], '0.0a').padEnd(8, " ");
 		r[4] = ns.nFormat(r[4], '0.0a').padEnd(8, " ");
 		r[5] = ""
-		result[i] = r.join(" ")
+		formattedResults.push(r.join(" "))
 	}
-	result[0] = "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor"
+	formattedResults.unshift( "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor")
 
-	ns.tprint("\n" + result.join('\n'));
+	ns.tprint("\n" + formattedResults.join('\n'));
 }
 
 export function autocomplete(data, args) {

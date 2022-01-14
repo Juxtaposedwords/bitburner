@@ -1,13 +1,12 @@
-/** @param {import("../../..").NS } ns */
-
 export async function root(ns, target, verbose=false) {
     return basicRoot(ns, target, false, verbose)
 }
 export async function safeRoot(ns, target, verbose=false) {
     return basicRoot(ns, target, true, verbose)
 }
-function basicRoot(ns, target, safe, verbose=false){
 
+/** @param {import("../../..").NS } ns */
+function basicRoot(ns, target, safe, verbose=false){
     const cracks = [
         ["FTPCrack.exe", ns.ftpcrack],
         ["BruteSSH.exe", ns.brutessh],
@@ -18,7 +17,7 @@ function basicRoot(ns, target, safe, verbose=false){
 
     let ports = 0;
     for (const c of cracks) {
-        if (ns.fileExists(c[0], "home")) {
+        if (ns.fileExists(String(c[0]), "home")) {
             c[1](target);
             ports++;
         }
