@@ -33,9 +33,10 @@ export async function main(ns) {
         let command = "connect " + hops.join("; connect ") + "; backdoor";
         await run(command);
         const serverLevel = await ns.getServer(dest).requiredHackingSkill
-        // TODO(juxtaposedwords): Add a formula to use #mafhs to do a better guess.
+        // If you have formul
+        // await ns.formulas.hacking.hackTime(dest,ns.getPlayer());
         if (serverLevel > 600) {
-            await ns.sleep(400000);
+            await ns.sleep(300000);
         } else if (serverLevel > 500) {
             await ns.sleep(180000);
         } else if (serverLevel > 400) {

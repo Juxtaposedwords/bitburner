@@ -9,11 +9,21 @@ import { servers } from "/automation/lib/scan.js";
 export async function main(ns) {
 
     const data = ns.flags([
-        ['exclude-extension', 'js'],
+        ['extension', ''],
+        ['exclude_extension', 'js'],
     ]);
+    if (data['extension'] == data['excluse_extension']) {
+        ns.tprintf("ERRRO: cannot match and exclude with the same extension")
+        return
+    }
     for (let server of servers(ns, false).sort()) {
         let files = ns.ls(server).filter(function (name) {
-            return !(name.endsWith(data['exclude-extension']))
+            if (data['extension'] != '' && name.endsWith(data['extension'])) {
+                return true
+            } else if (data['extension'] != '') {
+                return false
+            }
+            return !(name.endsWith(data['exclude_extension']))
         })
         if ((files.length == 0) || (server == "home")) {
             continue
@@ -23,4 +33,13 @@ export async function main(ns) {
             ns.tprintf("  %s", file)
         }
     }
+}
+
+export function autocomplete(data, args) {
+    data.flags([
+        ['extension', ''],
+        ['exclude_extension', 'js'],
+    ]);
+    return ["cct", "js", "lit", "txt"]; // whether to use open ports or not
+
 }

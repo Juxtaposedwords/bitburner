@@ -3,6 +3,13 @@
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js"
 
+const fields = [
+	"hostname",
+	"hackingLevel",
+	"securityLevel",
+	"moneyAvailable",
+	"maxMoney",
+]
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const data = ns.flags([
@@ -14,7 +21,7 @@ export async function main(ns) {
 	const which = data["ports"]
 	let by = data["sort_by"]
 	if (which != "open" && which != "closed") {
-		ns.tprint("WARN:  Usage: run server-report.js open|closed ?sort-by")
+		ns.tprint("WARN:  Usage: run server-report.js open|closed ?sort_by")
 		return
 	}
 	if (by == undefined) { by = "moneyAvailable" }
@@ -62,14 +69,14 @@ export async function main(ns) {
 	if (!data['pretty']) {
 		ns.tprint("\n" + result.join('\n'));
 		return
-	} 
+	}
 	result.shift()
 	if (!data['pretty'] && data['top'] > 0) {
 		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
 		return
 	}
 
-	var length = (data['top']>0 && result.length>data['top']) ? data['top'] : result.length; 
+	var length = (data['top'] > 0 && result.length > data['top']) ? data['top'] : result.length;
 	for (let i = 1; i < length; i++) {
 		ns.tprintf("%s\n", result[i][0])
 		ns.tprintf("  Hack Level      : %d\n", result[i][1])
@@ -80,4 +87,24 @@ export async function main(ns) {
 		ns.tprintf("  Backdoored      : %t\n", result[i][6])
 
 	}
+}
+
+export function autocomplete(data, args) {
+	data.flags([
+		["ports", "open"], // whether to use servers which have open prots or not
+		["sort_by", "moneyAvailable"], // what to sort entries by
+		["pretty", false], // determines whether ot use pretty format or not
+		["top", 0], // print only the top X entries. by default all are printed
+	])
+	const options = {
+		'ports': ["open", "closed"],
+		'sort_by': ["hostname", "hackLevel", "securityLevel", "moneyAvailable", "maxMoney"],
+	}
+
+	for (let arg of args.slice(-2)) {
+		if (arg.startsWith('--')) {
+			return options[arg.slice(2)] || []
+		}
+	}
+	return []
 }
