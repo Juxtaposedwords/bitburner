@@ -1,7 +1,7 @@
 // @ts-ignore
 import { safeRoot } from "/automation/lib/root.js";
 // @ts-ignore
-import { servers } from "/automation/lib/scan.js";
+import { allServers } from "/automation/lib/scan.js";
 /**
  *  Quick and easy way to point your fleet at one target with:
  *   ghw-setup <target>
@@ -17,7 +17,7 @@ export async function main(ns) {
     ])
     let target = String(data["target"])
 
-    let eligible = servers(ns).filter(function (name) {
+    let eligible = allServers(ns).filter(function (name) {
         const server = ns.getServer(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })
@@ -33,7 +33,6 @@ export async function main(ns) {
     ];
 
     for (const server of eligible) {
-        ns.tprintf("INFO: starting for %s", server)
         // Just to make sure we have root
         safeRoot(ns, server)
         if (data["target"] == undefined) {
