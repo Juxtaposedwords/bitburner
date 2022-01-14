@@ -1,6 +1,7 @@
 /** @param {import("../../..").NS } ns */
 
-import { scan } from "./automation/lib/scan.js"
+// @ts-ignore
+import { scan } from "/automation/lib/scan.js"
 
 // Report the income for all scripts on all servers
 export async function main(ns) {

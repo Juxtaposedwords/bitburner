@@ -9,6 +9,12 @@ export async function main(ns) {
         return;
     }
     var target = String(ns.args[0]);
+
+    // we could add a check for our purchased servers, but let's tyr and keep this script as lean as possible.
+    if ( target == "home" || target.startsWith("pserv")){
+        ns.tprintf("ERROR: cannot target home or a personal server")
+        return
+    }
     var moneyThresh = ns.getServerMaxMoney(target) ;
     while(true) {
         if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target)) {
