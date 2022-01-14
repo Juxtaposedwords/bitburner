@@ -62,43 +62,21 @@ export async function main(ns) {
 		const r = result[i];
 		r[0] = String(r[0]).padEnd(20, " ");
 		r[1] = String(r[1]).padEnd(9, " ");
-		r[2] = String(r[5]+"/"+r[2]).padEnd(7, " ");
+		r[2] = String(r[5] + "/" + r[2]).padEnd(7, " ");
 		r[3] = ns.nFormat(r[3], '0.0a').padEnd(8, " ");
 		r[4] = ns.nFormat(r[4], '0.0a').padEnd(8, " ");
 		r[5] = ""
 		result[i] = r.join(" ")
 	}
-	result[0] = "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") +  "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor"
+	result[0] = "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor"
 
-	if (!data['pretty']) {
-		ns.tprint("\n" + result.join('\n'));
-		return
-	}
-	result.shift()
-	if (!data['pretty'] && data['top'] > 0) {
-		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
-		return
-	}
-
-	var length = (data['top'] > 0 && result.length > data['top']) ? data['top'] : result.length;
-	for (let i = 1; i < length + 1; i++) {
-		ns.tprintf("%s\n", result[i][0])
-		ns.tprintf("  Hack Level      : %d\n", result[i][1])
-		ns.tprintf("  Security Level  : %d\n", result[i][2])
-		ns.tprintf("  Min. Sec. Level : %d\n", result[i][5])
-		ns.tprintf("  Money Available : $%s\n", result[i][3])
-		ns.tprintf("  Max Money       : $%s\n", result[i][4])
-		ns.tprintf("  Backdoored      : %t\n", result[i][6])
-
-	}
+	ns.tprint("\n" + result.join('\n'));
 }
 
 export function autocomplete(data, args) {
 	data.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
-		["pretty", false], // determines whether ot use pretty format or not
-		["top", 0], // print only the top X entries. by default all are printed
 	])
 	const options = {
 		'ports': ["open", "closed"],
