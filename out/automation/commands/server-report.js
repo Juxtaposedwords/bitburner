@@ -18,6 +18,7 @@ export async function main(ns) {
 		["sort_by", "moneyAvailable"], // what to sort entries by
 		["pretty", false], // determines whether to use pretty format or not
 		["top", 0], // print only the top X entries. by default all are printed
+		["unused", false] // report only servers with 100% free RAM
 	]);
 	const which = data["ports"]
 	let by = data["sort_by"]
@@ -43,6 +44,11 @@ export async function main(ns) {
 		if (s == "home") {
 			continue
 		}
+		if (data["unused"]) {
+			const srv = ns.getServer(s)
+			if (srv.maxRam == 0) { continue }
+			if (srv.ramUsed != 0) { continue }
+		}		
 		const hasRoot = ns.hasRootAccess(s);
 		if (which == "open" && !hasRoot) { continue }
 		if (which == "closed" && hasRoot) { continue }
