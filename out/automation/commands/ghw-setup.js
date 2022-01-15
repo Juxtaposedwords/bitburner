@@ -47,15 +47,13 @@ export async function main(ns) {
         }
 
         if (server == "home") {
-            // Depending on who you are you'll want to run some beefy commands at home.
             continue
         }
 
-        // copy to non root servers
+        await killGHW(ns, server, ghw, target, data["force_restart"])
         for (const script of files) {
             await ns.scp(script, "home", server)
         }
-        await killGHW(ns, server, ghw, target, data["force_restart"])
 
         var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed );
         var progRam = ns.getScriptRam(ghw, server);
