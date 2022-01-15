@@ -83,8 +83,11 @@ export function autocomplete(data, args) {
 }
 
 /** 
- *  Kills every matching GWH
- * 
+ *  Critiea for killing porcesese on the target server :
+ *   1. Matches the filename provided
+ *   2. One of:
+ *      * Force was selected  
+ *      * The target in use by the grow-hack-weak does not match the one you provide
  *  @param {import("../../..").NS } ns */
 async function killGHW(ns, server, filename, target, force) {
     const processes = ns.ps(server).filter((process) => {
