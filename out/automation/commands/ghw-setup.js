@@ -16,8 +16,8 @@ export async function main(ns) {
         ["force_restart", false], // determines whether ot use pretty format or not
     ])
     let target = String(data["target"])
-    if (target  != "" &&  !ns.serverExists(target)){
-        ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag",target)
+    if (target != "" && !ns.serverExists(target)) {
+        ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag", target)
         return
     }
 
@@ -46,19 +46,18 @@ export async function main(ns) {
             continue
         }
 
-        var offset = 0
         if (server == "home") {
             // Depending on who you are you'll want to run some beefy commands at home.
-            offset = 500
-        } else {
-            // copy to non root servers
-            for (const script of files) {
-                await ns.scp(script, "home", server)
-            }
+            continue
+        }
+
+        // copy to non root servers
+        for (const script of files) {
+            await ns.scp(script, "home", server)
         }
         await killGHW(ns, server, ghw, target, data["force_restart"])
 
-        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed + offset);
+        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed );
         var progRam = ns.getScriptRam(ghw, server);
         var memCount = (availRam / progRam)
         if (memCount < 1) {

@@ -15,6 +15,9 @@ export async function main(ns) {
         ns.tprintf("ERROR: cannot target home or a personal server")
         return
     }
+    if (target ==""){
+        target =ns.getHostname()
+    }
     var securityThresh =  ns.getServerMinSecurityLevel(target) + 60
     var moneyThresh = ns.getServerMaxMoney(target)*.90 ;
     while(true) {
