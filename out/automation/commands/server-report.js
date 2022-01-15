@@ -1,6 +1,7 @@
 /** @param {import("../../..").NS } ns */
 
 // @ts-ignore
+import { pad } from "./automation/lib/pad.js";
 import { servers } from "/automation/lib/scan.js"
 
 const fields = [
@@ -9,6 +10,8 @@ const fields = [
 	"securityLevel",
 	"moneyAvailable",
 	"maxMoney",
+	"minSecurity",
+	"backdoorInstalled",
 ]
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
@@ -36,7 +39,7 @@ export async function main(ns) {
 		ns.tprint("ERROR: unknown field " + by + ", valid values are " + fields.join(',') + ".");
 		return;
 	}
-	const result = [fields];
+	const result = [[...fields]];
 	for (let s of servers(ns)) {
 		const hasRoot = ns.hasRootAccess(s);
 		if (which == "open" && !hasRoot) { continue }
@@ -60,7 +63,8 @@ export async function main(ns) {
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
 	if (!data['pretty']) {
-		ns.tprint("\n" + result.join('\n'));
+		pad(ns, result)
+		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
 		return
 	}
 	result.shift()
