@@ -1,6 +1,6 @@
 // @ts-ignore
 import { pad } from "./automation/lib/pad.js";
-import { servers } from "/automation/lib/scan.js"
+import { allServers } from "/automation/lib/scan.js"
 
 const fields = [
 	"hostname",
@@ -31,7 +31,7 @@ export async function main(ns) {
 	}
 	const result = [];
 
-	for (let sr of servers(ns)) {
+	for (let sr of allServers(ns)) {
 		for (let p of ns.ps(sr)) {
 			if (p.filename.endsWith("script-report.js")) {
 				continue
