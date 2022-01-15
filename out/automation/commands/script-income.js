@@ -1,12 +1,12 @@
 // @ts-ignore
-import { scan } from "/automation/lib/scan.js"
+import { allServers } from "/automation/lib/scan.js"
 import { pad } from "./automation/lib/pad.js"
 
 /**  Report the income for all scripts on all servers
 * @param {import("../../..").NS } ns */
 export async function main(ns) {
     const result = []
-    for (const server of scan(ns)) {
+    for (const server of allServers(ns)) {
         for (const s of ns.ps(server)) {
             const inc = ns.getScriptIncome(s.filename, server, ...s.args)
             if (inc > 0) {
