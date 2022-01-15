@@ -14,6 +14,10 @@ export async function main(ns) {
             }
         }
     }
+    if (result.length == 0) {
+        ns.tprint("WARN: No scripts are making money!")
+        return;
+    }
     result.sort(function(a, b) {
         // descending order by amount
          if (a[2] < b[2]) { return 1 }
