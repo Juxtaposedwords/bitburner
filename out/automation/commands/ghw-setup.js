@@ -1,7 +1,7 @@
 // @ts-ignore
 import { safeRoot } from "/automation/lib/root.js";
 // @ts-ignore
-import { allServers } from "/automation/lib/scan.js";
+import { servers } from "/automation/lib/scan.js";
 /**
  *  Quick and easy way to point your fleet at one target with:
  *   ghw-setup <target>
@@ -16,12 +16,8 @@ export async function main(ns) {
         ["force_restart", false], // determines whether ot use pretty format or not
     ])
     let target = String(data["target"])
-    if (target  != "" &&  !ns.serverExists(target)){
-        ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag",target)
-        return
-    }
 
-    let eligible = allServers(ns).filter(function (name) {
+    let eligible = servers(ns).filter(function (name) {
         const server = ns.getServer(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })
@@ -37,6 +33,7 @@ export async function main(ns) {
     ];
 
     for (const server of eligible) {
+        ns.tprintf("INFO: starting for %s", server)
         // Just to make sure we have root
         safeRoot(ns, server)
         if (data["target"] == undefined) {
@@ -94,6 +91,8 @@ async function killGHW(ns, server, filename, target, force) {
         return (filename == process.filename)
     })
     for (const process of processes) {
+        ns.tprint(process)
+
         if (
             force ||
             (process.args[0] != undefined && target != process.args[0])) {

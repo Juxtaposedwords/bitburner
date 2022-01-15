@@ -17,7 +17,6 @@ export async function main(ns) {
 	const data = ns.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
-		["pretty", false], // determines whether to use pretty format or not
 		["top", 0], // print only the top X entries. by default all are printed
 	]);
 	const which = data["ports"]
@@ -65,25 +64,17 @@ export async function main(ns) {
 		r[3] = ns.nFormat(r[3], '0.0a');
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
-	if (!data['pretty']) {
-		pad(ns, result)
-		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
-		return
-	}
-	result.shift()
-	if (!data['pretty'] && data['top'] > 0) {
-		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
-		return
-	}
-	formattedResults.unshift( "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor")
-
-	ns.tprint("\n" + formattedResults.join('\n'));
+	pad(ns, result)
+	var limit = data['top'] != 0 && data['top'] < result.length ? data['top'] + 1 : result.length - 1;
+	ns.tprint("\n" + result.slice(0, limit).map(s => s.join('')).join("\n"));
+	return
 }
 
 export function autocomplete(data, args) {
 	data.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
+		["top", 0], // just give the top X entries
 	])
 	const options = {
 		'ports': ["open", "closed"],
