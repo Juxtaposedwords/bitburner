@@ -1,12 +1,12 @@
-/** @param {import("../").NS } ns */
-
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js";
 // @ts-ignore
 import { root } from "/automation/lib/root.js"
 
-// Startup all start-of-game automation.  Use "--verbose" argument if
-// you want info logs written to the console.
+/**
+ *  Startup all start-of-game automation.  Use "--verbose" argument if
+ * you want info logs written to the console.
+ *  @param {import("../.").NS } ns */
 export async function main(ns) {
     const data = ns.flags([
         ["verbose", false],
@@ -24,6 +24,7 @@ export async function main(ns) {
             ns.tprint(message)
         }
     }
+    
     while (true) {
         const all = servers(ns, true);
         const h = all.filter(function (server) {

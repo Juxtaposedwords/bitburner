@@ -1,9 +1,9 @@
-/** @param {import("../../..").NS } ns */
-
-import { scan } from "./automation/lib/scan.js"
+// @ts-ignore
+import { scan } from "/automation/lib/scan.js"
 import { pad } from "./automation/lib/pad.js"
 
-// Report the income for all scripts on all servers
+/**  Report the income for all scripts on all servers
+* @param {import("../../..").NS } ns */
 export async function main(ns) {
     const result = []
     for (const server of scan(ns)) {

@@ -1,16 +1,15 @@
-/** @param {import("../../..").NS } ns */
-
-// start-hack.js starts scripts that:
-//
-//   weaken the target's security by 20 every iteration,
-//   grow the target by 4 every iteration, and
-//   hack the target for 25% of its money every iteration.
-//
-// This is mostly heuristic; it seems to keep the target servers in
-// money and hackable.
-//
-// If the server doesn't have enough RAM to run all of these scripts
-// with the required threads, this script will leave it alone.
+/**  start-hack.js starts scripts that:
+ * 
+ * weaken the target's security by 20 every iteration,
+ * grow the target by 4 every iteration, and
+ * hack the target for 25% of its money every iteration.
+ * 
+ * This is mostly heuristic; it seems to keep the target servers in
+ * money and hackable.
+ * 
+ * If the server doesn't have enough RAM to run all of these script
+ * with the required threads, this script will leave it alone.
+ * @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const server = String(ns.args[0]); // the server that will run the scripts
 	const target = String(ns.args[1]); // the target server

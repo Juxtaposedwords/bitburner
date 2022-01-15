@@ -1,15 +1,14 @@
-/** @param {import("../../..").NS } ns */
-
 // @ts-ignore
 import { log } from "/automation/lib/log.js"
 
-// hack continuously hacks the target server.
+/**  hack continuously hacks the target server.
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    const target = ns.args[0]
-    if (target == undefined) {
+    if (ns.args[0] == undefined) {
         ns.tprint("INFO: Usage: run hack.js <target>");
         return;
     }
+    const target = String(ns.args[0])
     if (!ns.hasRootAccess(target)) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;

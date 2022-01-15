@@ -1,13 +1,11 @@
-/** @param {import("../../..").NS } ns */
-
-// early-game-start-hack.js starts scripts that:
-//
-//   weaken the target's security iteration,
-//   grow the target every iteration, and
-//   hack the target every iteration.
-//
-// If the server doesn't have enough RAM to run all of these scripts
-// with the required threads, this script will leave it alone.
+/** early-game-start-hack.js starts scripts that:
+ *   weaken the target's security iteration,
+ * 	 grow the target every iteration, and hack the target every iteration.
+ * 
+ * If the server doesn't have enough RAM to run all of these scripts with the
+ *  required threads, this script will leave it alone.
+ *  
+ * @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const server = String(ns.args[0]);  // the server that will run the scripts
 	const target = String(ns.args[1]);  // the target server

@@ -1,15 +1,15 @@
-/** @param {import("../../..").NS } ns */
 
 // @ts-ignore
 import { log } from  "/automation/lib/log.js"
 
-// grow continuously grows the target server.
+/** grow continuously grows the target server.
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    if (ns.args.length != 1) {
+    if (ns.args[0] == undefined) {
         ns.tprintf("ERROR: Usage: run `grow.js <target>`.  recved %d arguments not 1.", ns.args.length);
         return;
     }
-    const target = ns.args[0]
+    const target = String(ns.args[0])
     if (!ns.hasRootAccess(target)) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;

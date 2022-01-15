@@ -1,8 +1,8 @@
-/** @param {import("../../..").NS } ns */
 
 // @ts-ignore
 import { dfs } from  "/automation/lib/scan.js"
 
+/** @param {import("../../..").NS } ns */
 export async function main(ns) {
     const toFind = ns.args[0];
     const command = (ns.args.length > 1 && ns.args[1] == "command")

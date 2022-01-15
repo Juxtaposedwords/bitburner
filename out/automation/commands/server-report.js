@@ -1,5 +1,3 @@
-/** @param {import("../../..").NS } ns */
-
 // @ts-ignore
 import { pad } from "./automation/lib/pad.js";
 import { servers } from "/automation/lib/scan.js"
@@ -40,7 +38,11 @@ export async function main(ns) {
 		return;
 	}
 	const result = [[...fields]];
+
 	for (let s of servers(ns)) {
+		if (s == "home") {
+			continue
+		}
 		const hasRoot = ns.hasRootAccess(s);
 		if (which == "open" && !hasRoot) { continue }
 		if (which == "closed" && hasRoot) { continue }
@@ -56,7 +58,7 @@ export async function main(ns) {
 	}
 
 	result.sort((a, b) => a[field] > b[field] ? -1 : 1);
-
+	let formattedResults = []
 	for (let i = 1; i < result.length; i++) {
 		const r = result[i];
 		r[3] = ns.nFormat(r[3], '0.0a');
@@ -72,26 +74,15 @@ export async function main(ns) {
 		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
 		return
 	}
+	formattedResults.unshift( "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor")
 
-	var length = (data['top'] > 0 && result.length > data['top']) ? data['top'] : result.length;
-	for (let i = 1; i < length+1; i++) {
-		ns.tprintf("%s\n", result[i][0])
-		ns.tprintf("  Hack Level      : %d\n", result[i][1])
-		ns.tprintf("  Security Level  : %d\n", result[i][2])
-		ns.tprintf("  Min. Sec. Level : %d\n", result[i][5])
-		ns.tprintf("  Money Available : $%s\n", result[i][3])
-		ns.tprintf("  Max Money       : $%s\n", result[i][4])
-		ns.tprintf("  Backdoored      : %t\n", result[i][6])
-
-	}
+	ns.tprint("\n" + formattedResults.join('\n'));
 }
 
 export function autocomplete(data, args) {
 	data.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
-		["pretty", false], // determines whether ot use pretty format or not
-		["top", 0], // print only the top X entries. by default all are printed
 	])
 	const options = {
 		'ports': ["open", "closed"],

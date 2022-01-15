@@ -1,5 +1,4 @@
 /** @param {import("../../..").NS } ns */
-
 export async function main(ns) {
 	const ram = Number(ns.args[0]);
 	if (ns.args[0] == undefined || !isPowerOfTwo(ram)) {
