@@ -16,6 +16,10 @@ export async function main(ns) {
         ["force_restart", false], // determines whether ot use pretty format or not
     ])
     let target = String(data["target"])
+    if (target != "" && !ns.serverExists(target)){
+        ns.tprintf("ERROR: %s is not a valid server target. consider using --target with autocomplete.")
+        return
+    }
 
     let eligible = servers(ns).filter(function (name) {
         const server = ns.getServer(name);
