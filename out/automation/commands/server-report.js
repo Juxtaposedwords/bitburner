@@ -1,4 +1,5 @@
 // @ts-ignore
+import { pad } from "./automation/lib/pad.js";
 import { servers } from "/automation/lib/scan.js"
 
 const fields = [
@@ -7,6 +8,8 @@ const fields = [
 	"securityLevel",
 	"moneyAvailable",
 	"maxMoney",
+	"minSecurity",
+	"backdoorInstalled",
 ]
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
@@ -34,7 +37,7 @@ export async function main(ns) {
 		ns.tprint("ERROR: unknown field " + by + ", valid values are " + fields.join(',') + ".");
 		return;
 	}
-	const result = [fields];
+	const result = [[...fields]];
 
 	for (let s of servers(ns)) {
 		if (s == "home") {
@@ -58,13 +61,18 @@ export async function main(ns) {
 	let formattedResults = []
 	for (let i = 1; i < result.length; i++) {
 		const r = result[i];
-		r[0] = String(r[0]).padEnd(20, " ");
-		r[1] = String(r[1]).padEnd(9, " ");
-		r[2] = String(r[5] + "/" + r[2]).padEnd(7, " ");
-		r[3] = ns.nFormat(r[3], '0.0a').padEnd(8, " ");
-		r[4] = ns.nFormat(r[4], '0.0a').padEnd(8, " ");
-		r[5] = ""
-		formattedResults.push(r.join(" "))
+		r[3] = ns.nFormat(r[3], '0.0a');
+		r[4] = ns.nFormat(r[4], '0.0a');
+	}
+	if (!data['pretty']) {
+		pad(ns, result)
+		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
+		return
+	}
+	result.shift()
+	if (!data['pretty'] && data['top'] > 0) {
+		ns.tprintf("ERROR: invalid usage. Cannot use top without specifying pretty")
+		return
 	}
 	formattedResults.unshift( "HostName".padEnd(21) + "Hack".padEnd(10, " ") + "Sec".padEnd(8, " ") + "Avail $".padEnd(9, " ") + "Max $".padEnd(10, " ") + "Backdoor")
 

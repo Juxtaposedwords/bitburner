@@ -1,5 +1,6 @@
 // @ts-ignore
 import { scan } from "/automation/lib/scan.js"
+import { pad } from "./automation/lib/pad.js"
 
 /**  Report the income for all scripts on all servers
 * @param {import("../../..").NS } ns */
@@ -13,15 +14,15 @@ export async function main(ns) {
             }
         }
     }
-    result.sort(function (a, b) {
-        // ascending order by server
-        if (a[0] > b[0]) { return 1 }
-        else if (a[0] < b[0]) { return -1 }
+    result.sort(function(a, b) {
         // descending order by amount
-        else if (a[1] < b[1]) { return 1 }
-        else if (a[1] > b[1]) { return -1 }
+         if (a[2] < b[2]) { return 1 }
+        else if (a[2] > b[2]) { return -1 }
         else return 0;
     })
+    result.forEach((s, i) => result[i][2] = ns.nFormat(s[2], '0.0a'))
 
-    ns.tprint("\n" + result.map(s => [s[0], s[1], ns.nFormat(s[2], '0.0a')].join(",")).join("\n"));
+    pad(ns, result);
+    ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
 }
+
