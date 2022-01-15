@@ -1,6 +1,7 @@
 // @ts-ignore
 import { scan } from "/automation/lib/scan.js"
-import { pad } from "./automation/lib/pad.js"
+// @ts-ignore
+import { pad } from "/automation/lib/pad.js"
 
 /**  Report the income for all scripts on all servers
 * @param {import("../../..").NS } ns */
