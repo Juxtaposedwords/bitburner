@@ -1,5 +1,6 @@
 // @ts-ignore
 import { allServers } from "/automation/lib/scan.js"
+// @ts-ignore
 import { pad } from "./automation/lib/pad.js"
 
 /**  Report the income for all scripts on all servers

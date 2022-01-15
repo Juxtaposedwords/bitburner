@@ -1,5 +1,6 @@
 // @ts-ignore
-import { pad } from "./automation/lib/pad.js";
+import { pad } from "/automation/lib/pad.js";
+// @ts-ignore
 import { servers } from "/automation/lib/scan.js"
 
 const fields = [
@@ -16,7 +17,6 @@ export async function main(ns) {
 	const data = ns.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
-		["pretty", false], // determines whether to use pretty format or not
 		["top", 0], // print only the top X entries. by default all are printed
 		["unused", false] // report only servers with 100% free RAM
 	]);
@@ -75,7 +75,7 @@ export async function main(ns) {
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
 
-	if (!data.pretty) {
+  if (!data.pretty) {
 		result.unshift([...fields]); // copy fields here, so that pad doesn't modify a global variable.
 		pad(ns, result)
 		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
@@ -97,6 +97,7 @@ export function autocomplete(data, args) {
 	data.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
+		["top", 0], // just give the top X entries
 	])
 	const options = {
 		'ports': ["open", "closed"],

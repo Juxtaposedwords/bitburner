@@ -16,6 +16,10 @@ export async function main(ns) {
         ["force_restart", false], // determines whether ot use pretty format or not
     ])
     let target = String(data["target"])
+    if (target != "" && !ns.serverExists(target)) {
+        ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag", target)
+        return
+    }
 
     if (!ns.serverExists(target)) {
         ns.tprint(`ERROR: Target "${target}" does not exist.`)
@@ -38,6 +42,9 @@ export async function main(ns) {
     ];
 
     for (const server of eligible) {
+        if (server == "home") {
+          continue
+        }
         // Just to make sure we have root
         safeRoot(ns, server)
         if (data["target"] == undefined) {
@@ -50,7 +57,11 @@ export async function main(ns) {
         for (const script of files) {
             await ns.scp(script, "home", server)
         }
+
         await killGHW(ns, server, ghw, target, data["force_restart"])
+        for (const script of files) {
+            await ns.scp(script, "home", server)
+        }
 
         var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed);
         var progRam = ns.getScriptRam(ghw, server);
@@ -80,8 +91,11 @@ export function autocomplete(data, args) {
 }
 
 /** 
- *  Kills every matching GWH
- * 
+ *  Critiea for killing porcesese on the target server :
+ *   1. Matches the filename provided
+ *   2. One of:
+ *      * Force was selected  
+ *      * The target in use by the grow-hack-weak does not match the one you provide
  *  @param {import("../../..").NS } ns */
 async function killGHW(ns, server, filename, target, force) {
     const processes = ns.ps(server).filter((process) => {

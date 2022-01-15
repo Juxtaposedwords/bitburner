@@ -15,9 +15,13 @@ export async function main(ns) {
         ns.tprintf("ERROR: cannot target home or a personal server")
         return
     }
-    var moneyThresh = ns.getServerMaxMoney(target) ;
+    if (target ==""){
+        target =ns.getHostname()
+    }
+    var securityThresh =  ns.getServerMinSecurityLevel(target) + 60
+    var moneyThresh = ns.getServerMaxMoney(target)*.90 ;
     while(true) {
-        if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target)) {
+        if (ns.getServerSecurityLevel(target) >securityThresh) {
             await ns.weaken(target);
         } else if (ns.getServerMoneyAvailable(target) == 0) {
             // So grow() will grant no money and hack() will take no money.
