@@ -15,8 +15,8 @@ export async function main(ns) {
         ns.tprintf("ERROR: cannot target home or a personal server")
         return
     }
-    var securityThresh =  ns.getServerMinSecurityLevel(target) + 30
-    var moneyThresh = ns.getServerMaxMoney(target)*.50 ;
+    var securityThresh =  ns.getServerMinSecurityLevel(target) + 60
+    var moneyThresh = ns.getServerMaxMoney(target)*.90 ;
     while(true) {
         if (ns.getServerSecurityLevel(target) >securityThresh) {
             await ns.weaken(target);
