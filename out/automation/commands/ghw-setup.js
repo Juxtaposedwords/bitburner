@@ -21,7 +21,7 @@ export async function main(ns) {
         return
     }
 
-    let eligible = allServers(ns).filter(function (name) {
+    let eligible = allServers(ns).filter( (name) => {
         const server = ns.getServer(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })

@@ -7,9 +7,9 @@ export function scan(ns, removePurchased = true) {
   const pservs = ns.getPurchasedServers();
   const nodes = new Set;
   function dfs(node) {
-    if (node == ".") {
+ /*   if (node == ".") {
       return;
-    }
+    }*/
     if (removePurchased && pservs.includes(node)) {
       return
     }
