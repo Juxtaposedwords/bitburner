@@ -4,7 +4,7 @@ import { safeRoot } from "/automation/lib/root.js";
 import { allServers } from "/automation/lib/scan.js";
 /**
  *  Quick and easy way to point your fleet at one target with:
- *   ghw-setup <target>
+ *   ghw-setup --target=<target>
  * 
  *  If no target is provided, the scripts run against the machine where they're located
  * 
@@ -12,7 +12,7 @@ import { allServers } from "/automation/lib/scan.js";
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
     const data = ns.flags([
-        ["target", ""], // Which server ot target
+        ["target", ""],           // Server to target
         ["force_restart", false], // determines whether ot use pretty format or not
     ])
     let target = String(data["target"])
@@ -21,7 +21,13 @@ export async function main(ns) {
         return
     }
 
+    if (!ns.serverExists(target)) {
+        ns.tprint(`ERROR: Target "${target}" does not exist.`)
+        return
+    }
+
     let eligible = allServers(ns).filter(function (name) {
+        if (name == "home") { return false; }
         const server = ns.getServer(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })
@@ -32,11 +38,13 @@ export async function main(ns) {
         "/automation/util/grow.js",
         "/automation/util/hack.js",
         "/automation/util/weaken.js",
-        ghw,
         ...ns.ls("home").filter(input => { return String(input).startsWith("/automation/lib/") }), // all of our libraries
     ];
 
     for (const server of eligible) {
+        if (server == "home") {
+          continue
+        }
         // Just to make sure we have root
         safeRoot(ns, server)
         if (data["target"] == undefined) {
@@ -46,8 +54,8 @@ export async function main(ns) {
             continue
         }
 
-        if (server == "home") {
-            continue
+        for (const script of files) {
+            await ns.scp(script, "home", server)
         }
 
         await killGHW(ns, server, ghw, target, data["force_restart"])
@@ -55,7 +63,7 @@ export async function main(ns) {
             await ns.scp(script, "home", server)
         }
 
-        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed );
+        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed);
         var progRam = ns.getScriptRam(ghw, server);
         var memCount = (availRam / progRam)
         if (memCount < 1) {
@@ -68,8 +76,8 @@ export async function main(ns) {
 
 export function autocomplete(data, args) {
     data.flags([
-        ["target", ""], // Which server ot target
-        ["force_restart", false], // determines whether ot use pretty format or not
+        ["target", ""], 
+        ["force_restart", false],
     ])
     const options = {
         'target': [...data.servers],

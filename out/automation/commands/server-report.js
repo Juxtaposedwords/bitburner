@@ -18,13 +18,13 @@ export async function main(ns) {
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
 		["top", 0], // print only the top X entries. by default all are printed
+		["unused", false] // report only servers with 100% free RAM
 	]);
-	const which = data["ports"]
-	let by = data["sort_by"]
-	if (which != "open" && which != "closed") {
+	if (data.ports != "open" && data.ports != "closed") {
 		ns.tprint("WARN:  Usage: run server-report.js --ports=(open|closed)")
 		return
 	}
+	let by = data.sort_by
 	if (by == undefined) { by = "moneyAvailable" }
 	let field = undefined;
 	for (let i = 0; i < fields.length; i++) {
@@ -37,15 +37,21 @@ export async function main(ns) {
 		ns.tprint("ERROR: unknown field " + by + ", valid values are " + fields.join(',') + ".");
 		return;
 	}
-	const result = [[...fields]];
+	
+	let result = [];
 
 	for (let s of servers(ns)) {
 		if (s == "home") {
 			continue
 		}
+		if (data.unused) {
+			const srv = ns.getServer(s)
+			if (srv.maxRam == 0) { continue }
+			if (srv.ramUsed != 0) { continue }
+		}		
 		const hasRoot = ns.hasRootAccess(s);
-		if (which == "open" && !hasRoot) { continue }
-		if (which == "closed" && hasRoot) { continue }
+		if (data.ports == "open" && !hasRoot) { continue }
+		if (data.ports == "closed" && hasRoot) { continue }
 		result.push([
 			s,
 			ns.getServerRequiredHackingLevel(s),
@@ -58,16 +64,33 @@ export async function main(ns) {
 	}
 
 	result.sort((a, b) => a[field] > b[field] ? -1 : 1);
-	let formattedResults = []
-	for (let i = 1; i < result.length; i++) {
+
+	if (data.top > 0 && data.top < result.length) {
+		result = result.slice(0, data.top);
+	}
+	
+	for (let i = 0; i < result.length; i++) {
 		const r = result[i];
 		r[3] = ns.nFormat(r[3], '0.0a');
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
-	pad(ns, result)
-	var limit = data['top'] != 0 && data['top'] < result.length ? data['top'] + 1 : result.length - 1;
-	ns.tprint("\n" + result.slice(0, limit).map(s => s.join('')).join("\n"));
-	return
+
+  if (!data.pretty) {
+		result.unshift([...fields]); // copy fields here, so that pad doesn't modify a global variable.
+		pad(ns, result)
+		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
+		return
+	}
+
+	for (let r of result) {
+		ns.tprintf("%s\n", r[0])
+		ns.tprintf("  Hack Level      : %d\n", r[1])
+		ns.tprintf("  Security Level  : %d\n", r[2])
+		ns.tprintf("  Min. Sec. Level : %d\n", r[5])
+		ns.tprintf("  Money Available : $%s\n", r[3])
+		ns.tprintf("  Max Money       : $%s\n", r[4])
+		ns.tprintf("  Backdoored      : %t\n", r[6])
+	}
 }
 
 export function autocomplete(data, args) {
