@@ -35,16 +35,19 @@ export async function main(ns) {
         });
 
         for (const server of h) {
-            log(`INFO: getting root on ${server}...`)
-            if (!root(ns, server, verbose)) {
-                continue;
+            const s = ns.getServer(server)
+            if (!s.hasAdminRights) {
+                log(`INFO: getting root on ${server}...`)
+                if (!root(ns, server, verbose)) {
+                    continue;
+                }
             }
             if (ns.getServerMaxMoney(server) == 0) {
-                log(`INFO: not starting hack script for ${server}, there's no money in it.`)
+                ns.print(`INFO: not starting hack script for ${server}, there's no money in it.`)
                 continue;
             }
             // This is only printed once per server, so display it even in non-verbose mode.
-            ns.tprint(`INFO: starting hack script for ${server}...`);
+            ns.print(`INFO: starting hack script for ${server}...`);
             ns.exec("/automation/util/start-hack.js", "home", 1, "home", server);
         }
         // Try again in a minute.

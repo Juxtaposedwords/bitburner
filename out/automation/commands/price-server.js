@@ -5,7 +5,7 @@ export async function main(ns) {
 		ns.tprint(`WARN: ram must be a power of two.`);
 		return;
 	}
-	ns.tprint(`Server with ${ram} ram costs ${ns.getPurchasedServerCost(ram)}  / ${ns.nFormat(ns.getPurchasedServerCost(ram),"0.0a")} `);
+	ns.tprint(`Server with ${ram} ram costs ${ns.nFormat(ns.getPurchasedServerCost(ram), '0.0a')}`);
 }
 
 function isPowerOfTwo(x) {

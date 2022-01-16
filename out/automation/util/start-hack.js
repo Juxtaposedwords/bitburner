@@ -40,14 +40,11 @@ export async function main(ns) {
 	const growRam = ns.getScriptRam("/automation/util/grow.js");
 	const hackRam = ns.getScriptRam("/automation/util/hack.js")
 
-	//ns.tprint(`weakenThreads=${weakenThreads}, growThreads=${growThreads}, hackThreads=${hackThreads}`)
-
 	const neededRam = (weakenRam * weakenThreads + growRam * growThreads + hackRam * hackThreads)
 	const availRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server)
 
-	//ns.tprint(`neededRam=${neededRam}, availRam=${availRam}`);
-
 	if (neededRam > availRam) {
+		// let's not log this to the console, it's super spammy.
 		ns.tprint(`ERROR: not enough RAM: ${neededRam} needed, ${availRam} available.`)
 		return;
 	}
