@@ -63,14 +63,16 @@ export async function main(ns) {
 }
 
 export function autocomplete(data, args) {
-
-    const arg = args[args.length-1]
-	if(arg.startsWith('--target')){
-		return data.servers.map(x => `--target=`+x)
+	data.flags([
+		["sort_by", "hostname"], // what to sort entries by
+	])
+	const options = {
+		'sort_by': fields,
 	}
-	if (arg.startsWith('--sort_by')) {
-		return fields.map(x => '--sort_by='+x)
+	for (let arg of args) {
+		if (arg.startsWith('--')) {
+			return options[arg.slice(2)] || []
+		}
 	}
 	return []
-	return data.servers.map(x => `--target=`+x).concat(fields.map(x => '--sort_by='+x))
 }

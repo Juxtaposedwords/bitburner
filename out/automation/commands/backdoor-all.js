@@ -12,9 +12,10 @@ import { run } from "/automation/lib/terminal.js"
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
+    const purchased = ns.getPurchasedServers()
     let eligible = scan(ns).filter(function (name) {
         const server = ns.getServer(name);
-        return !server.backdoorInstalled && server.requiredHackingSkill <= ns.getHackingLevel() && server.hostname != 'home' && !ns.getPurchasedServers().includes(name)
+        return !server.backdoorInstalled && server.requiredHackingSkill <= ns.getHackingLevel() && server.hostname != 'home' && !purchased.includes(name)
     })
     eligible.sort((left, right) => { //sort by easiest to hardest
         const l = ns.getServer(left).requiredHackingSkill
@@ -27,20 +28,20 @@ export async function main(ns) {
     await ns.tprintf("INFO: %s", eligible)
     while (eligible.length != 0) {
         let dest = eligible.shift()
-        await ns.tprintf("INFO: Connecitng to %s", dest)
+        await ns.tprintf("INFO: Connecting to %s", dest)
         await safeRoot(ns, dest)
         const hops = await path(ns, source, dest)
         let command = "connect " + hops.join("; connect ") + "; backdoor";
         await run(command);
         const serverLevel = await ns.getServer(dest).requiredHackingSkill
-        // If you have formul
+        // If you have the formula API:
         // await ns.formulas.hacking.hackTime(dest,ns.getPlayer());
         if (serverLevel > 600) {
-            await ns.sleep(300000);
+            await ns.sleep(100000);
         } else if (serverLevel > 500) {
-            await ns.sleep(180000);
+            await ns.sleep(150000);
         } else if (serverLevel > 400) {
-            await ns.sleep(60000)
+            await ns.sleep(70000)
         } else if (serverLevel > 150) {
             await ns.sleep(30000)
         } else {

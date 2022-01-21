@@ -12,12 +12,12 @@ export async function main(ns) {
         ['extension', ''],
         ['exclude_extension', 'js'],
     ]);
-    if (data['extension'] == data['excluse_extension']) {
-        ns.tprintf("ERRRO: cannot match and exclude with the same extension")
+    if (data['extension'] == data['exclude_extension']) {
+        ns.tprintf("ERROR: cannot match and exclude with the same extension")
         return
     }
-    for (let server of servers(ns, false).sort()) {
-        let files = ns.ls(server).filter(function (name) {
+    for (const server of servers(ns, false).sort()) {
+        const files = ns.ls(server).filter(function (name) {
             if (data['extension'] != '' && name.endsWith(data['extension'])) {
                 return true
             } else if (data['extension'] != '') {
@@ -29,7 +29,7 @@ export async function main(ns) {
             continue
         }
         ns.tprintf("%s", server)
-        for (let file of files.sort()) {
+        for (const file of files.sort()) {
             ns.tprintf("  %s", file)
         }
     }

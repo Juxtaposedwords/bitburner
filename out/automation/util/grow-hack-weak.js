@@ -1,6 +1,3 @@
-// @ts-ignore
-import { safeRoot } from "/automation/lib/root.js";
-
 /**
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
@@ -9,14 +6,24 @@ export async function main(ns) {
         return;
     }
     var target = String(ns.args[0]);
-    var moneyThresh = ns.getServerMaxMoney(target) ;
+
+    // we could add a check for our purchased servers, but let's tyr and keep this script as lean as possible.
+    if ( target == "home" || target.startsWith("pserv")){
+        ns.tprintf("ERROR: cannot target home or a personal server")
+        return
+    }
+    if (target ==""){
+        target =ns.getHostname()
+    }
+    var securityThresh =  ns.getServerMinSecurityLevel(target) + 5
+    var moneyThresh = ns.getServerMaxMoney(target)*.25 ;
     while(true) {
-        if (ns.getServerSecurityLevel(target) > ns.getServerMinSecurityLevel(target)) {
+        if (ns.getServerSecurityLevel(target) >securityThresh) {
             await ns.weaken(target);
-        } else if (ns.getServerMoneyAvailable(target) == 0) {
+       // } else if (ns.getServerMoneyAvailable(target) == 0) {
             // So grow() will grant no money and hack() will take no money.
-            ns.tprintf("ERROR: %s has no money available.", target)
-            return
+        //    ns.tprintf("ERROR: %s has no money available.", target)
+      //      return
         }  else if (ns.getServerMoneyAvailable(target) < moneyThresh) {
             await ns.grow(target);
         } else {

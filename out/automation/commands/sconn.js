@@ -11,8 +11,7 @@ import { run } from "/automation/lib/terminal.js"
 *  
 * Run the connect HOSTNAME command in the terminal.  Can connect to any machine.
 *  
-* @param {import("../../..").NS } ns 
-*/
+* @param {import("../../..").NS } ns  */
 export async function main(ns) {
   const destination = ns.args[0];
   const hops = await path(ns,ns.getHostname(), destination)

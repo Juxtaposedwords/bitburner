@@ -1,7 +1,6 @@
-/** @param {import("../../..").NS } ns */
-
-// Kill everything running on all purchased servers and restart them
-// pointing at the new target.
+/** Kill everything running on all purchased servers and restart them
+ * pointing at the new target.
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
 	const target = ns.args[0]
     // TODO: These scripts don't presently exist.

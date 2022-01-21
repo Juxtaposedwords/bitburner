@@ -1,5 +1,4 @@
 /** @param {import("../../..").NS } ns */
-
 export async function main(ns) {
     const args = ns.flags([["help", false]]);
     const server = String(ns.args[0]);
@@ -37,3 +36,7 @@ ${server}:
     hackChance : ${(ns.hackAnalyzeChance(server) * 100).toFixed(2)}%
 `);
 }
+
+export function autocomplete(data, args) {
+    return [...data.servers]; // This script autocompletes the list of servers.
+  }

@@ -1,68 +1,63 @@
 // @ts-ignore
 import { safeRoot } from "/automation/lib/root.js";
 // @ts-ignore
-import { servers } from "/automation/lib/scan.js";
+import { allServers } from "/automation/lib/scan.js";
 /**
  *  Quick and easy way to point your fleet at one target with:
- *   gwh-setup <target>
+ *   ghw-setup --target=<target>
  * 
  *  If no target is provided, the scripts run against the machine where they're located
  * 
  * 
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    var target = ns.args[0]
+    const data = ns.flags([
+        ["target", ""],           // Server to target
+        ["force_restart", false], // determines whether ot use pretty format or not
+    ])
+    let target = String(data["target"])
+    if (target != "" && !ns.serverExists(target)) {
+        ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag", target)
+        return
+    }
 
-    let eligible = servers(ns).filter(function (name) {
+    let eligible = allServers(ns).filter( (name) => {
         const server = ns.getServer(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })
     ns.tprintf("Starting for %d servers", eligible.length)
     let ghw = "/automation/util/grow-hack-weak.js";
-    let logger = "/automation/util/log-listener.js";
     let files = [
         "/automation/util/grow-hack-weak.js",
         "/automation/util/grow.js",
         "/automation/util/hack.js",
-        ghw,
-        logger,
+        "/automation/util/weaken.js",
         ...ns.ls("home").filter(input => { return String(input).startsWith("/automation/lib/") }), // all of our libraries
     ];
 
-    for (let server of eligible) {
-        ns.tprintf("starting for %s", server)
+    for (const server of eligible) {
+        if (server == "home") {
+          continue
+        }
         // Just to make sure we have root
         safeRoot(ns, server)
-
-        var offset = 0
-        if (server == "home") {
-            // Depending on who you are you'll want ot run some beefy command at home
-            offset = 500
-        }
-        // Stop any existing scripts. This way we can support updates.
-        if (server != "home") {
-            ns.killall(server)
-            for (let script of files) {
-                await ns.scp(script, "home", server)
-            }
-        }
-        if (target == undefined) {
+        if (data["target"] == undefined) {
             target = server
-        } else if (target == undefined && (!ns.getPurchasedServers().includes(server) || server == "home")) {
-            ns.tprintf("WARN: unable to start script on %s as no target was provided and the machine as purchased  cannot hack itself", server)
+        } else if (data["target"] == undefined && (!ns.getPurchasedServers().includes(server) || server == "home")) {
+            ns.tprintf("WARN: unable to start script on %s as no target was provided and the machine as purchased cannot hack itself", server)
             continue
         }
-        if (server != "home") {
-            for (let script of files) {
-                await ns.scp(script, "home", server)
-            }
+
+        for (const script of files) {
+            await ns.scp(script, "home", server)
         }
 
-        // start server logger
-        await ns.exec(logger, server)
+        await killGHW(ns, server, ghw, target, data["force_restart"])
+        for (const script of files) {
+            await ns.scp(script, "home", server)
+        }
 
-
-        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed + offset);
+        var availRam = ns.getServer(server).maxRam - (ns.getServer(server).ramUsed);
         var progRam = ns.getScriptRam(ghw, server);
         var memCount = (availRam / progRam)
         if (memCount < 1) {
@@ -74,5 +69,38 @@ export async function main(ns) {
 }
 
 export function autocomplete(data, args) {
-    return [...data.servers]; // This script autocompletes the list of servers.
+    data.flags([
+        ["target", ""], 
+        ["force_restart", false],
+    ])
+    const options = {
+        'target': [...data.servers],
+    }
+    for (let arg of args.slice(-2)) {
+        if (arg.startsWith('--')) {
+            return options[arg.slice(2)] || []
+        }
+    }
+    return []
+}
+
+/** 
+ *  Critiea for killing porcesese on the target server :
+ *   1. Matches the filename provided
+ *   2. One of:
+ *      * Force was selected  
+ *      * The target in use by the grow-hack-weak does not match the one you provide
+ *  @param {import("../../..").NS } ns */
+async function killGHW(ns, server, filename, target, force) {
+    const processes = ns.ps(server).filter((process) => {
+        return (filename == process.filename)
+    })
+    for (const process of processes) {
+        if (
+            force ||
+            (process.args[0] != undefined && target != process.args[0])) {
+            await ns.kill(process.pid)
+        }
+    }
+
 }
