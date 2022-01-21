@@ -6,6 +6,11 @@ import { root } from "/automation/lib/root.js"
 /**
  *  Startup all start-of-game automation.  Use "--verbose" argument if
  * you want info logs written to the console.
+ * 
+ *  Startup attempts to fill up the machine's memory with a ratio of
+ *   grow/hack/weak for machine. If using this script, always upgrade
+ *   server size when able.
+ * 
  *  @param {import("../.").NS } ns */
 export async function main(ns) {
     const data = ns.flags([
