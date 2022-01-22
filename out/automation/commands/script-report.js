@@ -15,6 +15,7 @@ export async function main(ns) {
 	const flags = ns.flags([
 		["sort_by", "hostname"], // what to sort entries by
 		["top", 0], // print only the top X entries. by default all are printed
+		["server", null], // only list scripts running on this server
 		["target", null], // only list scripts targeting this server
 		["income", false], // only list scripts that have income
 	]);
@@ -34,6 +35,9 @@ export async function main(ns) {
 	const result = [];
 
 	for (let sr of allServers(ns)) {
+		if (flags.server && sr != flags.server) {
+			continue
+		}
 		for (let p of ns.ps(sr)) {
 			if (p.filename.endsWith("script-report.js")) {
 				continue
