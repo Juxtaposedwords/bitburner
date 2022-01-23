@@ -1,18 +1,18 @@
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
     const flags = ns.flags([
-        ["source", null],
+        ["server", null],
         ["target", null],
     ])
-    const source = flags.source
+    const server = flags.server
     const target = flags.target
-    if (source == null || target == null) {
-        ns.tprint("WARN: Usage: clone-server --source <source> --target <target>.")
+    if (server == null || target == null) {
+        ns.tprint("WARN: Usage: clone-server --server <server> --target <target>.")
         return
     }
 
-    if (!ns.serverExists(source)) {
-        ns.tprint(`ERROR: unknown server: ${source}.`)
+    if (!ns.serverExists(server)) {
+        ns.tprint(`ERROR: unknown server: ${server}.`)
         return
     }
     if (!ns.serverExists(target)) {
@@ -24,10 +24,10 @@ export async function main(ns) {
         return
     }
 
-    const ss = ns.getServer(source);
+    const ss = ns.getServer(server);
     const ts = ns.getServer(target);
     if (ss.maxRam > ts.maxRam) {
-        ns.tprint(`ERROR: ${source} has more max RAM than ${target}`)
+        ns.tprint(`ERROR: ${server} has more max RAM than ${target}`)
         return
     }
 
@@ -37,9 +37,9 @@ export async function main(ns) {
         ns.rm(file, target);
     }
 
-    await ns.scp(ns.ls(source), source, target);
+    await ns.scp(ns.ls(server), server, target);
 
-    for (let p of ns.ps(source)) {
+    for (let p of ns.ps(server)) {
         ns.exec(p.filename, target, p.threads, ...p.args);
     }
 }
