@@ -24,3 +24,7 @@ export async function main(ns) {
         await log(ns, 'grow', target, amt)
     }
 }
+
+export function autocomplete(data, args) {
+    return [...data.servers]; // This script autocompletes the list of servers.
+  }
