@@ -53,3 +53,20 @@ export async function main(ns) {
 	ns.exec("/automation/util/grow.js", server, growThreads, target);
 	ns.exec("/automation/util/hack.js", server, hackThreads, target);
 }
+
+export function autocomplete(data, args) {
+	data.flags([
+		["server", null],  // the server that will run the scripts
+		["target", null],  // the target server
+		["verbose", false], // print errors if launching the scripts fails
+	])
+	if (args.length === 1 || args.length === 2){
+		return data.servers
+	}
+	const options = {
+		"server": data.servers,  // the server that will run the scripts
+		"target": data.servers,  // the target server
+	}
+
+	return []
+}
