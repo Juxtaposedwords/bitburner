@@ -43,7 +43,8 @@ import { scan } from "./automation/lib/scan";
         const availRam = ns.getServerMaxRam(flags.server) - ns.getServerUsedRam(flags.server)
     
         if (neededRam > availRam) {
-            break
+            ns.tprint(`INFO: skipping ${target}, ${ns.nFormat(neededRam, '0.0a')} RAM needed.`)
+            continue
         }
         ns.exec("/automation/util/weaken.js", flags.server, weakenThreads, target);
         ns.exec("/automation/util/grow.js", flags.server, growThreads, target);
@@ -51,7 +52,7 @@ import { scan } from "./automation/lib/scan";
         started.push(target)
     }
 
-    ns.tprint(`INFO: Started hacking ${started.length} servers: ${started}.`)
+    ns.tprint(`INFO: Started hacking ${started.length} servers: ${started.join(', ')}.`)
 }
 
 // cleanServer removes all .js files on the server.
