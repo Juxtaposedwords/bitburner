@@ -10,11 +10,13 @@ export async function main(ns) {
         ["by_target", false]
     ])
     const result = []
+    let total = 0
     for (const server of allServers(ns)) {
         for (const s of ns.ps(server)) {
             const inc = ns.getScriptIncome(s.filename, server, ...s.args)
             if (inc > 0) {
                 result.push([server, s.filename + " " + s.args, inc])
+                total += inc
             }
         }
     }
@@ -31,6 +33,7 @@ export async function main(ns) {
             else return 0;
         })
         result.forEach((s, i) => result[i][2] = ns.nFormat(s[2], '0.0a'))
+        result.push(['', 'TOTAL:', ns.nFormat(total, '0.0a')])
         pad(ns, result);
         ns.tprint("\n" + result.map(s => s.join('')).join("\n"));
         return
@@ -44,6 +47,7 @@ export async function main(ns) {
     const out = Object.keys(totals).map(k => [k, totals[k]])
     out.sort((a, b) => a[1] > b[1] ? -1 : 1)
     out.forEach((s, i) => out[i][1] = ns.nFormat(out[i][1], '0.0a'))
+    out.push(['TOTAL:', ns.nFormat(total, '0.0a')])
     pad(ns, out)
     ns.tprint("\n" + out.map(s => s.join('')).join("\n"));
 }
