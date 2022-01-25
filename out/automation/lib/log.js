@@ -25,7 +25,7 @@ export async function jsonLog(ns, program, message, rawJSON = {}) {
         ...{
             "message": message,
             "host": ns.getHostname(),
-            "datetime": new Date().toISOString(),
+            "datetime": new Date().toISOString,
             "program": program,
         },
         ...rawJSON,

@@ -1,5 +1,5 @@
 // @ts-ignore
-import { log } from "/automation/lib/log.js"
+import { jsonLog } from  "/automation/lib/log.js"
 
 /**  hack continuously hacks the target server.
  *  @param {import("../../..").NS } ns */
@@ -13,7 +13,11 @@ export async function main(ns) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;
     }
-    await log(ns, 'hack:start', target, 0);
+    const log = async  function(message){
+		await jsonLog(ns,
+			"hack.js",message, {"target": target,})
+	}
+    await log(`Starting hack for ${target}`);
 
     // Infinite loop that continously hacks the target server
     while (true) {
@@ -27,6 +31,6 @@ export async function main(ns) {
             continue;
         }
         const amt = await ns.hack(target)
-        await log(ns, 'hack', target, amt)
+        await log(`hacked ${target} for ${amt}`)
     }
 }

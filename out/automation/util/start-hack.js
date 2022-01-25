@@ -1,3 +1,5 @@
+// @ts-ignore
+import { jsonLog } from  "./automation/lib/log.js"
 /**  start-hack.js starts scripts that:
  * 
  * weaken the target's security by 20 every iteration,
@@ -27,9 +29,12 @@ export async function main(ns) {
 		ns.tprint(`WARN: root access required on ${target}.`)
 		return;
 	}
-	let print = ns.print
-	if (flags.verbose) {
-		print = ns.tprint
+	const log = async  function(message){
+		if (flags.verbose) {
+			ns.tprint(message)
+		}
+		await jsonLog(ns,
+			"start-hack.js",message, {"server":server,"target": target,})
 	}
 
 	if (server != "home") {
@@ -54,7 +59,7 @@ export async function main(ns) {
 
 	if (neededRam > availRam) {		
 		const nf = ns.nFormat
-		print(`ERROR: not enough RAM: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
+		log(`ERROR: not enough RAM: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
 		return;
 	}
 	ns.exec("/automation/util/weaken.js", server, weakenThreads, target);

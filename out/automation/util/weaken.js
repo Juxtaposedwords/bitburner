@@ -1,5 +1,5 @@
 // @ts-ignore
-import { log } from  "./automation/lib/log.js"
+import { jsonLog } from  "./automation/lib/log.js"
 
 // weaken continuously weakens the target server.
 /**
@@ -14,14 +14,18 @@ export async function main(ns) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;
     }
-    await log(ns, 'weaken:start', target, 0);
+	const log = async  function(message){
+		await jsonLog(ns,
+			"weaken.js",message, {"target": target,})
+	}
+    await log(`Started weaking: ${target}`);
  
     // Infinite loop that continously weakens the target server.
     while (true) {
         // Always sleep in an infinite loop.
         await ns.sleep(100);
         const amt = await ns.weaken(target)
-        await log(ns, 'weaken', target, amt)
+        await log(`Weakend for ${amt}`)
     }
 }
  

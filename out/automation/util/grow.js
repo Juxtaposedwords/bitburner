@@ -1,6 +1,6 @@
 
 // @ts-ignore
-import { log } from  "/automation/lib/log.js"
+import { jsonLog } from  "/automation/lib/log.js"
 
 /** grow continuously grows the target server.
  *  @param {import("../../..").NS } ns */
@@ -14,13 +14,17 @@ export async function main(ns) {
         ns.tprint(`ERROR: Need root access on ${target}.`);
         return;
     }
-    await log(ns, 'grow:start', target, 0);
+    const log = async  function(message){
+		await jsonLog(ns,
+			"grow.js",message, {"target": target,})
+	}
+    await log(`Started grow for ${target}`);
  
     // Infinite loop that continously hacks the target server
     while (true) {
         // Always sleep in an infinite loop.
         await ns.sleep(100);
         const amt = await ns.grow(target)
-        await log(ns, 'grow', target, amt)
+        await log(`Grew for ${amt}`)
     }
 }
