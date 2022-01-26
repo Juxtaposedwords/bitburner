@@ -67,6 +67,11 @@ export function autocomplete(data, args) {
 		"server": data.servers,  // the server that will run the scripts
 		"target": data.servers,  // the target server
 	}
+	for (let arg of args.slice(-2)) {
+		if (arg.startsWith('--')) {
+			return options[arg.slice(2)] || []
+		}
+	}
 
 	return []
 }
