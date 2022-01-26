@@ -52,3 +52,8 @@ export async function main(ns) {
     ns.tprint("\n" + out.map(s => s.join('')).join("\n"));
 }
 
+export function autocomplete(data, args) {
+	data.flags([
+		["sort_by", "hostname"], // what to sort entries by
+	])
+}

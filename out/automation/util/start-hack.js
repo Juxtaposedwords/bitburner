@@ -61,3 +61,21 @@ export async function main(ns) {
 	ns.exec("/automation/util/grow.js", server, growThreads, target);
 	ns.exec("/automation/util/hack.js", server, hackThreads, target);
 }
+export function autocomplete(data, args) {
+	data.flags([
+		["server", null],  // the server that will run the scripts
+		["target", null],  // the target server
+		["verbose", false], // print errors if launching the scripts fails
+	])
+	const options = {
+		"server": data.servers,  // the server that will run the scripts
+		"target": data.servers,  // the target server
+	}
+
+	for (let arg of args.slice(-2)) {
+		if (arg.startsWith('--')) {
+			return options[arg.slice(2)] || []
+		}
+	}
+	return []
+}

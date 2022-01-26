@@ -14,7 +14,6 @@
 export async function main(ns) {
     const data = ns.flags([
 		["port", 2], // Which port the listener should listen to.
-        ["log_destination", "home"], // Which port the listener should listen to.
 	]);
     const port = ns.getPortHandle(data["port"]);
     await ns.disableLog('ALL')
@@ -45,4 +44,10 @@ async function update(ns, fileName, line, destination) {
     } else {
         await ns.write(fileName, line, "w")
     }
+}
+export function autocomplete(data, args) {
+	data.flags([
+		["port", 2], // Which port the listener should listen to.
+	]);
+    return []
 }
