@@ -55,23 +55,8 @@ export async function main(ns) {
 }
 
 export function autocomplete(data, args) {
-	data.flags([
-		["server", null],  // the server that will run the scripts
-		["target", null],  // the target server
-		["verbose", false], // print errors if launching the scripts fails
-	])
 	if (args.length === 1 || args.length === 2){
 		return data.servers
 	}
-	const options = {
-		"server": data.servers,  // the server that will run the scripts
-		"target": data.servers,  // the target server
-	}
-	for (let arg of args.slice(-2)) {
-		if (arg.startsWith('--')) {
-			return options[arg.slice(2)] || []
-		}
-	}
-
 	return []
 }
