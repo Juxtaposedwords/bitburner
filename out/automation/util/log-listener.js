@@ -12,37 +12,31 @@
  * 
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    const data = ns.flags([
+    const flags = ns.flags([
 		["port", 2], // Which port the listener should listen to.
-        ["log_destination", "home"], // Which port the listener should listen to.
 	]);
-    const port = ns.getPortHandle(data["port"]);
+    const port = ns.getPortHandle(flags.port);
     await ns.disableLog('ALL')
     while (true) {
         if (port.empty()) {
             await ns.sleep(1000);
             continue;
         }
-        let v = port.read();
+        const v = port.read();
 
-        let entry = JSON.parse(v);
+        const entry = JSON.parse(v);
 
         // Write the raw json log.
         const rawFile = `/logs/raw/${entry.host}.txt`;
-        // we can't use a variable for the "a" in this context, as the letter a is not the flag append.
         update(ns, rawFile, v + "\n")
 
         // Write out the structured log,
         const outputFile = `/logs/${entry.host}/${entry.program}.txt`
-        let line = `${entry.datetime} ${entry.program} : ${entry.message}\n`
+        const line = `${entry.datetime} ${entry.program} : ${entry.message}\n`
         update(ns, outputFile, line)
     }
 }
 // TODO add log file truncation
 async function update(ns, fileName, line, destination) {
-    if (ns.fileExists(fileName)) {
-        await ns.write(fileName, line, "a")
-    } else {
-        await ns.write(fileName, line, "w")
-    }
+    await ns.write(fileName,line,ns.fileExists(fileName)? "a":"w")
 }
