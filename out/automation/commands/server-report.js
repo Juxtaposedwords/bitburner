@@ -28,7 +28,7 @@ export async function main(ns) {
 	let by = flags.sort_by
 	let field = undefined;
 	for (let i = 0; i < fields.length; i++) {
-		if (by == fields[i]) {
+		if (by.toLowerCase() == fields[i].toLowerCase()) {
 			field = i;
 			break;
 		}
