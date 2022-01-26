@@ -3,10 +3,9 @@ export async function main(ns) {
     const args = ns.flags([["help", false]]);
     const server = String(ns.args[0]);
     if (args.help || ns.args[0] == undefined) {
-        ns.tprint("This script does a more detailed analysis of a server.");
-        ns.tprint(`Usage: run ${ns.getScriptName()} SERVER`);
-        ns.tprint("Example:");
-        ns.tprint(`> run ${ns.getScriptName()} n00dles`);
+        ns.tprint(`\nThis script provides a more detailed analysis of a server.
+    Usage:   run ${ns.getScriptName()} SERVER
+    Example: run ${ns.getScriptName()} n00dles`);
         return;
     }
     const ramMax = ns.getServerMaxRam(server);
@@ -38,5 +37,6 @@ ${server}:
 }
 
 export function autocomplete(data, args) {
+    data.flags([["help", false]]);
     return [...data.servers]; // This script autocompletes the list of servers.
   }

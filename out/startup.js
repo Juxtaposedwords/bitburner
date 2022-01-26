@@ -59,3 +59,10 @@ export async function main(ns) {
         await ns.sleep(60000)
     }
 }
+
+export function autocomplete(data, args) {
+    data.flags([
+        ["verbose", false],
+    ])
+    return []
+}

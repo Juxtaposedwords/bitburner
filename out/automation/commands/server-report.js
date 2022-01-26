@@ -28,7 +28,7 @@ export async function main(ns) {
 	let by = flags.sort_by
 	let field = undefined;
 	for (let i = 0; i < fields.length; i++) {
-		if (by == fields[i]) {
+		if (by.toLowerCase() == fields[i].toLowerCase()) {
 			field = i;
 			break;
 		}
@@ -97,7 +97,7 @@ export async function main(ns) {
 }
 
 export function autocomplete(data, args) {
-	flags.flags([
+	data.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
 		["top", 0], // just give the top X entries
