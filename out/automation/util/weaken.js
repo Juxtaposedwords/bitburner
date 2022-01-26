@@ -25,7 +25,7 @@ export async function main(ns) {
         // Always sleep in an infinite loop.
         await ns.sleep(100);
         const amt = await ns.weaken(target)
-        await log(`Weakend for ${amt}`)
+        await log(`Weakened ${target} for ${amt}`)
     }
 }
  
