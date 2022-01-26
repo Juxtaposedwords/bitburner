@@ -50,8 +50,12 @@ import { scan } from "./automation/lib/scan";
         ns.exec("/automation/util/grow.js", flags.server, growThreads, target);
         ns.exec("/automation/util/hack.js", flags.server, hackThreads, target);
         started.push(target)
-    }
+    }   
 
+    if (started.length == 0) {
+        ns.tprint(`INFO: Not enough RAM on ${flags.server} to hack any available servers.`)
+        return
+    }
     ns.tprint(`INFO: Started hacking ${started.length} servers: ${started.join(', ')}.`)
 }
 
