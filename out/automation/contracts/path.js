@@ -89,36 +89,3 @@ export function gridWithObstacles(ns, data) {
     }
     return c[maxY - 1][maxX - 1];
 }
-
-
-function countPathInGrid(data, x, y) {
-
-    var obstacle = data[y][x];
-
-    if (obstacle == 1) {
-
-        return 0;
-
-    }
-
-    if (x == data[y].length – 1 && y == data.length) {
-
-        return 1;
-
-    }
-
-    var count = 0;
-
-    if (x < data[y].length – 1) {
-
-        count += countPathInGrid(data, x + 1, y);
-
-    }
-
-    if (y < data.length – 1) {
-
-        count += countPathInGrid(data, x, y + 1);
-
-    }
-
-}
