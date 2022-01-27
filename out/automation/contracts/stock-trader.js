@@ -23,6 +23,30 @@ export function oneTransaction(ns, input) {
     return profit;
 }
 
+/**
+ * You are given an array of numbers representing stock prices, where the
+ * i-th element represents the stock price on day i.
+ * 
+ * Determine the maximum possible profit you can earn using as many transactions
+ * as you’d like. A transaction is defined as buying and then selling one
+ * share of the stock. Note that you cannot engage in multiple transactions at
+ * once. In other words, you must sell the stock before you buy it again. If no
+ * profit can be made, then the answer should be 0.
+ * @param {import("../../..").NS } ns */
+export function unlimitedTransactions(ns, input) {
+
+    if (input.length == 0) {
+        return 0;
+    }
+
+    var windows = findProfitWindows(input);
+    var profit = windows.map(c => c[1] - c[0]).reduce((a, b) => a + b, 0);
+
+    return profit;
+
+}
+
+
 function findProfitWindows(input) {
     var start = input[0];
     var end = start;
