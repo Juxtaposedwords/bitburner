@@ -15,10 +15,10 @@ export function oneTransaction(ns, input) {
 
     }
 
-    var windows = findProfitWindows(input);
+    let windows = findProfitWindows(input);
 
-    var mergedWindows = mergeWindows(windows);
-    var profit = Math.max(...(mergedWindows.map(cs => Math.max(...(cs.map(c => c[1] - c[0]))))));
+    let mergedWindows = mergeWindows(windows);
+    let profit = Math.max(...(mergedWindows.map(cs => Math.max(...(cs.map(c => c[1] - c[0]))))));
 
     return profit;
 }
@@ -39,8 +39,8 @@ export function unlimitedTransactions(ns, input) {
         return 0;
     }
 
-    var windows = findProfitWindows(input);
-    var profit = windows.map(c => c[1] - c[0]).reduce((a, b) => a + b, 0);
+    let windows = findProfitWindows(input);
+    let profit = windows.map(c => c[1] - c[0]).reduce((a, b) => a + b, 0);
 
     return profit;
 
@@ -62,7 +62,7 @@ export function twoTransactions(ns, input) {
         return 0;
     }
 
-    var windows = findProfitWindows(input);
+    let windows = findProfitWindows(input);
     return maxProfit(windows, 2);
 
 }
@@ -84,7 +84,7 @@ export function twoTransactions(ns, input) {
         return 0;
     }
 
-    var windows = findProfitWindows(input[1]);
+    let windows = findProfitWindows(input[1]);
     return maxProfit(windows, input[0]);
 
 }
@@ -96,15 +96,15 @@ function maxProfit(windows, k) {
         return 0;
     }
 
-    var c0 = windows[0];
+    let c0 = windows[0];
     if (windows.length == 1) {
         return c0[1] - c0[0];
     }
 
-    var profit = maxProfit(windows.slice(1), k);
+    let profit = maxProfit(windows.slice(1), k);
 
-    for (var i = 0; i < windows.length; i++) {
-        var p = windows[1] - windows[0][0] + maxProfit(windows.slice(i + 1), k - 1);
+    for (let i = 0; i < windows.length; i++) {
+        let p = windows[1] - windows[0][0] + maxProfit(windows.slice(i + 1), k - 1);
         if (p > profit) {
             profit = p;
         }
@@ -114,11 +114,11 @@ function maxProfit(windows, k) {
 
 
 function findProfitWindows(input) {
-    var start = input[0];
-    var end = start;
-    var windows = [];
-    for (var i = 1; i < input.length; i++) {
-        var now = input;
+    let start = input[0];
+    let end = start;
+    let windows = [];
+    for (let i = 1; i < input.length; i++) {
+        let now = input;
         if (end < now) {
             end = now;
         }
@@ -144,8 +144,8 @@ function mergeWindows(windows) {
     let cs = windows.slice();
     mergeWindows.push(cs);
     while (cs.length > 1) {
-        var ncs = [];
-        for (var i = 0; i < cs.length - 1; i++) {
+        let ncs = [];
+        for (let i = 0; i < cs.length - 1; i++) {
             ncs.push([cs[i][0], cs[i + 1][1]]);
         }
         mergeWindows.push(ncs);
