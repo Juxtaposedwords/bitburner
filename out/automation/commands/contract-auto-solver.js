@@ -70,7 +70,6 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     if (!dryRun) {
         reward = ns.codingcontract.attempt(answer, filename, host, { 'returnReward': true });
     }
-    output.push(`solution: ${reward}`)
     output.push(`reward:   ${reward}`)
     let succint = `${host.padEnd(15, ' ')} ${filename.padEnd(25, ' ')}`
     ns.tprint(output.join("\n"))
