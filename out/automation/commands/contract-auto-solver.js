@@ -35,7 +35,7 @@ export async function main(ns) {
         }
     }
     if (count==0){
-        ns.tprint("No contracts were found.")
+        ns.tprint("INFO: No contracts were found.")
     }
 }
 function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
