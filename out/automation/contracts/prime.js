@@ -1,5 +1,5 @@
 /** @param {import("../../..").NS } ns */
-function largestPrimeFactor(ns, input) {
+export function largestPrimeFactor(ns, input) {
 
     let factor = 0;
     let numb = input;
