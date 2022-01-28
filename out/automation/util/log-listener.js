@@ -37,6 +37,6 @@ export async function main(ns) {
     }
 }
 // TODO add log file truncation
-async function update(ns, fileName, line, destination) {
+async function update(ns, fileName, line) {
     await ns.write(fileName,line,ns.fileExists(fileName)? "a":"w")
 }
