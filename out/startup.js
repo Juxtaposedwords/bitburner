@@ -6,23 +6,24 @@ import { root } from "/automation/lib/root.js"
 /**
  *  Startup all start-of-game automation.  Use "--verbose" argument if
  * you want info logs written to the console.
+ * 
+ *  Startup attempts to fill up the machine's memory with a ratio of
+ *   grow/hack/weak for machine. If using this script, always upgrade
+ *   server size when able.
+ * 
  *  @param {import("../.").NS } ns */
 export async function main(ns) {
-    const data = ns.flags([
+    const flags = ns.flags([
         ["verbose", false],
-        ["minimum-server-purchase", 0]
     ]);
-    const verbose = data["verbose"];
-
     if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
         ns.exec('/automation/util/log-listener.js', 'home', 1);
     }
 
     const exclude = ["home", "darkweb"]
-    const log = (message) => {
-        if (verbose) {
-            ns.tprint(message)
-        }
+    let print = ns.print;
+    if (flags.verbose) {
+        print = ns.tprint
     }
     
     while (true) {
@@ -37,20 +38,31 @@ export async function main(ns) {
         for (const server of h) {
             const s = ns.getServer(server)
             if (!s.hasAdminRights) {
-                log(`INFO: getting root on ${server}...`)
-                if (!root(ns, server, verbose)) {
+                print(`INFO: getting root on ${server}...`)
+                if (!root(ns, server, flags.verbose)) {
                     continue;
                 }
             }
             if (ns.getServerMaxMoney(server) == 0) {
-                ns.print(`INFO: not starting hack script for ${server}, there's no money in it.`)
+                print(`INFO: not starting hack script for ${server}, there's no money in it.`)
                 continue;
             }
-            // This is only printed once per server, so display it even in non-verbose mode.
-            ns.print(`INFO: starting hack script for ${server}...`);
-            ns.exec("/automation/util/start-hack.js", "home", 1, "home", server);
+            print(`INFO: starting hack script for ${server}...`);
+            try {
+                ns.exec("/automation/util/start-hack.js", "home", 1, "--server", "home", "--target", server);
+            }
+            catch (error) {
+                print(error)
+            }
         }
         // Try again in a minute.
         await ns.sleep(60000)
     }
+}
+
+export function autocomplete(data, args) {
+    data.flags([
+        ["verbose", false],
+    ])
+    return []
 }

@@ -53,3 +53,10 @@ export async function main(ns) {
 	ns.exec("/automation/util/grow.js", server, growThreads, target);
 	ns.exec("/automation/util/hack.js", server, hackThreads, target);
 }
+
+export function autocomplete(data, args) {
+	if (args.length === 1 || args.length === 2){
+		return data.servers
+	}
+	return []
+}

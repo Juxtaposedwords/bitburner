@@ -1,33 +1,42 @@
-/**  Listen to port 1 and logs all values received.
- *    Strings written out which begin and end with bracktes are assumed to be json objects.
- *    Json printing also prints to a single file with all json objects and to individual log files for each host.
+/**
+ * TODO(juxtaposedwords): find a way to make the need for 'await'  not necesasry when calling
+ * TODO(juxtaposedwords): Add logging levels
+ * TODO(juxtaposedwords): Add log file line truaction.
+ * Json-logger creates a listener which listens to port 2 and writes everything received to a file asssociated with the logging services' name.
+ *  Usage example:
+ *      export async function main(ns) {
+ *          await log(ns, "i'be been waiting.");
+ *          await log(ns, "for the longest time.");
+ *      }
+ *  async function log(ns, message) { await jsonLog(ns, "MY_COMPLETLEY_REAL_PROGRAM_NAME", message)} 
  * 
- * @param {import("../../..").NS } ns */
+ *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    ns.disableLog('ALL')
-    const h = ns.getPortHandle(1);
+    const flags = ns.flags([
+		["port", 2], // Which port the listener should listen to.
+	]);
+    const port = ns.getPortHandle(flags.port);
+    await ns.disableLog('ALL')
     while (true) {
-        if (h.empty()) {
-            await ns.sleep(100);
+        if (port.empty()) {
+            await ns.sleep(1000);
             continue;
         }
-        let v = await ns.readPort(1);
-        // Log any string objects.
-        if (!(typeof v === 'string')) {
-            ns.write('log.txt', v + '/n');
-            continue
-        }
-        let input = v + "";
-        if (input.startsWith("{") && input.endsWith("}")) {
-            // Handle our pretty json printing.
-            let entry = JSON.parse(input);
-            // don't know what this is supposed to do, but it's unused.
-            // let line = `${entry.date} ${entry.method}.js : target=${entry.target} start=${entry.} amount=${entry.amount}`
-            await ns.write(`logs/${entry.host}.log`, v + '\n')
-            await ns.write('logs/all.log', input + '\n')
-        } else {
-            // this is the current non-json behavior route.
-            await ns.write('log.txt', v + '\n');
-        }
+        const v = port.read();
+
+        const entry = JSON.parse(v);
+
+        // Write the raw json log.
+        const rawFile = `/logs/raw/${entry.host}.txt`;
+        await update(ns, rawFile, v + "\n")
+
+        // Write out the structured log,
+        const outputFile = `/logs/${entry.host}/${entry.program}.txt`
+        const line = `${entry.datetime} ${entry.program} : ${entry.message}\n`
+        await  update(ns, outputFile, line)
     }
+}
+// TODO add log file truncation
+async function update(ns, fileName, line) {
+    await ns.write(fileName,line,ns.fileExists(fileName)? "a":"w")
 }

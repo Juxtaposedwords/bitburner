@@ -15,8 +15,8 @@ export async function main(ns) {
     if (target ==""){
         target =ns.getHostname()
     }
-    var securityThresh =  ns.getServerMinSecurityLevel(target) + 10
-    var moneyThresh = ns.getServerMaxMoney(target)*.80 ;
+    var securityThresh =  ns.getServerMinSecurityLevel(target) + 5
+    var moneyThresh = ns.getServerMaxMoney(target)*.25 ;
     while(true) {
         if (ns.getServerSecurityLevel(target) >securityThresh) {
             await ns.weaken(target);

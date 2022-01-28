@@ -14,21 +14,21 @@ const fields = [
 ]
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
-	const data = ns.flags([
+	const flags = ns.flags([
 		["ports", "open"], // whether to use servers which have open ports or not
 		["sort_by", "moneyAvailable"], // what to sort entries by
 		["top", 0], // print only the top X entries. by default all are printed
-		["unused", false] // report only servers with 100% free RAM
+		["unused", false], // report only servers with 100% free RAM
+		["hackable", false], // report only servers we can hack
 	]);
-	if (data.ports != "open" && data.ports != "closed") {
+	if (flags.ports != "open" && flags.ports != "closed") {
 		ns.tprint("WARN:  Usage: run server-report.js --ports=(open|closed)")
 		return
 	}
-	let by = data.sort_by
-	if (by == undefined) { by = "moneyAvailable" }
+	let by = flags.sort_by
 	let field = undefined;
 	for (let i = 0; i < fields.length; i++) {
-		if (by == fields[i]) {
+		if (by.toLowerCase() == fields[i].toLowerCase()) {
 			field = i;
 			break;
 		}
@@ -44,14 +44,17 @@ export async function main(ns) {
 		if (s == "home") {
 			continue
 		}
-		if (data.unused) {
-			const srv = ns.getServer(s)
+		const srv = ns.getServer(s)
+		if (flags.unused) {
 			if (srv.maxRam == 0) { continue }
 			if (srv.ramUsed != 0) { continue }
 		}		
 		const hasRoot = ns.hasRootAccess(s);
-		if (data.ports == "open" && !hasRoot) { continue }
-		if (data.ports == "closed" && hasRoot) { continue }
+		if (flags.ports == "open" && !hasRoot) { continue }
+		if (flags.ports == "closed" && hasRoot) { continue }
+		if (flags.hackable && ns.getServerRequiredHackingLevel(s) > ns.getHackingLevel()) {
+			continue
+		}
 		result.push([
 			s,
 			ns.getServerRequiredHackingLevel(s),
@@ -65,8 +68,8 @@ export async function main(ns) {
 
 	result.sort((a, b) => a[field] > b[field] ? -1 : 1);
 
-	if (data.top > 0 && data.top < result.length) {
-		result = result.slice(0, data.top);
+	if (flags.top > 0 && flags.top < result.length) {
+		result = result.slice(0, flags.top);
 	}
 	
 	for (let i = 0; i < result.length; i++) {
@@ -75,7 +78,7 @@ export async function main(ns) {
 		r[4] = ns.nFormat(r[4], '0.0a');
 	}
 
-  if (!data.pretty) {
+  if (!flags.pretty) {
 		result.unshift([...fields]); // copy fields here, so that pad doesn't modify a global variable.
 		pad(ns, result)
 		ns.tprint("\n" + result.map(s => s.join('')).join("\n"));

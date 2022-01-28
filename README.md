@@ -23,9 +23,9 @@
 ## Configuration information
 
 * Files in the `out/` directory are written to the desktop.
-* Bitburner netscript2 scripts do not allow for a relative path. So we have to instead use the absolute value of `/automation/lib/log.ns` instead of `../lib/log.ns`.
-
+* Bitburner netscript2 scripts do not allow for a relative path. So we have to instead use the absolute value of `/automation/lib/log.js` instead of `../lib/log.js`.
+* Code is written for the`dev` branch
 
 ## Autocomplete seems busted?
 
-* You'll need to updated index.d.ts [from the official source](https://github.com/danielyxie/bitburner/blob/dev/src/ScriptEditor/NetscriptDefinitions.d.ts)
+* You'll need to update index.d.ts [from the official source](https://github.com/danielyxie/bitburner/blob/dev/src/ScriptEditor/NetscriptDefinitions.d.ts)
