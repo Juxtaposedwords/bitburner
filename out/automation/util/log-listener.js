@@ -28,12 +28,12 @@ export async function main(ns) {
 
         // Write the raw json log.
         const rawFile = `/logs/raw/${entry.host}.txt`;
-        update(ns, rawFile, v + "\n")
+        await update(ns, rawFile, v + "\n")
 
         // Write out the structured log,
         const outputFile = `/logs/${entry.host}/${entry.program}.txt`
         const line = `${entry.datetime} ${entry.program} : ${entry.message}\n`
-        update(ns, outputFile, line)
+        await  update(ns, outputFile, line)
     }
 }
 // TODO add log file truncation
