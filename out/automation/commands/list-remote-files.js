@@ -7,7 +7,7 @@ import { servers } from "/automation/lib/scan.js";
  * 
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-
+    var count = 0;
     const flags = ns.flags([
         ['extension', ''],
         ['exclude_extension', 'js'],
@@ -31,7 +31,11 @@ export async function main(ns) {
         ns.tprintf("%s", server)
         for (const file of files.sort()) {
             ns.tprintf("  %s", file)
+            count++
         }
+    }
+    if (count == 0){
+        ns.tprintf("INFO: No files were found.")
     }
 }
 
