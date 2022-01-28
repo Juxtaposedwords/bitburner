@@ -9,18 +9,7 @@
  * 
  * @param {import("../../..").NS } ns */
 export function oneTransaction(ns, input) {
-    if (input.length == 0) {
-
-        return 0;
-
-    }
-
-    let windows = findProfitWindows(input);
-
-    let mergedWindows = mergeWindows(windows);
-    let profit = Math.max(...(mergedWindows.map(cs => Math.max(...(cs.map(c => c[1] - c[0]))))));
-
-    return profit;
+    return maxProfit([1, input]);
 }
 
 /**
@@ -34,15 +23,7 @@ export function oneTransaction(ns, input) {
  * profit can be made, then the answer should be 0.
  * @param {import("../../..").NS } ns */
 export function unlimitedTransactions(ns, input) {
-
-    if (input.length == 0) {
-        return 0;
-    }
-
-    let windows = findProfitWindows(input);
-    let profit = windows.map(c => c[1] - c[0]).reduce((a, b) => a + b, 0);
-
-    return profit;
+    return maxProfit([Math.ceil(input.length / 2), input]);
 
 }
 
@@ -58,13 +39,7 @@ export function unlimitedTransactions(ns, input) {
  * can be made, then the answer should be 0.
  * @param {import("../../..").NS } ns */
 export function twoTransactions(ns, input) {
-    if (input.length == 0) {
-        return 0;
-    }
-
-    let windows = findProfitWindows(input);
-    return maxProfit(windows, 2);
-
+    return maxProfit([2, input])
 }
 
 
@@ -79,78 +54,48 @@ export function twoTransactions(ns, input) {
  * you must sell the stock before you can buy it. If no profit can be made, then
  * the answer should be 0.
  * @param {import("../../..").NS } ns */
- export function kTransactions(ns, input) {
-    if (input[1].length == 0) {
-        return 0;
-    }
-
-    let windows = findProfitWindows(input[1]);
-    return maxProfit(windows, input[0]);
-
-}
-
-/**
- *  fredProfit didn't have the same ring.*/
-function maxProfit(windows, k) {
-    if (k == 0 || windows.length == 0) {
-        return 0;
-    }
-
-    let c0 = windows[0];
-    if (windows.length == 1) {
-        return c0[1] - c0[0];
-    }
-
-    let profit = maxProfit(windows.slice(1), k);
-
-    for (let i = 0; i < windows.length; i++) {
-        let p = windows[1] - windows[0][0] + maxProfit(windows.slice(i + 1), k - 1);
-        if (p > profit) {
-            profit = p;
-        }
-    }
-    return profit;
+export function kTransactions(ns, input) {
+    return maxProfit(input)
 }
 
 
-function findProfitWindows(input) {
-    let start = input[0];
-    let end = start;
-    let windows = [];
-    for (let i = 1; i < input.length; i++) {
-        let now = input;
-        if (end < now) {
-            end = now;
-        }
-        if (end > now) {
-            if (end > start) {
-                windows.push([start, end]);
+
+function maxProfit(arrayData) {
+    let i, j, k;
+
+    let maxTrades = arrayData[0];
+    let stockPrices = arrayData[1];
+
+    // WHY?
+    let tempStr = "[0";
+    for (i = 0; i < stockPrices.length; i++) {
+        tempStr += ",0";
+    }
+    tempStr += "]";
+    let tempArr = "[" + tempStr;
+    for (i = 0; i < maxTrades - 1; i++) {
+        tempArr += "," + tempStr;
+    }
+    tempArr += "]";
+
+    let highestProfit = JSON.parse(tempArr);
+
+    for (i = 0; i < maxTrades; i++) {
+        for (j = 0; j < stockPrices.length; j++) { // Buy / Start
+            for (k = j; k < stockPrices.length; k++) { // Sell / End
+                if (i > 0 && j > 0 && k > 0) {
+                    highestProfit[i][k] = Math.max(highestProfit[i][k], highestProfit[i - 1][k], highestProfit[i][k - 1], highestProfit[i - 1][j - 1] + stockPrices[k] - stockPrices[j]);
+                } else if (i > 0 && j > 0) {
+                    highestProfit[i][k] = Math.max(highestProfit[i][k], highestProfit[i - 1][k], highestProfit[i - 1][j - 1] + stockPrices[k] - stockPrices[j]);
+                } else if (i > 0 && k > 0) {
+                    highestProfit[i][k] = Math.max(highestProfit[i][k], highestProfit[i - 1][k], highestProfit[i][k - 1], stockPrices[k] - stockPrices[j]);
+                } else if (j > 0 && k > 0) {
+                    highestProfit[i][k] = Math.max(highestProfit[i][k], highestProfit[i][k - 1], stockPrices[k] - stockPrices[j]);
+                } else {
+                    highestProfit[i][k] = Math.max(highestProfit[i][k], stockPrices[k] - stockPrices[j]);
+                }
             }
-            start = now;
-            end = start;
         }
     }
-    if (end > start) {
-        windows.push([start, end]);
-    }
-
-    return windows;
-
-}
-
-
-function mergeWindows(windows) {
-    let mergeWindows = [];
-    let cs = windows.slice();
-    mergeWindows.push(cs);
-    while (cs.length > 1) {
-        let ncs = [];
-        for (let i = 0; i < cs.length - 1; i++) {
-            ncs.push([cs[i][0], cs[i + 1][1]]);
-        }
-        mergeWindows.push(ncs);
-        cs = ncs;
-    }
-    mergeWindows.reverse();
-    return mergeWindows;
+    return highestProfit[maxTrades - 1][stockPrices.length - 1];
 }
