@@ -13,61 +13,38 @@
  * 
  *  @param {import("../../..").NS } ns */
 export function sanitize(ns, input) {
-    let context = {"maxLeftLength": 0}
-    let exprs = findSanitized(ns, input, 0, context);
+    let solutions = new Set();
 
-    exprs = exprs.filter(e => e.length >= context["maxLeftLength"]).sort();
-    for (let i = 0; i < exprs.length - 1; i++) {
-        while (exprs == exprs[i + 1]) {
-            exprs.splice(i + 1, 1);
+    // Returns true and adds to solutions set if a string contains valid parentheses, false otherwise
+    let checkValidity = (str) => {
+        let nestLevel = 0;
+        for (let c of str) {
+            if (c == "(") nestLevel++;
+            else if (c == ")") nestLevel--;
+            if (nestLevel < 0) return false;
         }
-    }
-    return exprs;
-}
 
+        if (nestLevel == 0) solutions.add(str);
+        return nestLevel == 0;
+    };
 
-function findSanitized(ns, s, pos, context) {
-    if (s.length < context["maxLeftLength"]) {
-        return [];
+    // Does a breadth first search to check all nodes at the target depth
+    let getNodesAtDepth = (str, targetDepth, curDepth = 0) => {
+        if (curDepth == targetDepth)
+            checkValidity(str);
+        else
+            for (let i = 0; i < str.length; i++)
+                if (str[i] == "(" || str[i] == ")")
+                    getNodesAtDepth(str.slice(0, i) + str.slice(i + 1), targetDepth, curDepth + 1);
     }
-    if (pos == s.length) {
-        if (validateParentheses(s)) {
-            if (s.length > context["maxLeftLength"]) {
-                context["maxLeftLength"] = s.length;
-            }
-            return [s];
-        } else {
-            return []
-        }
-    }
-    let results = [];
-    let c = s[pos];
-    if (c == "(" || c == ")") {
-        results = results.concat(
-            findSanitized(ns, s, pos + 1, context),
-            findSanitized(ns, s.slice(0, pos) + s.slice(pos + 1), pos, context)
-        );
-    } else {
-        results = results.concat(
-            findSanitized(ns, s, pos + 1, context)
-        );
-    }
-    return results;
-}
 
-
-function validateParentheses(s) {
-    let n = 0;
-    for (let i = 0; i < s.length; i++) {
-        if (s == "(") {
-           n++;
-        }
-        if (s == ")") {
-            n--;
-        }
-        if (n < 0) {
-            return false;
-        }
+    // Start from the top level and expand down until we find at least one solution
+    let targetDepth = 0;
+    while (solutions.size == 0 && targetDepth < input.length - 1) {
+        getNodesAtDepth(input, targetDepth++);
     }
-    return n == 0;
+
+    // If no solutions were found, return [""]
+    if (solutions.size == 0) solutions.add("");
+    return `[${[...solutions].join(", ")}]`;
 }
