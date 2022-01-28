@@ -7,25 +7,27 @@
  * 
  * @param {import("../../..").NS } ns */
 export function triangle(ns, input) {
+    let triangle = input;
+    let nextArray;
+    let previousArray = triangle[0];
+   
+    for (let i = 1; i < triangle.length; i++) {
+        nextArray = [];
+        for (let j = 0; j < triangle[i].length; j++) {
+            if (j == 0) {
+                nextArray.push(previousArray[j] + triangle[i][j]);
+            } else if (j == triangle[i].length - 1) {
+                nextArray.push(previousArray[j - 1] + triangle[i][j]);
+            } else {
+                nextArray.push(Math.min(previousArray[j], previousArray[j - 1]) + triangle[i][j]);
+            }
 
-    var length = input.length;
-    if (length == 1) { return input[0][0]; }
-
-    var r = input[length - 1].slice();
-
-    for (var i = length - 2; i >= 0; i--) {
-
-        var currentRow = input;
-        let nextRow = [];
-
-        for (var j = 0; j < i + 1; j++) {
-            nextRow.push(Math.min(r[j] + currentRow[j], r[j + 1] + currentRow[j]));
         }
-        r = nextRow;
+
+        previousArray = nextArray;
     }
 
-    return r[0];
-
+    return Math.min.apply(null, nextArray);
 }
 
 /**
