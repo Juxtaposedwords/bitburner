@@ -12,7 +12,17 @@ export function totalWayToSum(ns, input) {
  * at least one number) which has the largest sum and return that sum.
  * @param {import("../../..").NS } ns */
 export function subarrayWithMaxSum(ns, input) {
-    return findMaxSubArraySum(input);
+    let arr = input
+    let maxSum = input[0] +input[1] 
+    for (let i = 0; i <input.length;i++){
+        for (let j = i+1; j < input.length; j++){
+            let sum = input.slice(i,j).reduce((a, b) => a + b);
+            if (sum > maxSum) {
+                maxSum=sum
+            }
+        }
+    }
+    return maxSum
 }
 
 function waysToSum(limit, n, cache) {
@@ -39,22 +49,4 @@ function waysToSum(limit, n, cache) {
         cache[n] = {};
     }
     cache[n][limit] = s; return s;
-}
-
-function findMaxSubArraySum(arr) {
-    if (arr.length == 0) {
-        return 0;
-    }
-    if (arr.length == 1) {
-        return arr[0];
-    }
-    var sum = findMaxSubArraySum(arr.slice(1));
-    var s = 0;
-    for (var i = 0; i < arr.length; i++) {
-        s += arr;
-        if (s > sum) {
-            sum = s;
-        }
-    }
-    return sum;
 }
