@@ -25,60 +25,65 @@ import { servers } from "/automation/lib/scan.js";
 
 /** @param {NS} ns **/
 export async function main(ns) {
+    var count =0;
     for (const server of servers(ns, false).sort()) {
-        const contracts = ns.ls(server).filter(function (name) {
-            return name.endsWith("cct")
-        })
         for (const contract of ns.ls(server).filter(function (name) {
             return name.endsWith("cct")
         })) {
-            solveContract(ns, server, contract, 1);
+            solveContract(ns, server, contract, 1), true;
+            count++;
         }
     }
+    if (count==0){
+        ns.tprint("No contracts were found.")
+    }
 }
-function solveContract(ns, host, filename, logLevel = 0) {
+function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     const type = ns.codingcontract.getContractType(filename, host);
     const desc = ns.codingcontract.getDescription(filename, host);
-    const title = ns.codingcontract.getData(filename, host);
-    ns.tprint(host + " " + filename);
-    ns.tprint(type);
-    if (logLevel >= 1) {
-        ns.tprint(`INFO: ${title}`);
-    }
-    if (logLevel>=2 ){
-        ns.tprint(`INFO: ${desc}`)
-    }
+    const input = ns.codingcontract.getData(filename, host);
+    let output = [
+        ``,
+        `${host.padEnd(15, ' ')} ${filename.padEnd(25, ' ')} ${type}`,
+        `input:    ${input}`];
     const promptFunction = {
         "Algorithmic Stock Trader I": oneTransaction,
         "Algorithmic Stock Trader II": unlimitedTransactions,
-        "Algorithmic Stock Trader III": twoTransactions, //broken
+        "Algorithmic Stock Trader III": twoTransactions, 
         "Algorithmic Stock Trader IV": kTransactions,
         "Array Jumping Game": jumpable,
         "Find All Valid Math Expression": allMathExpressions,
         "Find Largest Prime Factor": largestPrimeFactor,
         "Generate IP Addresses": generate,
         "Merge Overlapping Intervals": merge,
-        "Minimum Path Sum in a Triangle": triangle, //broken
-        "Sanitize Parentheses in Expression": sanitize, //broken
+        "Minimum Path Sum in a Triangle": triangle, 
+        "Sanitize Parentheses in Expression": sanitize, 
         "Spiralize Matrix": spiralize,
-        "Subarray with Maximum Sum": subarrayWithMaxSum, //broken
+        "Subarray with Maximum Sum": subarrayWithMaxSum, 
         "Total Ways to Sum": totalWayToSum,
-        "Unique Paths in a Grid I": grid, // verified
+        "Unique Paths in a Grid I": grid,
         "Unique Paths in a Grid II": gridWithObstacles,
     }
-    const answer = promptFunction[type](ns, title)
-    if (answer && !(answer instanceof String) && Object.keys(answer).length > 20) {
-        ns.tprint(`WARNING: answer size too large to print: ${Object.keys(answer).length}`);
-    } else {
-        ns.tprint(`INFO: answer: ${answer}`);
+    const answer = promptFunction[type](ns, input)
+    output.push(`solution: ${answer}`)
+    let reward = "";
+    if (!dryRun) {
+        reward = ns.codingcontract.attempt(answer, filename, host, { 'returnReward': true });
     }
-    var opts = {};
-    opts.returnReward = true;
-    var reward = new Number;
-  //  var reward = ns.codingcontract.attempt(answer, filename, host, opts);
+    output.push(`solution: ${reward}`)
+    output.push(`reward:   ${reward}`)
+    let succint = `${host.padEnd(15, ' ')} ${filename.padEnd(25, ' ')}`
+    ns.tprint(output.join("\n"))
     if (reward) {
-        ns.tprint(`INFO: ${reward}`);
+        succint  += ` Reward: ${reward}`
+        output.push(reward)
     } else {
-        ns.tprint("ERROR: failed!");
+        succint += ` FAILED (Type: ${type})`
+        output.push(`result:  FAILED`)
+    }
+    if (logLevel = 0){
+        ns.tprint(succint)
+    } else if (logLevel = 1) {
+        ns.tprint(output.join("\n"))
     }
 }
