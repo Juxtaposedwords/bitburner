@@ -25,12 +25,15 @@ import { servers } from "/automation/lib/scan.js";
 
 /** @param {NS} ns **/
 export async function main(ns) {
+    const flags = ns.flags([
+        ["dry_run", true],
+    ])
     var count =0;
     for (const server of servers(ns, false).sort()) {
         for (const contract of ns.ls(server).filter(function (name) {
             return name.endsWith("cct")
         })) {
-            solveContract(ns, server, contract, 1), true;
+            solveContract(ns, server, contract, 1, flags.dry_run)
             count++;
         }
     }
@@ -63,6 +66,10 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
         "Total Ways to Sum": totalWayToSum,
         "Unique Paths in a Grid I": grid,
         "Unique Paths in a Grid II": gridWithObstacles,
+    }
+    if (!promptFunction[type]) {
+        ns.tprintf(`No PromptFunction found for type ${type}`)
+        return
     }
     const answer = promptFunction[type](ns, input)
     output.push(`solution: ${answer}`)
