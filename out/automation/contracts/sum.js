@@ -12,12 +12,19 @@ export function totalWayToSum(ns, input) {
  * at least one number) which has the largest sum and return that sum.
  * @param {import("../../..").NS } ns */
 export function subarrayWithMaxSum(ns, input) {
-    let maxSum = input[0] +input[1] 
-    for (let i = 0; i <input.length-1;i++){
-        for (let j = i+1; j < input.length; j++){
-            let sum = input.slice(i,j).reduce((a, b) => a + b);
+    let maxSum = input[0] + input[1]
+    for (let i = 0; i < input.length - 1; i++) {
+        for (let j = i; j <= input.length; j++) {
+            let sum = Number;
+            if (j == input.length) {
+                sum = input.slice(i).reduce((a, b) => a + b);
+            } else {
+                sum = input.slice(i, j).reduce((a, b) => a + b);
+            }
             if (sum > maxSum) {
-                maxSum=sum
+                maxSum = sum
+                ns.tprintf("sum: %d\ni: index: %d  number: %d", sum, i, input[i])
+                ns.tprintf("j: index: %d  number: %d", j, input[j])
             }
         }
     }
