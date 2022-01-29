@@ -23,8 +23,6 @@ export function subarrayWithMaxSum(ns, input) {
             }
             if (sum > maxSum) {
                 maxSum = sum
-                ns.tprintf("sum: %d\ni: index: %d  number: %d", sum, i, input[i])
-                ns.tprintf("j: index: %d  number: %d", j, input[j])
             }
         }
     }
