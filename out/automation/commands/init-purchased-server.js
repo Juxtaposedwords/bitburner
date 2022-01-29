@@ -1,4 +1,4 @@
-import { scan } from "./automation/lib/scan";
+import { scan } from "/automation/lib/scan";
 
 /**  init-purchased-server.js initializes a new purchased server.  It will
  *   find all possible targets that we are not currently hacking with a

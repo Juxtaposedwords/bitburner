@@ -1,5 +1,5 @@
 // @ts-ignore
-import { jsonLog } from  "./automation/lib/log.js"
+import { jsonLog } from  "/automation/lib/log.js"
 /**  start-hack.js starts scripts that:
  * 
  * weaken the target's security by 20 every iteration,

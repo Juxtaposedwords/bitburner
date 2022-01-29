@@ -1,5 +1,5 @@
 // @ts-ignore
-import { jsonLog } from  "./automation/lib/log.js"
+import { jsonLog } from  "/automation/lib/log.js"
 
 // weaken continuously weakens the target server.
 /**
