@@ -23,18 +23,23 @@ import { allMathExpressions } from "/automation/contracts/expressions.js"
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js";
 
-/** @param {NS} ns **/
+/**
+ *  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    var count =0;
+    const flags = ns.flags([
+        ["verbosity", 1],
+        ["dry_run", false]
+    ])
+    var count = 0;
     for (const server of servers(ns, false).sort()) {
         for (const contract of ns.ls(server).filter(function (name) {
             return name.endsWith("cct")
         })) {
-            solveContract(ns, server, contract, 1), true;
+            solveContract(ns, server, contract, flags.verbosity, flags.dry_run);
             count++;
         }
     }
-    if (count==0){
+    if (count == 0) {
         ns.tprint("INFO: No contracts were found.")
     }
 }
@@ -43,23 +48,23 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     const desc = ns.codingcontract.getDescription(filename, host);
     const input = ns.codingcontract.getData(filename, host);
     let output = [
-        ``,
-        `${host.padEnd(15, ' ')} ${filename.padEnd(25, ' ')} ${type}`,
+        `INFO:`,
+        `${host.padEnd(15, ' ')} ${filename.padEnd(30, ' ')} ${type}`,
         `input:    ${input}`];
     const promptFunction = {
         "Algorithmic Stock Trader I": oneTransaction,
         "Algorithmic Stock Trader II": unlimitedTransactions,
-        "Algorithmic Stock Trader III": twoTransactions, 
+        "Algorithmic Stock Trader III": twoTransactions,
         "Algorithmic Stock Trader IV": kTransactions,
         "Array Jumping Game": jumpable,
-        "Find All Valid Math Expression": allMathExpressions,
+        "Find All Valid Math Expressions": allMathExpressions,
         "Find Largest Prime Factor": largestPrimeFactor,
         "Generate IP Addresses": generate,
         "Merge Overlapping Intervals": merge,
-        "Minimum Path Sum in a Triangle": triangle, 
-        "Sanitize Parentheses in Expression": sanitize, 
+        "Minimum Path Sum in a Triangle": triangle,
+        "Sanitize Parentheses in Expression": sanitize,
         "Spiralize Matrix": spiralize,
-        "Subarray with Maximum Sum": subarrayWithMaxSum, 
+        "Subarray with Maximum Sum": subarrayWithMaxSum,
         "Total Ways to Sum": totalWayToSum,
         "Unique Paths in a Grid I": grid,
         "Unique Paths in a Grid II": gridWithObstacles,
@@ -70,19 +75,34 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     if (!dryRun) {
         reward = ns.codingcontract.attempt(answer, filename, host, { 'returnReward': true });
     }
-    output.push(`reward:   ${reward}`)
-    let succint = `${host.padEnd(15, ' ')} ${filename.padEnd(25, ' ')}`
-    ns.tprint(output.join("\n"))
-    if (reward) {
-        succint  += ` Reward: ${reward}`
+    let succint = `INFO: ${host.padEnd(15, ' ')} ${filename.padEnd(30, ' ')}`
+    if (reward || dryRun) {
+        succint += ` Reward:   ${reward}`
         output.push(reward)
     } else {
         succint += ` FAILED (Type: ${type})`
+        output[0] = `ERROR:`
         output.push(`result:  FAILED`)
     }
-    if (logLevel = 0){
-        ns.tprint(succint)
-    } else if (logLevel = 1) {
-        ns.tprint(output.join("\n"))
+    if (logLevel === 1) {
+        ns.tprintf(succint)
+    } else if (logLevel === 2) {
+        ns.tprintf(output.join("\n"))
     }
+}
+
+export function autocomplete(data, args) {
+    data.flags([
+        ["verbosity", 1],
+        ["dry_run", false],
+    ])
+    const options = {
+        'verbosity': [0, 1, 2],
+    }
+    for (let arg of args.slice(-2)) {
+        if (arg.startsWith('--')) {
+            return options[arg.slice(2)] || []
+        }
+    }
+    return []
 }
