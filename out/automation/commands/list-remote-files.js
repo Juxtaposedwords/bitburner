@@ -7,23 +7,23 @@ import { servers } from "/automation/lib/scan.js";
  * 
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-
-    const data = ns.flags([
+    var count = 0;
+    const flags = ns.flags([
         ['extension', ''],
         ['exclude_extension', 'js'],
     ]);
-    if (data['extension'] == data['exclude_extension']) {
+    if (flags.extension == flags.exclude_extension) {
         ns.tprintf("ERROR: cannot match and exclude with the same extension")
         return
     }
     for (const server of servers(ns, false).sort()) {
         const files = ns.ls(server).filter(function (name) {
-            if (data['extension'] != '' && name.endsWith(data['extension'])) {
+            if (flags.extension != '' && name.endsWith(flags.extension)) {
                 return true
-            } else if (data['extension'] != '') {
+            } else if (flags.extension != '') {
                 return false
             }
-            return !(name.endsWith(data['exclude_extension']))
+            return !(name.endsWith(flags.exclude_extension))
         })
         if ((files.length == 0) || (server == "home")) {
             continue
@@ -31,7 +31,11 @@ export async function main(ns) {
         ns.tprintf("%s", server)
         for (const file of files.sort()) {
             ns.tprintf("  %s", file)
+            count++
         }
+    }
+    if (count == 0){
+        ns.tprintf("INFO: No files were found.")
     }
 }
 
