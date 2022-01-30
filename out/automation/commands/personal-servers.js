@@ -24,7 +24,7 @@ export async function main(ns) {
         ns.tprintf(`ERROR: --most must be one of: ${modes.join(" ,")}`)
         return
     }
-    if (flags.multiplier && flags.mode != "fill") {
+    if (flags.multiplier > 1 && flags.mode != "fill") {
         ns.tprintf(`ERROR: --multiplier can only be combined with fill`)
         return
     }
@@ -37,7 +37,7 @@ async function buy(ns, pow2) {
     const ram = Math.pow(2, Number(pow2));
     // Suffix for server names.
     let i = ns.getPurchasedServers().length;
-    while (ns.getServerMoneyAvailable("home")) {
+    while (i < 25) {
         await ns.sleep(500);
         // Check if we have enough money to purchase a server.  If we don't,
         // this script will wait until we do.  This is useful in the early
@@ -58,8 +58,9 @@ async function buy(ns, pow2) {
             "/automation/lib/log.js",
         ], "home", hostname)
         i++;
+
     }
-    ns.tprintf("INFO: Congratulations, purchased server limit of " + i + " reached.")
+    ns.tprintf("INFO: Congratulations, purchased server limit reached.")
 }
 /**  @param {import("../../..").NS } ns */
 async function setup(ns) {
@@ -73,24 +74,19 @@ async function setup(ns) {
             ns.exec("/automation/util/start-hack.js", "home", 1, ...["--target", target, "--server", server])
         }
     }
-    ns.tprintf("INFO: Congratulations, purchased servers setup")
-
 }
 /**  @param {import("../../..").NS } ns */
 async function fill(ns, multiplier) {
-    ns.tprintf(`INFO:  multi: ${multiplier}`)
 
-    const targets = scan(ns).filter(name => {
-        const server = ns.getServer(name);
-        return (server.moneyMax > 0 && name != "home")
-    })
+
     for (const hostname of ns.getPurchasedServers()) {
         const server = ns.getServer(hostname)
-//        ns.killall(hostname)
-        for (const target of targets) {
-            // i is used to allow for duplicate writing
-            await ns.exec("/automation/util/start-hack.js", "home", 1, ...["--server", hostname, "--target", target])
+        const hackRam = ns.getScriptRam("/automation/util/hack.js")
+        const hackThreads = Math.floor((server.maxRam-server.ramUsed)/ hackRam)
+        if (hackThreads<0){
+            continue
         }
+        await ns.exec("/automation/util/hack.js", hostname, hackThreads, ...[ "clarkinc"], "fill")
     }
 }
 
