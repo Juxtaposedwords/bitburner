@@ -10,26 +10,20 @@
  * merges into [[1, 6], [8, 16]]
  * 
  * @param {import("../../..").NS } ns */
-export function merge(ns, data) {
-    let  intervals = data.slice();
-    for (let  i = 0; i < intervals.length; i++) {
-        for (let  j = i + 1; j < intervals.length;) {
-            let  merged = mergeInterval(intervals, intervals[j]);
-            if (merged !== null) {
-                intervals = merged;
+export function merge(ns, intervals) {
+    intervals.sort(([minA], [minB]) => minA - minB);
+    for (let i = 0; i < intervals.length; i++) {
+        for (let j = i + 1; j < intervals.length; j++) {
+            const [min, max] = intervals[i];
+            const [laterMin, laterMax] = intervals[j];
+            if (laterMin <= max) {
+                const newMax = laterMax > max ? laterMax : max;
+                const newInterval = [min, newMax];
+                intervals[i] = newInterval;
                 intervals.splice(j, 1);
-                j = i + 1;
-            } else {
-                j++
+                j = i;
             }
         }
     }
-    intervals.sort((a, b) => a[0] - b[0]);
     return intervals;
-}
-function mergeInterval(a, b) {
-    if (a[1] < b[0] || a[0] > b[1]) {
-        return null;
-    }
-    return [Math.min(a[0], b[0]), Math.max(a[1], b[1])];
 }

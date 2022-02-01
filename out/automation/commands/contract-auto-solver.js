@@ -43,6 +43,9 @@ export async function main(ns) {
         ns.tprint("INFO: No contracts were found.")
     }
 }
+
+/**  
+ * *  @param {import("../../..").NS } ns */
 function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     const type = ns.codingcontract.getContractType(filename, host);
     const desc = ns.codingcontract.getDescription(filename, host);
@@ -57,7 +60,7 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
         "Algorithmic Stock Trader III": twoTransactions,
         "Algorithmic Stock Trader IV": kTransactions,
         "Array Jumping Game": jumpable,
-        "Find All Valid Math Expressions": allMathExpressions,
+        "Find All Valid Math Expressions": allMathExpressions, // slow, but _eventually works
         "Find Largest Prime Factor": largestPrimeFactor,
         "Generate IP Addresses": generate,
         "Merge Overlapping Intervals": merge,
@@ -82,7 +85,7 @@ function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     } else {
         succint += ` FAILED (Type: ${type})`
         output[0] = `ERROR:`
-        output.push(`result:  FAILED`)
+        output.push(`result:   FAILED`)
     }
     if (logLevel === 1) {
         ns.tprintf(succint)
