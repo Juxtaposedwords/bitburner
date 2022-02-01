@@ -30,7 +30,7 @@ export async function main(ns) {
     }
     if (flags.mode == "buy") { await buy(ns, flags.server_pow2) }
     if (flags.mode == "setup" || (flags.mode == "buy" && !flags.create_skip_setup)) { await setup(ns) }
-    if (flags.mode == "fill") { await fill(ns, flags.multiplier) }
+    if (flags.mode == "fill" || flags.mode == "buy") { await fill(ns, flags.multiplier) }
     if (flags.mode == "sell") { await sell(ns) }
 }
 async function buy(ns, pow2) {
