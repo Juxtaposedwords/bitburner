@@ -6,10 +6,12 @@ import { servers } from "/automation/lib/scan.js"
 const fields = [
 	"hostname",
 	"hackingLevel",
+	"minSecurity",
 	"securityLevel",
 	"moneyAvailable",
 	"maxMoney",
-	"minSecurity",
+	"maxRam",
+	"availRam",
 	"backdoorInstalled",
 ]
 /** @param {import("../../..").NS } ns */
@@ -58,10 +60,12 @@ export async function main(ns) {
 		result.push([
 			s,
 			ns.getServerRequiredHackingLevel(s),
+			ns.getServerMinSecurityLevel(s),
 			Math.floor(ns.getServerSecurityLevel(s)),
 			Math.floor(ns.getServerMoneyAvailable(s)),
 			ns.getServerMaxMoney(s),
-			ns.getServerMinSecurityLevel(s),
+			ns.getServerMaxRam(s),
+			ns.getServerMaxRam(s) - ns.getServerUsedRam(s),
 			ns.getServer(s).backdoorInstalled,
 		])
 	}
@@ -74,8 +78,11 @@ export async function main(ns) {
 	
 	for (let i = 0; i < result.length; i++) {
 		const r = result[i];
-		r[3] = ns.nFormat(r[3], '0.0a');
-		r[4] = ns.nFormat(r[4], '0.0a');
+		for (let j = 0; j < r.length; j++) {
+			if (typeof r[j] === "number") {
+				r[j] = ns.nFormat(r[j], '0.0a')
+			}
+		}
 	}
 
   if (!flags.pretty) {
