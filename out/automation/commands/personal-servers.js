@@ -2,7 +2,7 @@
 // @ts-ignore
 import { scan } from "/automation/lib/scan.js"
 
-const modes = ["buy", "sell", "setup", "fill"]
+const modes = ["buy", "sell", "setup", "fill","stop"]
 
 /** Runs continuously until it has bought all servers you can buy
  *  (it will wait until you can afford them).  Each purchased server
@@ -31,6 +31,7 @@ export async function main(ns) {
     if (flags.mode == "setup") { await setup(ns) }
     if (flags.mode == "fill" || flags.mode == "buy") { await fill(ns) }
     if (flags.mode == "sell") { await sell(ns) }
+    if (flags.mode == "stop") { await stop(ns) }
 }
 async function buy(ns, pow2, create_skip_setup) {
     const ram = Math.pow(2, Number(pow2));
@@ -70,7 +71,7 @@ async function setup(ns, hostname = "none") {
         const server = ns.getServer(name);
         return (server.moneyMax > 0 && name != "home")
     })
-    let purchasedServesrs =ns.getPurchasedServers();
+    let purchasedServesrs = ns.getPurchasedServers();
     if (!hostname.match("none")) {
         purchasedServesrs = [hostname]
     }
@@ -102,6 +103,12 @@ async function sell(ns) {
     }
     ns.tprintf("INFO: All personal servers sold.")
 
+}
+/**  @param {import("../../..").NS } ns */
+async function stop(ns) {
+    for (const server of ns.getPurchasedServers()) {
+        ns.killall(server)
+    }
 }
 
 export function autocomplete(data, args) {
