@@ -5,7 +5,7 @@ import { jsonLog } from  "/automation/lib/log.js"
 /**
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
-    if (ns.args.length != 1) {
+    if (ns.args.length < 1) {
         ns.tprintf("ERROR: Usage: run weaken.js <target>.  Received %d arguments not 1.", ns.args.length);
         return;
     }
