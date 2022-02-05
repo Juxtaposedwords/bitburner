@@ -12,7 +12,6 @@ export async function main(ns) {
     const flags = ns.flags([
         ["mode", ""], // see modes
         ["server_pow2", 0],
-        ["multiplier", 1],
         ["create_skip_setup", false],
     ])
     ns.tprintf(`INFO:  flag: ${flags.multiplier}`)
@@ -28,12 +27,12 @@ export async function main(ns) {
         ns.tprintf(`ERROR: --multiplier can only be combined with fill`)
         return
     }
-    if (flags.mode == "buy") { await buy(ns, flags.server_pow2) }
-    if (flags.mode == "setup" || (flags.mode == "buy" && !flags.create_skip_setup)) { await setup(ns) }
-    if (flags.mode == "fill" || flags.mode == "buy") { await fill(ns, flags.multiplier) }
+    if (flags.mode == "buy") { await buy(ns, flags.server_pow2, flags.create_skip_setup) }
+    if (flags.mode == "setup") { await setup(ns) }
+    if (flags.mode == "fill" || flags.mode == "buy") { await fill(ns) }
     if (flags.mode == "sell") { await sell(ns) }
 }
-async function buy(ns, pow2) {
+async function buy(ns, pow2, create_skip_setup) {
     const ram = Math.pow(2, Number(pow2));
     // Suffix for server names.
     let i = ns.getPurchasedServers().length;
@@ -57,18 +56,25 @@ async function buy(ns, pow2) {
             "/automation/util/hack.js",
             "/automation/lib/log.js",
         ], "home", hostname)
+        if (!create_skip_setup) {
+            setup(ns, hostname)
+        }
         i++;
 
     }
     ns.tprintf("INFO: Congratulations, purchased server limit reached.")
 }
 /**  @param {import("../../..").NS } ns */
-async function setup(ns) {
-    const targets = scan(ns).filter(name => {
+async function setup(ns, hostname = "none") {
+    let targets = scan(ns).filter(name => {
         const server = ns.getServer(name);
         return (server.moneyMax > 0 && name != "home")
     })
-    for (const server of ns.getPurchasedServers()) {
+    let purchasedServesrs =ns.getPurchasedServers();
+    if (!hostname.match("none")) {
+        purchasedServesrs = [hostname]
+    }
+    for (const server of purchasedServesrs) {
         ns.killall(server)
         for (const target of targets) {
             ns.exec("/automation/util/start-hack.js", "home", 1, ...["--target", target, "--server", server])
@@ -76,17 +82,15 @@ async function setup(ns) {
     }
 }
 /**  @param {import("../../..").NS } ns */
-async function fill(ns, multiplier) {
-
-
+async function fill(ns) {
     for (const hostname of ns.getPurchasedServers()) {
         const server = ns.getServer(hostname)
         const hackRam = ns.getScriptRam("/automation/util/hack.js")
-        const hackThreads = Math.floor((server.maxRam-server.ramUsed)/ hackRam)
-        if (hackThreads<0){
+        const hackThreads = Math.floor((server.maxRam - server.ramUsed) / hackRam)
+        if (hackThreads < 0) {
             continue
         }
-        await ns.exec("/automation/util/hack.js", hostname, hackThreads, ...[ "clarkinc"], "fill")
+        await ns.exec("/automation/util/hack.js", hostname, hackThreads, ...["clarkinc"], "fill")
     }
 }
 
@@ -104,7 +108,6 @@ export function autocomplete(data, args) {
     data.flags([
         ["mode", ""], // see modes
         ["server_pow2", 0],
-        ["multiplier", 1],
         ["create_skip_setup", false],
     ])
     const options = {
