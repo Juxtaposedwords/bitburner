@@ -23,7 +23,7 @@ export async function main(ns) {
     }
     while (!ns.fileExists(flags.program, "home")) {
         ns.purchaseProgram(flags.program)
-        ns.sleep(flags.interval)
+        await ns.sleep(flags.interval)
     }
 
 }
