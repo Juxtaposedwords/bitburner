@@ -5,7 +5,6 @@ export async function main(ns) {
         () => { return launch(ns, "/automation/util/bg/upgrade-home.js") },
         () => { return launch(ns, "/automation/util/bg/bg.js", ["/automation/commands/contract-auto-solver.js", 1000*60*10, 1, "--verbosity", 0]) },
         () => { return buyPrograms(ns) },
-        () => { return launch(ns, "/startup.js") },
 
     ]
     while (instructions.length != 0) {
