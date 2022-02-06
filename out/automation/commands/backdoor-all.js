@@ -31,8 +31,8 @@ export async function main(ns) {
     })
     eligible.sort((left, right) => { //sort by notable targets (such as hacking functions)
         if (valueTargets.includes(left) && valueTargets.includes(right)) { return 0 }
-        if (valueTargets.includes(left)) { return 1 }
-        if (valueTargets.includes(right)) { return -1 }
+        if (valueTargets.includes(left)) { return -1 }
+        if (valueTargets.includes(right)) { return 1 }
     })
     let source = ns.getHostname()
     await ns.tprintf("INFO: %s", eligible)
@@ -44,7 +44,18 @@ export async function main(ns) {
         let command = "connect " + hops.join("; connect ") + "; backdoor";
         await run(command);
         const serverLevel = await ns.getServer(dest).requiredHackingSkill
-        await ns.sleep(ns.formulas.hacking.hackTime(dest, ns.getPlayer()));
+        //await ns.sleep(ns.formulas.hacking.hackTime(dest, ns.getPlayer()));
+        if (serverLevel > 600) {
+            await ns.sleep(100000);
+        } else if (serverLevel > 500) {
+            await ns.sleep(150000);
+        } else if (serverLevel > 400) {
+            await ns.sleep(70000)
+        } else if (serverLevel > 150) {
+            await ns.sleep(30000)
+        } else {
+            await ns.sleep(10000);
+        }
         source = dest;
     }
 }
