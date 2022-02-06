@@ -39,7 +39,7 @@ export async function main(ns) {
             count++;
         }
     }
-    if (count == 0) {
+    if (count == 0 && flags.verbosity > 0) {
         ns.tprint("INFO: No contracts were found.")
     }
 }
