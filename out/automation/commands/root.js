@@ -9,6 +9,6 @@ export async function main(ns) {
         const serverStats = ns.getServer(server)
         return (!serverStats.hasAdminRights && ns.getHackingLevel() >= serverStats.hackDifficulty) 
     })){
-        root(ns, server,true)
+        root(ns, server,false)
     }
 }
