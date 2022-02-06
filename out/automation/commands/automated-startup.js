@@ -1,6 +1,7 @@
 /** @param {import("../../..").NS } ns */
 export async function main(ns) {
     const instructions = [
+        () => { return launch(ns, "/startup.js") },
         () => { return launch(ns, "/automation/util/bg/upgrade-home.js") },
         () => { return launch(ns, "/automation/util/bg/bg.js", ["/automation/commands/contract-auto-solver.js", 1000*60*10, 1, "--verbosity", 0]) },
         () => { return buyPrograms(ns) },
@@ -20,7 +21,7 @@ export async function main(ns) {
  *  @param {import("../../..").NS } ns */
 async function buyPrograms(ns) {
     while (ns.getPlayer().money.valueOf() < 200000) {
-        ns.sleep(100)
+        await ns.sleep(100)
     }
     ns.purchaseTor()
     var names = [
