@@ -9,18 +9,17 @@
         ns.tprint("WARN: Usage: reorg.js <division>")
     }
     const api = ns.corporation
-    ns.tprint(`INFO: Revenue/second before swap, ${ns.nFormat(api.getCorporation().revenue, '0.0a')}`) 
+    ns.tprint(`INFO: Revenue/second before swap, ${ns.nFormat(api.getCorporation().revenue, '0.00a')}`) 
 
-    const cities = ["Aevum", "Chongqing", "Sector-12", "New Tokyo", "Ishima"]
-    for (const city of cities) {
+    for (const city of api.getDivision(div).cities) {        
         const o = api.getOffice(div, city)
         const emp = o.employees.map(x => api.getEmployee(div, city, x))
         const ops = emp.filter(x => x.pos == "Operations").length
         const byInt = emp.sort((a, b) => b.int - a.int)
-        const smart = byInt.slice(0, ops)
-        const dumb = byInt.slice(ops)
-        const toSwapSmart = smart.filter(x => x.pos != "Operations")
-        const toSwapDumb = dumb.filter(x => x.pos == "Operations")
+        const smart = byInt.slice(0, ops) // enough smart employees to fully staff Operations
+        const dumb = byInt.slice(ops)     // everyone else
+        const toSwapSmart = smart.filter(x => x.pos != "Operations") // smart employees that aren't in Operations already
+        const toSwapDumb = dumb.filter(x => x.pos == "Operations")   // dumb employees that are in Operations already
 
         if (toSwapSmart.length != toSwapDumb.length) {
             ns.tprint(`ERROR: swap lists for ${city} are of unequal size (smart=${toSwapSmart.length}, dumb=${toSwapDumb.length}).`)
@@ -40,5 +39,5 @@
             await api.assignJob(div, city, s.name, "Operations")
         }
     }
-    ns.tprint(`INFO: Revenue/second after swap, ${ns.nFormat(api.getCorporation().revenue, '0.0a')}`) 
+    ns.tprint(`INFO: Revenue/second after swap, ${ns.nFormat(api.getCorporation().revenue, '0.00a')}`) 
 }
