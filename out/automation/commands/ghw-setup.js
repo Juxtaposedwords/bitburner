@@ -11,11 +11,12 @@ import { allServers } from "/automation/lib/scan.js";
  * 
  *  @param {import("../../..").NS } ns */
 export async function main(ns) {
-    const data = ns.flags([
+    const flags = ns.flags([
         ["target", ""],           // Server to target
         ["force_restart", false], // determines whether ot use pretty format or not
+        ["level",false]
     ])
-    let target = String(data["target"])
+    let target = String(flags.target)
     if (target != "" && !ns.serverExists(target)) {
         ns.tprintf("ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag", target)
         return
@@ -23,12 +24,13 @@ export async function main(ns) {
 
     let eligible = allServers(ns).filter( (name) => {
         const server = ns.getServer(name);
+        safeRoot(name);
         return (server.requiredHackingSkill <= ns.getHackingLevel() || server.hasAdminRights)
     })
     ns.tprintf("Starting for %d servers", eligible.length)
     let ghw = "/automation/util/grow-hack-weak.js";
     let files = [
-        "/automation/util/grow-hack-weak.js",
+        ghw,
         "/automation/util/grow.js",
         "/automation/util/hack.js",
         "/automation/util/weaken.js",
@@ -41,9 +43,9 @@ export async function main(ns) {
         }
         // Just to make sure we have root
         safeRoot(ns, server)
-        if (data["target"] == undefined) {
+        if (flags.target == undefined) {
             target = server
-        } else if (data["target"] == undefined && (!ns.getPurchasedServers().includes(server) || server == "home")) {
+        } else if (flags.target == undefined && (!ns.getPurchasedServers().includes(server) || server == "home")) {
             ns.tprintf("WARN: unable to start script on %s as no target was provided and the machine as purchased cannot hack itself", server)
             continue
         }
@@ -52,7 +54,7 @@ export async function main(ns) {
             await ns.scp(script, "home", server)
         }
 
-        await killGHW(ns, server, ghw, target, data["force_restart"])
+        await killGHW(ns, server, ghw, target, flags.force_restart)
         for (const script of files) {
             await ns.scp(script, "home", server)
         }
@@ -63,7 +65,11 @@ export async function main(ns) {
         if (memCount < 1) {
             continue
         }
-        ns.exec(ghw, server, memCount, target);
+        let args = [target]
+        if (flags.level) {
+            args.push("level")
+        }
+        ns.exec(ghw, server, memCount, ...args);
 
     }
 }
@@ -72,6 +78,7 @@ export function autocomplete(data, args) {
     data.flags([
         ["target", ""], 
         ["force_restart", false],
+        ["level",false],
     ])
     const options = {
         'target': [...data.servers],
