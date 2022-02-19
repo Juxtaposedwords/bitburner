@@ -12,3 +12,7 @@ export function toolCount(ns) {
     crackingTools.forEach(name => ns.fileExists(name)?count++:count+=0)    
     return count
 }
+
+export function tools(){
+    return crackingTools
+}
