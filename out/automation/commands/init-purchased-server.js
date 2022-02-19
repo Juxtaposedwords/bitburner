@@ -9,6 +9,7 @@ import { scan } from "./automation/lib/scan";
  export async function main(ns) {
 	const flags = ns.flags([
 		["server", null],  // the server that will run the scripts
+        ["ignore_home", false] // don't look at home when checking what sites are being hacked
 	]);	
 	const usage = "WARN: Usage: init-purchased-server.js --server <server> --target <target>"
 	if (flags.server == null)  {
@@ -20,7 +21,11 @@ import { scan } from "./automation/lib/scan";
         ns.tprint("WARN:  init-purchased-server.js works only on purchased servers.")
     }
 
-    const h = hacking(ns, ["home"].concat(ns.getPurchasedServers()))
+    let s = ns.getPurchasedServers()
+    if (!flags.ignore_home) {
+        s = ["home"].concat(s)
+    }
+    const h = hacking(ns, s)
     const targets = available(ns, h)
 
     if (targets.length == 0) {
