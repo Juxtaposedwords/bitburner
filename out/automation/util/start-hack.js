@@ -46,9 +46,10 @@ export async function main(ns) {
 		], "home", server)
 	}
 
+	const multiplier = 4;
 	const weakenThreads = 400
-	const growThreads = Math.floor(ns.growthAnalyze(target, 4));
-	const hackThreads = Math.floor(.25 / ns.hackAnalyze(target))
+	const growThreads = Math.floor(ns.growthAnalyze(target, multiplier));
+	const hackThreads = Math.floor((1/multiplier) / ns.hackAnalyze(target))
 
 	const weakenRam = ns.getScriptRam("/automation/util/weaken.js");
 	const growRam = ns.getScriptRam("/automation/util/grow.js");
@@ -59,7 +60,7 @@ export async function main(ns) {
 
 	if (neededRam > availRam) {		
 		const nf = ns.nFormat
-		log(`ERROR: not enough RAM: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
+		log(`ERROR: not enough RAM on ${server}: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
 		return;
 	}
 	ns.exec("/automation/util/weaken.js", server, weakenThreads, target);

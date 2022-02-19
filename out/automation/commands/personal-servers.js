@@ -1,8 +1,11 @@
 
 // @ts-ignore
+import { jsonLog } from "/automation/lib/log.js"
+
+// @ts-ignore
 import { scan } from "/automation/lib/scan.js"
 
-const modes = ["buy", "sell", "setup", "fill"]
+const modes = ["buy", "sell", "setup", "fill", "stop"]
 
 /** Runs continuously until it has bought all servers you can buy
  *  (it will wait until you can afford them).  Each purchased server
@@ -14,23 +17,23 @@ export async function main(ns) {
         ["server_pow2", 0],
         ["create_skip_setup", false],
     ])
-    ns.tprintf(`INFO:  flag: ${flags.multiplier}`)
     if (flags.mode == "buy" && (flags.server_pow2 < 1 || flags.server_pow2 > 20)) {
         ns.tprintf(`ERROR:  --create must be used with a --server_pow2 between 1 and 20 inclusive. ${flags.server_pow2} was used`)
         return
     }
     if (!modes.includes(flags.mode)) {
-        ns.tprintf(`ERROR: --most must be one of: ${modes.join(" ,")}`)
+        ns.tprintf(`ERROR: --mode must be one of: ${modes.join(", ")}`)
         return
     }
-    if (flags.multiplier > 1 && flags.mode != "fill") {
-        ns.tprintf(`ERROR: --multiplier can only be combined with fill`)
-        return
+    const log = async function (message) {
+        await jsonLog(ns,
+            "grow.js", message, { "mode": flags.mode, })
     }
     if (flags.mode == "buy") { await buy(ns, flags.server_pow2, flags.create_skip_setup) }
     if (flags.mode == "setup") { await setup(ns) }
     if (flags.mode == "fill" || flags.mode == "buy") { await fill(ns) }
     if (flags.mode == "sell") { await sell(ns) }
+    if (flags.mode == "stop") { await stop(ns) }
 }
 async function buy(ns, pow2, create_skip_setup) {
     const ram = Math.pow(2, Number(pow2));
@@ -51,13 +54,14 @@ async function buy(ns, pow2, create_skip_setup) {
             return;
         }
         await ns.scp([
+            "/automation/util/grow-hack-weak.js",
             "/automation/util/weaken.js",
             "/automation/util/grow.js",
             "/automation/util/hack.js",
             "/automation/lib/log.js",
         ], "home", hostname)
         if (!create_skip_setup) {
-            setup(ns, hostname)
+            await setup(ns, hostname)
         }
         i++;
 
@@ -70,13 +74,21 @@ async function setup(ns, hostname = "none") {
         const server = ns.getServer(name);
         return (server.moneyMax > 0 && name != "home")
     })
-    let purchasedServesrs =ns.getPurchasedServers();
+    let purchasedServers = ns.getPurchasedServers();
     if (!hostname.match("none")) {
-        purchasedServesrs = [hostname]
+        purchasedServers = [hostname]
     }
-    for (const server of purchasedServesrs) {
+    for (const server of purchasedServers) {
         ns.killall(server)
         for (const target of targets) {
+            const host = ns.getServer()
+            const startHack = "/automation/util/start-hack.js"
+            // wait until we have free space for the ram
+            let count = 50 
+            while ((host.maxRam - host.ramUsed) < ns.getScriptRam(startHack)) {
+                count = count * 2
+                await ns.sleep(count)
+            }
             ns.exec("/automation/util/start-hack.js", "home", 1, ...["--target", target, "--server", server])
         }
     }
@@ -85,12 +97,18 @@ async function setup(ns, hostname = "none") {
 async function fill(ns) {
     for (const hostname of ns.getPurchasedServers()) {
         const server = ns.getServer(hostname)
-        const hackRam = ns.getScriptRam("/automation/util/hack.js")
+        const script = "/automation/util/grow-hack-weak.js"
+        const hackRam = ns.getScriptRam(script)
         const hackThreads = Math.floor((server.maxRam - server.ramUsed) / hackRam)
         if (hackThreads < 0) {
             continue
         }
-        await ns.exec("/automation/util/hack.js", hostname, hackThreads, ...["clarkinc"], "fill")
+        let count = 50 
+        while ((server.maxRam - server.ramUsed) < ns.getScriptRam(script)) {
+            count = count * 2
+            await ns.sleep(count)
+        }
+        await ns.exec(script, hostname, hackThreads, ...["clarkinc", "level"])
     }
 }
 
@@ -102,6 +120,12 @@ async function sell(ns) {
     }
     ns.tprintf("INFO: All personal servers sold.")
 
+}
+/**  @param {import("../../..").NS } ns */
+async function stop(ns) {
+    for (const server of ns.getPurchasedServers()) {
+        ns.killall(server)
+    }
 }
 
 export function autocomplete(data, args) {
