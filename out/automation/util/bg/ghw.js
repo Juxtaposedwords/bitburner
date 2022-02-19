@@ -13,14 +13,13 @@ export async function main(ns) {
     ])
     while (true) {
         const script = "/automation/commands/ghw-setup.js"
-        let target = ""
-        if (toolCount(ns) < 3) {
-            target = "joesguns"
-        } else if (toolCount(ns) == 3 && ns.getHackingLevel() < 503) {
-            target = "silver-helix"
-        } else {
-            target = "rho-construction"
-        }
+        let targets = ["n00dles", "joesguns", "silver-helix", "rho-construction","megacorp"]
+        targets = targets.filter((name)=>{
+            const server = ns.getServer(name)
+            return server.hackDifficulty<=ns.getHackingLevel() && server.numOpenPortsRequired<=toolCount()
+        })
+        const target = targets.sort((l,r)=> targetValue(ns,l)-targetValue(ns,r))
+
         let args = ["--target", target]
         if (ns.getHackingLevel()>2000) {
             args.push("--level")
@@ -29,6 +28,24 @@ export async function main(ns) {
         await ns.sleep(1000 * 60 * 5)
     }
 }
+/**
+* @param {import("../../../..").NS } ns */
+function targetValue(ns, target){
+    const server = ns.getServer(target)
+    if (isNaN(ns.getHackTime(target))){
+        // if security is too high to hack, we discard it outright. 
+        // In the case of --level we'll at least pass n00dles.
+        return 0
+    }
+   const level_diff =  ns.getHackingLevel() -server.requiredHackingSkill;
+   let level_mult = 1;
+   let pow2_diff = Math.floor(Math.log(level_diff) / Math.log(2)) -2
+   if (level_diff > 1 || pow2_diff>1){
+       level_mult=Math.floor(level_diff/20)
+   } 
+   return server.moneyMax*level_mult
+}
+
 export function autocomplete(data, args) {
     data.flags([
         ["level", false],
