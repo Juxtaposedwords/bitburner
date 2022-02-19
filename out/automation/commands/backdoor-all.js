@@ -7,8 +7,6 @@ import { run } from "/automation/lib/terminal.js"
 
 /** 
  * Attempts to backdoor all avilable servers.
- *    NOTE: currently the timing interval is WAY off.
- * 
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
