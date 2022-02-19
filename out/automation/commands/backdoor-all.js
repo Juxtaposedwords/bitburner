@@ -12,6 +12,9 @@ import { run } from "/automation/lib/terminal.js"
  * 
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
+    const flags = ns.flags([
+        ["no_formulas", false],
+    ])
     const purchased = ns.getPurchasedServers()
     let eligible = scan(ns).filter(function (name) {
         const server = ns.getServer(name);
@@ -32,7 +35,7 @@ export async function main(ns) {
     eligible.sort((left, right) => { //sort by notable targets (such as hacking functions)
         if (valueTargets.includes(left) && valueTargets.includes(right)) { return 0 }
         if (valueTargets.includes(left)) { return -1 }
-        if (valueTargets.includes(right)) { return  1 }
+        if (valueTargets.includes(right)) { return 1 }
     })
     let source = ns.getHostname()
     await ns.tprintf("INFO: %s", eligible)
@@ -47,20 +50,30 @@ export async function main(ns) {
 
         const wait_time = ns.getHackTime(dest);
         ns.tprintf(`INFO: ${wait_time} `)
-        await ns.sleep(wait_time/4+(1000*2));
-        /*if (serverLevel > 600) {
-            await ns.sleep(100000);
-        } else if (serverLevel > 500) {
-            await ns.sleep(150000);
-        } else if (serverLevel > 400) {
-            await ns.sleep(70000)
-        } else if (serverLevel > 150) {
-            await ns.sleep(30000)
+        if (!flags.no_formulas) {
+            await ns.sleep(wait_time / 4 + (1000 * 2));
+
         } else {
-            await ns.sleep(10000);
-        }*/
+            if (serverLevel > 600) {
+                await ns.sleep(100000);
+            } else if (serverLevel > 500) {
+                await ns.sleep(150000);
+            } else if (serverLevel > 400) {
+                await ns.sleep(70000)
+            } else if (serverLevel > 150) {
+                await ns.sleep(30000)
+            } else {
+                await ns.sleep(10000);
+            }
+        }
         source = dest;
     }
     await run("home;");
 
 }
+
+export function autocomplete(data, args) {
+    data.flags([
+        ["no_formulas", false],
+    ])
+    return []
