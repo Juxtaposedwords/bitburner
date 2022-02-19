@@ -15,9 +15,12 @@ import { root } from "/automation/lib/root.js"
 export async function main(ns) {
     const flags = ns.flags([
         ["verbose", false],
+        ["log_listener", false],
     ]);
-    if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
-        ns.exec('/automation/util/log-listener.js', 'home', 1);
+    if (flags.log_listener) {
+        if (!ns.isRunning('/automation/util/log-listener.js', 'home')) {
+            ns.exec('/automation/util/log-listener.js', 'home', 1);
+        }
     }
 
     const exclude = ["home", "darkweb"]
