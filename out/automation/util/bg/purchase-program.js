@@ -1,14 +1,6 @@
 
 // @ts-ignore
-import { jsonLog } from "/automation/lib/log.js"
-
-
-const files = [
-    "BruteSSH.exe",
-    "FTPCrack.exe",
-    "relaySMTP.exe",
-    "HTTPWorm.exe",
-    "SQLInject.exe"]
+import { tools } from "/automation/lib/cracks.js"
 
 /** grow continuously grows the target server.
  *  @param {import("../../../..").NS } ns */
@@ -17,8 +9,8 @@ export async function main(ns) {
         ["program", ""],
         ["interval", 100 * 1000],
     ])
-    if (!files.includes(flags.program)) {
-        ns.tprintf(`ERROR: ${flags.program} is not one of ${files}`)
+    if (!tools().includes(flags.program)) {
+        ns.tprintf(`ERROR: ${flags.program} is not one of ${tools()}`)
         return
     }
     while (!ns.fileExists(flags.program, "home")) {
@@ -34,7 +26,7 @@ export function autocomplete(data, args) {
         ["interval", 100 * 1000],
     ])
     const options = {
-        "program": files,
+        "program": tools(),
     }
 
     for (let arg of args.slice(-2)) {
