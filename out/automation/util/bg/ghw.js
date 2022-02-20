@@ -19,7 +19,6 @@ export async function main(ns) {
             const server = ns.getServer(name)
             return server.hasAdminRights && server.requiredHackingSkill <= ns.getHackingLevel()
         })
-        ns.tprintf(`ERROR: targets ${targets}`)
         const target = targets.sort((l, r) => {
             return targetValue(ns, l) - targetValue(ns, r)
         }).pop()
