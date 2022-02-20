@@ -1,5 +1,5 @@
 // @ts-ignore
-import { toolCount } from "/automation/lib/cracks.js"
+import { root } from "/automation/lib/root"
 
 
 
@@ -13,15 +13,17 @@ export async function main(ns) {
     ])
     while (true) {
         const script = "/automation/commands/ghw-setup.js"
-        let targets = ["n00dles", "joesguns", "silver-helix", "rho-construction","megacorp"]
-        targets = targets.filter((name)=>{
-            const server = ns.getServer(name)
-            return server.hackDifficulty<=ns.getHackingLevel() && server.numOpenPortsRequired<=toolCount()
+        let targets = ["n00dles", "joesguns", "silver-helix", "rho-construction", "megacorp"]
+        targets = targets.filter((name) => {
+            root(name)
+            return ns.getServer(name).hasAdminRights
         })
-        const target = targets.sort((l,r)=> targetValue(ns,l)-targetValue(ns,r))
+        const target = targets.sort((l, r) => {
+            return targetValue(ns, l) - targetValue(ns, r)
+        }).pop()
 
         let args = ["--target", target]
-        if (ns.getHackingLevel()>2000) {
+        if (ns.getHackingLevel() > 2000) {
             args.push("--level")
         }
         ns.exec(script, ns.getHostname(), 1, ...args)
@@ -30,20 +32,20 @@ export async function main(ns) {
 }
 /**
 * @param {import("../../../..").NS } ns */
-function targetValue(ns, target){
+function targetValue(ns, target) {
     const server = ns.getServer(target)
-    if (isNaN(ns.getHackTime(target))){
+    if (isNaN(ns.getHackTime(target))) {
         // if security is too high to hack, we discard it outright. 
         // In the case of --level we'll at least pass n00dles.
         return 0
     }
-   const level_diff =  ns.getHackingLevel() -server.requiredHackingSkill;
-   let level_mult = 1;
-   let pow2_diff = Math.floor(Math.log(level_diff) / Math.log(2)) -2
-   if (level_diff > 1 || pow2_diff>1){
-       level_mult=Math.floor(level_diff/20)
-   } 
-   return server.moneyMax*level_mult
+    const level_diff = ns.getHackingLevel() - server.requiredHackingSkill;
+    let level_multiplier = 1;
+    let pow2_diff = Math.floor(Math.log(level_diff) / Math.log(2)) - 2
+    if (level_diff > 1 || pow2_diff > 1) {
+        level_multiplier = Math.floor(level_diff / 20)
+    }
+    return server.moneyMax * level_multiplier
 }
 
 export function autocomplete(data, args) {
