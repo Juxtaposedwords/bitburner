@@ -18,11 +18,9 @@ export async function main(ns) {
     ["verbose", 0],
   ]);
   let target = String(flags.target);
-  if (target != "" && !ns.serverExists(target)) {
+  if (target == "" && !ns.serverExists(target)) {
     ns.tprintf(
-      "ERROR: %s is not a valid target. Consider using the autocomplete with the --target flag",
-      target
-    );
+      `ERROR: "${target}" is not a valid target. Consider using the autocomplete with the --target flag`);
     return;
   }
   if (ns.getPurchasedServers().includes(target)) {
@@ -48,18 +46,9 @@ export async function main(ns) {
   }
 
   let eligible = allServers(ns).filter((name) => {
-    const server = ns.getServer(name);
-    if (
-      server.requiredHackingSkill <= ns.getHackingLevel() ||
-      server.numOpenPortsRequired <= toolCount(ns) || 
-      name != "home"
-    ) {
-      return false;
-    }
     root(name);
-    return server.hasAdminRights;
+    return ns.getServer(name).hasAdminRights && name != "home";
   });
-
   let ghw = "/automation/util/grow-hack-weak.js";
   let files = [
     ghw,
@@ -70,8 +59,8 @@ export async function main(ns) {
       return String(input).startsWith("/automation/lib/");
     }), // all of our libraries
   ];
-
   for (const server of eligible) {
+
     for (const script of files) {
       await ns.scp(script, "home", server);
     }
