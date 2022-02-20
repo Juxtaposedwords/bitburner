@@ -1,5 +1,5 @@
 // @ts-ignore
-import { root } from "/automation/lib/root.js";
+import { rootAll } from "/automation/lib/root.js";
 // @ts-ignore
 import { allServers } from "/automation/lib/scan.js";
 // @ts-ignore
@@ -45,8 +45,8 @@ export async function main(ns) {
     return;
   }
 
+  rootAll(ns)
   let eligible = allServers(ns).filter((name) => {
-    root(name);
     return ns.getServer(name).hasAdminRights && name != "home";
   });
   let ghw = "/automation/util/grow-hack-weak.js";
