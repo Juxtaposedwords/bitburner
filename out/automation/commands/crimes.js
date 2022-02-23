@@ -22,7 +22,8 @@ export async function main(ns) {
         ["list", false],
     ])
     if (flags.list) {
-        ns.tprintf(`All stats are listed in xp - weighted success rate`)
+
+        ns.tprintf(`Karma: ${ns.nFormat(ns.heart.break(),"0.00")}.   All stats are listed in xp - weighted success rate`)
         let title =`${`Crime`.padEnd(21," ")}    Money     Win %%  Time(s)   Karma         Str`
         title += ` ${`Def`.padStart(13," ")}`
         title += ` ${`Dex`.padStart(13," ")}`
