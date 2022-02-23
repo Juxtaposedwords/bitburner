@@ -19,10 +19,13 @@ export async function main(ns) {
             const server = ns.getServer(name)
             return server.hasAdminRights && server.requiredHackingSkill <= ns.getHackingLevel()
         })
-        const target = targets.sort((l, r) => {
+        let target = targets.sort((l, r) => {
             return targetValue(ns, l) - targetValue(ns, r)
         }).pop()
-
+        //TODO(maloy):figure out correct target filter scheme
+        if (target == undefined){
+            target ="n00dles"
+        }
         let args = ["--target", target]
         if (ns.getHackingLevel() > 2000) {
             args.push("--level")
