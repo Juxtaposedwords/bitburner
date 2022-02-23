@@ -43,7 +43,12 @@ export async function main(ns) {
         await safeRoot(ns, dest)
         const hops = await path(ns, source, dest)
         let command = "connect " + hops.join("; connect ") + "; backdoor";
-        await run(command);
+        try {
+            await run(command);
+        } catch {
+            return
+        }
+
         const serverLevel = await ns.getServer(dest).requiredHackingSkill
 
         const wait_time = ns.getHackTime(dest);
@@ -66,8 +71,11 @@ export async function main(ns) {
         }
         source = dest;
     }
-    await run("home;");
-
+    try {
+        await run("home;");
+    } catch {
+        return
+    }
 }
 
 export function autocomplete(data, args) {
