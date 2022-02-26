@@ -6,7 +6,7 @@ export async function main(ns) {
     const instructions = [
         () => { return launch(ns, "/startup.js") },
         () => { return launch(ns, "/automation/util/bg/upgrade-home.js") },
-        () => { return launch(ns, "/automation/util/bg/bg.js", ["/automation/commands/contract-auto-solver.js", 1000*60*10, 1, "--verbosity", 0]) },
+        () => { return launch(ns, "/automation/util/bg/bg.js", ["/automation/commands/contract-auto-solver.js", 1000*60*10, 1, "--verbosity", 2]) },
         () => { return launch(ns, "/automation/commands/personal-servers.js",["--mode","buy","--server_pow2",19]) },
         () => { return launch(ns, "/automation/util/bg/ghw.js") },
         () => { return buyPrograms(ns) },
