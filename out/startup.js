@@ -57,6 +57,13 @@ export async function main(ns) {
             catch (error) {
                 print(error)
             }
+            print(`INFO: starting install-scripts script for ${server}...`)
+            try {
+                ns.exec("/automation/commands/install-scripts.js", "home", 1, "--server", server);
+            }
+            catch (error) {
+                print(error)
+            }
         }
         // Try again in a minute.
         await ns.sleep(60000)
