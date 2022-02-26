@@ -46,7 +46,7 @@ export async function main(ns) {
             output += `${`${Math.floor(ns.getCrimeChance(crime) * 100)}`.padEnd(5, " ")}  `
             output += `${`${ns.nFormat(stats.money, "0.0a")}`.padEnd(12, " ")}`
             output += `${`${(stats.time / 1000)}`.padEnd(3, " ")}       `
-            output += `${`${ns.nFormat(stats.money / stats.time, "$ 0.0a")}`.padEnd(12, " ")}`
+            output += `${`${ns.nFormat(stats.money / (stats.time/1000), "$ 0.0a")}`.padEnd(12, " ")}`
             output += `${`${-1 * stats.karma}`.padEnd(7, " ")}   `
             if (flags.full) {
                 output += `${`${stats.strength_exp}`.padStart(4, " ")} - ${`${stats.strength_success_weight}`.padStart(4, " ")}   `
