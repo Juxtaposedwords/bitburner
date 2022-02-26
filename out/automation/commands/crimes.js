@@ -79,6 +79,7 @@ export async function main(ns) {
         if ((Date.now() - started) < ns.getCrimeStats(crime).time - 300) {
             return
         }
+        await ns.sleep(500)
     }
 }
 
