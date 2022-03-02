@@ -4,7 +4,7 @@ const crimes = [
     "Rob Store",
     "Mug Someone",
     "Larceny",
-    "Dead Drugs",
+    "Deal Drugs",
     "Bond Forgery",
     "Traffick Illegal Arms",
     "Homicide",
