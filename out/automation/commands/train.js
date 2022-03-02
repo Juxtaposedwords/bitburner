@@ -37,7 +37,9 @@ export async function main(ns) {
     }
     const combat = ["strength", "defense", "dexterity", "agility"]
     if (flags.mode == "combat"){
-        stats = stats.filter(name=>combat.includes(name))
+        // the JS equivalent of using reduce on a dictionary.
+        // @ts-ignore
+        stats = Object.fromEntries(Object.entries(stats).filter(([key]) => combat.includes(key)));
     }
 
     const player = ns.getPlayer()
