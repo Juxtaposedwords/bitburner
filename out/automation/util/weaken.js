@@ -1,11 +1,11 @@
 // @ts-ignore
-import { jsonLog } from  "./automation/lib/log.js"
+import { jsonLog } from  "/automation/lib/log.js"
 
 // weaken continuously weakens the target server.
 /**
  * @param {import("../../..").NS } ns */
 export async function main(ns) {
-    if (ns.args.length != 1) {
+    if (ns.args.length < 1) {
         ns.tprintf("ERROR: Usage: run weaken.js <target>.  Received %d arguments not 1.", ns.args.length);
         return;
     }

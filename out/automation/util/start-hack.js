@@ -1,5 +1,5 @@
 // @ts-ignore
-import { jsonLog } from  "./automation/lib/log.js"
+import { jsonLog } from "/automation/lib/log.js"
 /**  start-hack.js starts scripts that:
  * 
  * weaken the target's security by 20 every iteration,
@@ -17,7 +17,7 @@ export async function main(ns) {
 		["server", null],  // the server that will run the scripts
 		["target", null],  // the target server
 		["verbose", false], // print errors if launching the scripts fails
-	]);	
+	]);
 	const usage = "WARN: Usage: start-hack.js --server <server> --target <target>"
 	if (flags.server == null || flags.target == null) {
 		ns.tprint(usage)
@@ -29,12 +29,12 @@ export async function main(ns) {
 		ns.tprint(`WARN: root access required on ${target}.`)
 		return;
 	}
-	const log = async  function(message){
+	const log = async function (message) {
 		if (flags.verbose) {
-			ns.tprint(message)
+			ns.tprintf(`INFO: ${message}`)
 		}
 		await jsonLog(ns,
-			"start-hack.js",message, {"server":server,"target": target,})
+			"start-hack.js", message, { "server": server, "target": target, })
 	}
 
 	if (server != "home") {
@@ -46,9 +46,10 @@ export async function main(ns) {
 		], "home", server)
 	}
 
+	const multiplier = 4;
 	const weakenThreads = 400
-	const growThreads = Math.floor(ns.growthAnalyze(target, 4));
-	const hackThreads = Math.floor(.25 / ns.hackAnalyze(target))
+	const growThreads = Math.floor(ns.growthAnalyze(target, multiplier));
+	const hackThreads = Math.floor((1 / multiplier) / ns.hackAnalyze(target))
 
 	const weakenRam = ns.getScriptRam("/automation/util/weaken.js");
 	const growRam = ns.getScriptRam("/automation/util/grow.js");
@@ -57,14 +58,18 @@ export async function main(ns) {
 	const neededRam = (weakenRam * weakenThreads + growRam * growThreads + hackRam * hackThreads)
 	const availRam = ns.getServerMaxRam(server) - ns.getServerUsedRam(server)
 
-	if (neededRam > availRam) {		
+	if (neededRam > availRam) {
 		const nf = ns.nFormat
-		log(`ERROR: not enough RAM: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
+		log(`ERROR: not enough RAM on ${server}: ${nf(neededRam, '0.0a')} needed, ${nf(availRam, '0.0a')} available.`)
 		return;
 	}
-	ns.exec("/automation/util/weaken.js", server, weakenThreads, target);
-	ns.exec("/automation/util/grow.js", server, growThreads, target);
-	ns.exec("/automation/util/hack.js", server, hackThreads, target);
+	try {
+		ns.exec("/automation/util/weaken.js", server, weakenThreads, target);
+		ns.exec("/automation/util/grow.js", server, growThreads, target);
+		ns.exec("/automation/util/hack.js", server, hackThreads, target);
+	} catch {
+		log(`failed to exec. thread counts:  weaken ${weakenThreads} grow ${growThreads} hack ${hackThreads}`)
+	}
 }
 export function autocomplete(data, args) {
 	data.flags([

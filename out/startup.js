@@ -23,7 +23,7 @@ export async function main(ns) {
         }
     }
 
-    const exclude = ["home", "darkweb"]
+    const exclude = ["home"]
     let print = ns.print;
     if (flags.verbose) {
         print = ns.tprint
@@ -32,11 +32,12 @@ export async function main(ns) {
     while (true) {
         const all = servers(ns, true);
         const h = all.filter(function (server) {
-            return !(
-                (exclude.includes(server)) ||
-                (ns.getServerRequiredHackingLevel(server) > ns.getHackingLevel()) ||
-                ns.isRunning("/automation/util/weaken.js", "home", server))
-        });
+            root(server)
+            return (
+                !(exclude.includes(server)) &&
+                (ns.getServerRequiredHackingLevel(server) <= ns.getHackingLevel()) &&
+                !ns.isRunning("/automation/util/weaken.js", "home", server)) &&
+                ns.getServer(server).hasAdminRights});
 
         for (const server of h) {
             const s = ns.getServer(server)

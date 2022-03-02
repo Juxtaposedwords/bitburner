@@ -1,6 +1,6 @@
 // @ts-ignore
-import { pad } from "./automation/lib/pad.js";
-import { allServers } from "./automation/lib/scan.js"
+import { pad } from "/automation/lib/pad.js";
+import { allServers } from "/automation/lib/scan.js"
 
 const fields = [
 	"hostname",

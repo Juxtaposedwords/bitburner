@@ -37,6 +37,11 @@ export async function main(ns) {
     }
 }
 // TODO add log file truncation
+/**  @param {import("../../..").NS } ns */
 async function update(ns, fileName, line) {
     await ns.write(fileName,line,ns.fileExists(fileName)? "a":"w")
+    const lines = ns.read(fileName).split("\n")
+    if (lines.length > 500){
+        ns.write(fileName,lines.slice(lines.length-500).join("\n"),"w")
+    }
 }
