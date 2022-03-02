@@ -6,6 +6,7 @@ import { servers } from "/automation/lib/scan.js"
 const fields = [
 	"hostname",
 	"hackingLevel",
+	"hackChance",
 	"minSecurity",
 	"securityLevel",
 	"moneyAvailable",
@@ -60,6 +61,7 @@ export async function main(ns) {
 		result.push([
 			s,
 			ns.getServerRequiredHackingLevel(s),
+			(ns.hackAnalyzeChance(s) * 100).toFixed(2),
 			ns.getServerMinSecurityLevel(s),
 			Math.floor(ns.getServerSecurityLevel(s)),
 			Math.floor(ns.getServerMoneyAvailable(s)),
