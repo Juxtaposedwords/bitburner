@@ -1,3 +1,6 @@
+// @ts-ignore
+import { scan } from "/automation/lib/scan.js"
+
 export async function root(ns, target, verbose=false) {
     return basicRoot(ns, target, false, verbose)
 }
@@ -41,4 +44,15 @@ function basicRoot(ns, target, safe, verbose=false){
         }
     }
     return ns.hasRootAccess(target)
+}
+
+
+/** @param {import("../../..").NS } ns */
+export async function rootAll(ns) {
+    for (const server of scan(ns).filter(server =>{
+        const serverStats = ns.getServer(server)
+        return (!serverStats.hasAdminRights && ns.getHackingLevel() >= serverStats.hackDifficulty) 
+    })){
+        root(ns, server,false)
+    }
 }

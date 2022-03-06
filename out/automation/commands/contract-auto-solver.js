@@ -24,13 +24,14 @@ import { allMathExpressions } from "/automation/contracts/expressions.js"
 import { servers } from "/automation/lib/scan.js";
 
 /**
- *  *  @param {import("../../..").NS } ns */
+ *   @param {import("../../..").NS } ns */
 export async function main(ns) {
     const flags = ns.flags([
         ["verbosity", 1],
         ["dry_run", false]
     ])
     var count = 0;
+
     for (const server of servers(ns, false).sort()) {
         for (const contract of ns.ls(server).filter(function (name) {
             return name.endsWith("cct")
