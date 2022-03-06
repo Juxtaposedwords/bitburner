@@ -6,7 +6,8 @@ export async function main(ns) {
     const flags = ns.flags([
         ["mode", ""],
         ["equipment_cost", 0],
-        ["member", ""]
+        ["member", ""],
+        ["sleep_minutes", 40],
     ])
     if (flags.mode == "") {
         flags.mode = "ascend_mult"
@@ -24,7 +25,7 @@ export async function main(ns) {
     while (true) {
 
         let members = ns.gang.getMemberNames()
-        if (flags.member != ""){
+        if (flags.member != "") {
             members = [flags.member]
         }
         for (const name of ns.gang.getMemberNames()) {
@@ -33,6 +34,7 @@ export async function main(ns) {
                 {
                     name: "hack",
                     mult: member.hack_mult,
+                    level: member.hack,
                     asc_mult: member.hack_asc_mult,
                     exp: member.hack_exp,
                     task: "Train Hacking",
@@ -42,6 +44,7 @@ export async function main(ns) {
                     name: "str",
                     mult: member.str_asc_mult,
                     asc_mult: member.str_asc_mult,
+                    level: member.str,
                     exp: member.str_exp,
                     task: "Train Combat",
                     equipment: ["Baseball bat", "Katana", "Glock 18C", "p90c", "Steyr AUG", "Ak-47", "M15A10 Assault Rifle", "AWM Sniper Rifle"],
@@ -49,6 +52,7 @@ export async function main(ns) {
                 {
                     name: "def",
                     mult: member.def_mult,
+                    level: member.def,
                     asc_mult: member.def_asc_mult,
                     exp: member.def_exp,
                     task: "Train Combat",
@@ -57,6 +61,7 @@ export async function main(ns) {
                 {
                     name: "dex",
                     mult: member.dex_mult,
+                    level: member.dex,
                     asc_mult: member.dex_asc_mult,
                     exp: member.dex_exp,
                     task: "Train Combat",
@@ -65,6 +70,7 @@ export async function main(ns) {
                 {
                     name: "agi",
                     mult: member.agi_mult,
+                    level: member.agi,
                     asc_mult: member.agi_asc_mult,
                     exp: member.agi_exp,
                     task: "Train Combat",
@@ -73,6 +79,7 @@ export async function main(ns) {
                 {
                     name: "cha",
                     mult: member.cha_mult,
+                    level: member.cha,
                     asc_mult: member.cha_asc_mult,
                     exp: member.cha_exp,
                     task: "Train Charisma",
@@ -83,9 +90,13 @@ export async function main(ns) {
                 ns.gang.ascendMember(name)
             }
             let lowest = mults.sort((left, right) => left.asc_mult - right.asc_mult)[0]
+            if (flags.mode == "level") {
+                lowest = mults.sort((left, right) => left.level - right.level)[0]
+            }
             ns.gang.setMemberTask(name, lowest.task)
             for (const equipment of lowest.equipment) {
-                if (flags.equipment_cost > 0 && ns.gang.getEquipmentCost(equipment) > flags.equipment_cost) {
+                if ((flags.equipment_cost > 0 && ns.gang.getEquipmentCost(equipment) > flags.equipment_cost) ||
+                    ns.gang.getEquipmentCost(equipment) > ns.getPlayer().money) {
                     continue
                 }
                 ns.gang.purchaseEquipment(name, equipment)
@@ -93,7 +104,7 @@ export async function main(ns) {
 
         }
 
-        await ns.asleep(40 * 60 * 1000)
+        await ns.asleep(flags.sleep_minutes * 60 * 1000)
     }
 }
 
@@ -102,7 +113,8 @@ export function autocomplete(data, args) {
     data.flags([
         ["mode", ""],
         ["equipment_cost", 0],
-        ["member",""],
+        ["member", ""],
+        ["sleep_minutes", 40],
     ]);
 
     const options = {
