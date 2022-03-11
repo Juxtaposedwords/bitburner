@@ -37,7 +37,7 @@ export async function main(ns) {
         ns.rm(file, target);
     }
 
-    await ns.scp(ns.ls(server), server, target);
+    await ns.scp(ns.ls(server).filter(x => (x.endsWith(".js"))), server, target);
 
     for (let p of ns.ps(server)) {
         ns.exec(p.filename, target, p.threads, ...p.args);
@@ -45,4 +45,5 @@ export async function main(ns) {
 }
 
 export function autocomplete(data, args) {
-    return [...data.servers]; 
+    return [...data.servers];
+}
