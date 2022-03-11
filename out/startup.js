@@ -5,11 +5,12 @@ import { root } from "/automation/lib/root.js"
 
 /**
  *  Startup all start-of-game automation.  Use "--verbose" argument if
- * you want info logs written to the console.
+ *  you want info logs written to the console.
  * 
  *  Startup attempts to fill up the machine's memory with a ratio of
  *   grow/hack/weak for machine. If using this script, always upgrade
  *   server size when able.
+ * 
  * 
  *  @param {import("../.").NS } ns */
 export async function main(ns) {
@@ -28,7 +29,6 @@ export async function main(ns) {
     if (flags.verbose) {
         print = ns.tprint
     }
-    
     while (true) {
         const all = servers(ns, true);
         const h = all.filter(function (server) {
@@ -36,7 +36,7 @@ export async function main(ns) {
             return (
                 !(exclude.includes(server)) &&
                 (ns.getServerRequiredHackingLevel(server) <= ns.getHackingLevel()) &&
-                !ns.isRunning("/automation/util/weaken.js", "home", server)) &&
+                !ns.isRunning("/automation/util/weaken.js", ns.getCurrentServer(), server)) &&
                 ns.getServer(server).hasAdminRights});
 
         for (const server of h) {
