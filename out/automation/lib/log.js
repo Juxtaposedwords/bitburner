@@ -30,7 +30,7 @@ export async function jsonLog(ns, program, message, rawJSON = {}) {
         },
         ...rawJSON,
     })
-    if (!await ns.tryWritePort(2, [entry])) {
+    if (!await ns.tryWritePort(2, entry)) {
         ns.print('WARN: failed to write msg ${msg}')
     }
 }
