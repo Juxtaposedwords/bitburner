@@ -2,15 +2,12 @@
  *   folder on the target server.
  * @param {import("../../..").NS } ns */
  export async function main(ns) {
-	const flags = ns.flags([
-		["server", null],  // the server that will run the scripts
-	]);	
-	const usage = "WARN: Usage: install-scripts.js --server <server>"
-	if (flags.server == null)  {
+	const usage = "WARN: Usage: install-scripts.js <server>"
+	if (ns.args.length < 1)  {
 		ns.tprint(usage)
 		return;
 	}
-    const server = flags.server;
+    const server = String(ns.args[0]);
 	if (!ns.hasRootAccess(server)) {
 		ns.tprint(`WARN: root access required on ${server}.`)
 		return;
