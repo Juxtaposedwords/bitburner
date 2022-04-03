@@ -4,7 +4,7 @@ const crimes = [
     "Rob Store",
     "Mug Someone",
     "Larceny",
-    "Dead Drugs",
+    "Deal Drugs",
     "Bond Forgery",
     "Traffick Illegal Arms",
     "Homicide",
@@ -60,7 +60,13 @@ export async function main(ns) {
         }
         return
     }
-    const crime = flags.crime.replace('_', ' ')
+    let crime = flags.crime.replace('_', ' ')
+    for (let c of crimes) {
+        if (c.toLowerCase() == crime.toLowerCase()) {
+            crime = c
+            break
+        }
+    }
     if (!crimes.includes(crime)) {
         ns.tprintf(`ERROR: "${crime}" is not include in crimeTime list`)
         return
