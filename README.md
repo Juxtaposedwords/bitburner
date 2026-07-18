@@ -39,6 +39,49 @@ I have added a Visual Studio task, which runs the `npm run watch` at start time 
         ssh-add "$key"
     done
     ```
+1. Install a keychain so you don't have to type this stuff EVERY time:
+  ```bash
+  #!/bin/bash
+
+  # 1. Update and install keychain
+  echo "Updating packages and installing keychain..."
+  sudo apt update && sudo apt install -y keychain
+
+  # 2. Identify all SSH private keys in ~/.ssh/
+  # This finds files in ~/.ssh that don't end in .pub, .config, or known/authorized_keys
+  KEYS=$(find "$HOME/.ssh" -maxdepth 1 -type f ! -name "*.pub" ! -name "config" ! -name "known_hosts" ! -name "authorized_keys")
+
+  # Convert the list of files into a space-separated string for keychain
+  KEY_LIST=""
+  for key in $KEYS; do
+      KEY_LIST="$KEY_LIST $(basename "$key")"
+  done
+
+  echo "Found keys: $KEY_LIST"
+
+  # 3. Define the eval string using the dynamic list
+  SHELL_CONFIG="$HOME/.bash_profile"
+  INIT_CMD="eval \$(keychain --eval --agents ssh $KEY_LIST)"
+
+  # 4. Append to .bash_profile only if it doesn't already exist
+  if ! grep -q "keychain" "$SHELL_CONFIG"; then
+      echo "Adding keychain initialization to $SHELL_CONFIG..."
+      echo "" >> "$SHELL_CONFIG"
+      echo "# Initialize SSH Keychain with discovered keys" >> "$SHELL_CONFIG"
+      echo "$INIT_CMD" >> "$SHELL_CONFIG"
+  else
+      echo "Keychain already configured in $SHELL_CONFIG."
+  fi
+
+  echo "--------------------------------------------------------"
+  echo "Setup complete. Your dynamic keys are ready."
+  echo "Run 'source $SHELL_CONFIG' to apply changes now."
+  ```
+  * Note: You'll want to make sure your SSH config includes `AddKeysToAgent yes` like:
+      ```
+      HOST *
+        AddKeysToAgent yes
+      ```
 1. Copy your windows Git configs into WSL:
     ```bash
     #!/bin/bash
