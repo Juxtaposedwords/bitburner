@@ -2,6 +2,11 @@
 
 Opionated approach here/reminder of how to set up a  linux subsystem with VSCode so you get linux Quality of life + Windows. 
 
+I have added a Visual Studio task, which runs the `npm run watch` at start time of the workspace. 
+
+**NOTE:** You will still have to connect to remote API at start time with each run of BitBurner. 
+
+
 ## 1. Set up WSL & VS Code
 
 ### 1.A Set up WSL
@@ -99,10 +104,14 @@ Opionated approach here/reminder of how to set up a  linux subsystem with VSCode
         hostname -I
         ```          
      * In BitBurner go to Options -> Remote API and then:
-         * Port: 12525
-         * Hostname: result of the wsl.exe command just run
 
+        | Setting | Value |
+        |---|---|
+        | `Port` | 12525 |
+        | `Hostname` | {result of the prior step} |
+        | `ReconnectionDelay` | 5 |
 
+ 
 
 # Typescript template for Bitburner's Remote File API
 
