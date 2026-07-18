@@ -6,8 +6,8 @@ export async function main(ns: NS): Promise<void> {
 
     for (const arg of ns.args) {
         if (typeof arg === "string" && arg.startsWith("-")) {
-            flags += arg.substring(1);
-        } else if (typeof arg === "string") {
+            flags += arg.substring(1).toLowerCase();
+        } else if (typeof arg === "string" && targetDir === "") {
             targetDir = arg;
         }
     }
@@ -26,10 +26,7 @@ export async function main(ns: NS): Promise<void> {
     const allFiles = ns.ls(ns.getHostname());
     
     const directories = new Set<string>();
-    const textFiles: string[] = [];
-    const litFiles: string[] = [];
-    const exeFiles: string[] = [];
-    const otherFiles: string[] = [];
+    const files: { name: string, type: string, size: string }[] = [];
 
     for (const file of allFiles) {
         if (file.startsWith(prefix)) {
@@ -38,8 +35,7 @@ export async function main(ns: NS): Promise<void> {
             
             if (slashIndex !== -1) {
                 if (!showTree) {
-                    const dirName = relativePath.substring(0, slashIndex);
-                    directories.add(dirName + '/');
+                    directories.add(relativePath.substring(0, slashIndex) + '/');
                     continue; 
                 } else {
                     const parts = relativePath.split('/');
@@ -51,45 +47,44 @@ export async function main(ns: NS): Promise<void> {
                 }
             }
             
-            if (relativePath.endsWith('.txt')) textFiles.push(relativePath);
-            else if (relativePath.endsWith('.lit')) litFiles.push(relativePath);
-            else if (relativePath.endsWith('.exe')) exeFiles.push(relativePath);
-            else otherFiles.push(relativePath);
+            let type = "S";
+            let size = ""; 
+
+            if (relativePath.endsWith('.txt')) type = "T";
+            else if (relativePath.endsWith('.lit')) type = "L";
+            else if (relativePath.endsWith('.exe')) type = "X";
+            else if (relativePath.endsWith('.js')) {
+                type = "S";
+                size = ns.getScriptRam(file).toFixed(2) + "GB";
+            }
+            
+            files.push({ name: relativePath, type, size });
         }
     }
 
-    let maxLength = 0;
-    let matchCount = 0;
+    // Find the longest filename to set the anchor for the Name column
+    let maxName = 0;
+    directories.forEach(d => maxName = Math.max(maxName, d.length));
+    files.forEach(f => maxName = Math.max(maxName, f.name.length));
 
-    if (showDir) { directories.forEach(dir => maxLength = Math.max(maxLength, dir.length)); matchCount += directories.size; }
-    if (showTxt) { textFiles.forEach(file => maxLength = Math.max(maxLength, file.length)); matchCount += textFiles.length; }
-    if (showLit) { litFiles.forEach(file => maxLength = Math.max(maxLength, file.length)); matchCount += litFiles.length; }
-    if (showExe) { exeFiles.forEach(file => maxLength = Math.max(maxLength, file.length)); matchCount += exeFiles.length; }
-    if (showScr) { otherFiles.forEach(file => maxLength = Math.max(maxLength, file.length)); matchCount += otherFiles.length; }
-    
-    if (matchCount === 0) {
-        ns.tprintf("  (No matching files found)");
-        return;
-    }
+    // Pad name, then type (2 chars), then size
+    const namePad = maxName + 4;
+    const formatStr = `%-${namePad}s %-2s %s`;
 
-    const padding = maxLength > 0 ? maxLength + 4 : 4;
-    const formatStr = `%-${padding}s %s`;
-
-    // Define colors: D=Cyan, T=Yellow, L=Magenta, X=Green, S=White
-    const printLine = (name: string, typeChar: string) => {
-        let color = "\x1b[37m"; // White default
+    const printLine = (name: string, size: string, typeChar: string) => {
+        let color = "\x1b[37m"; 
         if (typeChar === "D") color = "\x1b[36m";
         else if (typeChar === "T") color = "\x1b[33m";
         else if (typeChar === "L") color = "\x1b[35m";
         else if (typeChar === "X") color = "\x1b[32m";
-        else if (typeChar === "S") color = "\x1b[37m";
-
-        ns.tprintf(`${color}${formatStr}\x1b[0m`, name, typeChar);
+        
+        ns.tprintf(`${color}${formatStr}\x1b[0m`, name, typeChar, size);
     };
-    
-    if (showDir) directories.forEach(dir => printLine(dir, "D"));
-    if (showTxt) textFiles.forEach(file => printLine(file, "T"));
-    if (showLit) litFiles.forEach(file => printLine(file, "L"));
-    if (showExe) exeFiles.forEach(file => printLine(file, "X"));
-    if (showScr) otherFiles.forEach(file => printLine(file, "S"));
+
+    // Strict grouping order
+    if (showDir) directories.forEach(d => printLine(d, "", "D"));
+    if (showTxt) files.filter(f => f.type === "T").forEach(f => printLine(f.name, f.size, f.type));
+    if (showLit) files.filter(f => f.type === "L").forEach(f => printLine(f.name, f.size, f.type));
+    if (showExe) files.filter(f => f.type === "X").forEach(f => printLine(f.name, f.size, f.type));
+    if (showScr) files.filter(f => f.type === "S").forEach(f => printLine(f.name, f.size, f.type));
 }
