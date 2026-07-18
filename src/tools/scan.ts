@@ -46,9 +46,9 @@ export async function main(ns: NS): Promise<void> {
     };
 
     // Print Header
-    let headerFormat = `%-${hostColWidth}s %-15s %-10s %-8s`;
+    let headerFormat = `%-${hostColWidth}s %-10s %-8s`;
     const headerArgs: (string | number)[] = [
-        "Hostname", "IP", center("Root", 10, cyan), center("H.Lvl", 8, cyan)
+        "Hostname", center("Root", 10, cyan), center("H.Lvl", 8, cyan)
     ];
 
     if (showDetails) {
@@ -67,8 +67,8 @@ export async function main(ns: NS): Promise<void> {
         const rootStatus = center(hasRoot ? "Y" : "N", 10, hasRoot ? green : red);
         const hackStatus = center(hackReq.toString(), 8, hackReq <= currentHackLvl ? green : red);
 
-        let rowFormat = `%-${hostColWidth}s ${yellow}%-15s${reset} %s %s`;
-        const rowArgs: (string | number)[] = [item.display, s.ip ?? "---", rootStatus, hackStatus];
+        let rowFormat = `%-${hostColWidth}s %s %s`;
+        const rowArgs: (string | number)[] = [item.display, rootStatus, hackStatus];
 
         if (showDetails) {
             rowFormat += ` %-5s %-5s %-5s %-5s %-5s %-5s`;
