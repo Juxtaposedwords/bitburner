@@ -1,3 +1,5 @@
+/** @type import("../../..").NS  */
+
 // @ts-ignore
 import { jumpable } from "/automation/contracts/jump.js"
 // @ts-ignore
@@ -23,15 +25,14 @@ import { allMathExpressions } from "/automation/contracts/expressions.js"
 // @ts-ignore
 import { servers } from "/automation/lib/scan.js";
 
-/**
- *   @param {import("../../..").NS } ns */
+
 export async function main(ns) {
     const flags = ns.flags([
         ["verbosity", 1],
         ["dry_run", false]
     ])
-    var count = 0;
 
+    var count = 0;
     for (const server of servers(ns, false).sort()) {
         for (const contract of ns.ls(server).filter(function (name) {
             return name.endsWith("cct")
@@ -45,8 +46,7 @@ export async function main(ns) {
     }
 }
 
-/**  
- * *  @param {import("../../..").NS } ns */
+
 function solveContract(ns, host, filename, logLevel = 0, dryRun = false) {
     const type = ns.codingcontract.getContractType(filename, host);
     const desc = ns.codingcontract.getDescription(filename, host);
