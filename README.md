@@ -1,12 +1,6 @@
 # Setting all this crap out
 
-Opionated approach here:
-
-1. Use the linux subsystem with VSCode so you get linux Quality of life + Windows
-1.  
-1. BitBurner connects ot your game now by a node Watch
-    * In Powershell(admin mode) find the IP by `wsl.exe --dsitrubtion ubutnu hostname -I`  
-1. 
+Opionated approach here/reminder of how to set up a  linux subsystem with VSCode so you get linux Quality of life + Windows. 
 
 ## 1. Set up WSL & VS Code
 
@@ -40,22 +34,41 @@ Opionated approach here:
         ssh-add "$key"
     done
     ```
-1. Clone your repo into the WSL dirctory.  From the WSL client, now run 
+1. Copy your windows Git configs into WSL:
+    ```bash
+    #!/bin/bash
+
+    # Ask Windows for the current username and strip the invisible carriage return (\r)
+    WIN_USER=$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r')
+
+    # Check if the Windows .gitconfig file actually exists before trying to copy it
+    if [ -f "/mnt/c/Users/$WIN_USER/.gitconfig" ]; then
+        # Copy the global Git configuration file from Windows to the Linux home directory
+        cp "/mnt/c/Users/$WIN_USER/.gitconfig" ~/.gitconfig
+        
+        # Print a success message to the terminal
+        echo "Windows Git configuration successfully copied to WSL!"
+    else
+        # Warn the user if no Windows Git configuration was found
+        echo "No .gitconfig found in C:\Users\\$WIN_USER"
+    fi
+    ```
+2. Clone your repo into the WSL dirctory.  From the WSL client, now run 
     ```bash
     cd ~/Development/
     git clone git@github.com:Juxtaposedwords/bitburner.git
     ```
-1. Open VS Code with WSL
-  1. Open VS Code 
-  1. `CMD` + `SHIFT` + `P` ==> `WSL: Connnect to WSL`
-  1. Select the Ubuntu WSL
-  1. Open `~/Development/bitburner` as the workspace
-
+3. Open VS Code with WSL
+   1. Open VS Code 
+   2. `CMD` + `SHIFT` + `P` ==> `WSL: Connnect to WSL`
+   3. Select the Ubuntu WSL
+   4. Open `~/Development/bitburner` as the workspace
+     * _This will open the workspace based off the linux subsystem. We have to do this to ensure node will pick up the changes we make._
+ 
 ## 2. Set up node
 
 1. Use `CMD` +  `~` to open the terminal (look at you go). Run the following in the Linut wsl
-  * Install NPM
-    * WSL(Ubnutu) 
+  * Install NPM. From your WSL run:
       ```bash
       sudo apt update && sudo apt install nodejs npm
       ``` 
@@ -89,8 +102,7 @@ Opionated approach here:
          * Port: 12525
          * Hostname: result of the wsl.exe command just run
 
-###  Why not set up docker?
-It's just more steps to do the same thing.
+
 
 # Typescript template for Bitburner's Remote File API
 
