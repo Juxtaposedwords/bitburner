@@ -20,3 +20,6 @@ Dockerfile
 
 # 6. Ignore this claude garbage
 .claude/
+
+# 7. Workspace specficis
+*.code-workspace

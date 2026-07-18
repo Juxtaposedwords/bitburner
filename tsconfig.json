@@ -1,25 +1,30 @@
 {
   "include": ["NetscriptDefinitions.d.ts", "src/**/*"],
   "exclude": ["src/lib/react.ts"],
+  "watchOptions": {
+    "watchFile": "fixedPollingInterval",
+    "watchDirectory": "fixedPollingInterval",
+    "fallbackPolling": "dynamicPriority"
+  },
   "compilerOptions": {
     "module": "esnext",
     "target": "esnext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "noImplicitReturns": true,
     "noImplicitThis": true,
     "esModuleInterop": true,
     "inlineSourceMap": true,
     "inlineSources": true,
     "strict": true,
-    "rootDir": "out/",
+    "skipLibCheck": true,
+    "rootDir": "src/",
     "outDir": "dist/",
-    "baseUrl": "out/",
     "allowJs": true,
     "jsx": "react",
     "paths": {
-      "/*": ["*"],
-      "@ns": ["../NetscriptDefinitions.d.ts"],
-      "@react": ["lib/react.ts"]
+      "*": ["./src/*"],
+      "@ns": ["./NetscriptDefinitions.d.ts"],
+      "@react": ["./src/lib/react.ts"]
     }
   }
 }
