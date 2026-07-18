@@ -1,44 +1,90 @@
 # Setting all this crap out
 
-Big things to know:
+Opionated approach here:
 
+1. Use the linux subsystem with VSCode so you get linux Quality of life + Windows
+1.  
 1. BitBurner connects ot your game now by a node Watch
     * In Powershell(admin mode) find the IP by `wsl.exe --dsitrubtion ubutnu hostname -I`  
-2. 
+1. 
 
-## 1. Making Remote API work with VS Code:
+## 1. Set up WSL & VS Code
 
-### Set up WSL with Node 
+### 1.A Set up WSL
 1. Set up WSL to a linux subsystem 
   * Powershell(Admin): `wsl.exe --install Ubuntu`
 1. Set up the WSL CLI as the default CLI for VS Code
   * CMD + P ==> `Terminal: Select Default Profile` ==> Select the WSL for Ubuntu
-1. Open your Workspace
-  * I do this by opening to the git directory I will be working out of.
+1. Open up the `WSL` via your windows Launcher
+1. Copy your windows SSH keys you have for your windows:
+    ```bash
+    #!/bin/bash
+
+    # Ask Windows for the current username and strip the invisible carriage return (\r)
+    WIN_USER=$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r')
+
+    # Copy the SSH folder from the dynamic Windows user path into the Linux home directory
+    cp -r "/mnt/c/Users/$WIN_USER/.ssh" ~/
+
+    # Restrict access to the main SSH folder so only the current Linux user can open it
+    chmod 700 ~/.ssh
+
+    # Strip read and write permissions from all other users for the files inside the folder
+    chmod 600 ~/.ssh/*
+
+    # Start the background SSH agent and evaluate its environment variables for the current shell
+    eval "$(ssh-agent -s)"
+
+    # Find any file in the .ssh folder containing "PRIVATE KEY" and load it into the agent
+    for key in $(grep -lr "PRIVATE KEY" ~/.ssh); do
+        ssh-add "$key"
+    done
+    ```
+1. Clone your repo into the WSL dirctory.  From the WSL client, now run 
+    ```bash
+    cd ~/Development/
+    git clone git@github.com:Juxtaposedwords/bitburner.git
+    ```
+1. Open VS Code with WSL
+  1. Open VS Code 
+  1. `CMD` + `SHIFT` + `P` ==> `WSL: Connnect to WSL`
+  1. Select the Ubuntu WSL
+  1. Open `~/Development/bitburner` as the workspace
+
+## 2. Set up node
+
 1. Use `CMD` +  `~` to open the terminal (look at you go). Run the following in the Linut wsl
   * Install NPM
     * WSL(Ubnutu) 
-    ```bash
-    sudo apt update && sudo apt install nodejs npm
-    ``` 
+      ```bash
+      sudo apt update && sudo apt install nodejs npm
+      ``` 
   * Get the BitBurner TypeScript Template
-  ```bash
-   # 1. Download the tarball (since Linux loves tarballs)
-   curl -L https://github.com/bitburner-official/typescript-template/archive/refs/heads/main.tar.gz -o template.tar.gz
-   # 2. Extract it to overwrite your files
-   tar -xzf template.tar.gz --strip-components=1
-   # 3. Clean up
-   rm template.tar.gz
-  ```
-    * **UNTIP:** _If you really hate yourself you can go add your ssh key to the wsl container THEN clone in the repo. That's real try-hard energy._
+    ```bash
+    # 1. Download the tarball (since Linux loves tarballs)
+    curl -L https://github.com/bitburner-official/typescript-template/archive/refs/heads/main.tar.gz -o template.tar.gz
+    # 2. Extract it to overwrite your files
+    tar -xzf template.tar.gz --strip-components=1
+    # 3. Clean up
+    rm template.tar.gz
+    ```
+  
   * Install it all and start listener
-  ```bash
-  npm install
-  # Starts the NPM listener
-  npm run watch
-  ```
+    ```bash
+    npm install
+    # Starts the NPM listener
+    npm run watch
+    ```
   * Connnect bitburner
-     * In Powershell(Admin) run: `wsl.exe --distribution ubuntu hostname -I`                         
+     * Get the hostname by either:
+       * Powershell(admin): 
+        ```powershell
+        wsl.exe --distribution ubuntu hostname -I
+        ```
+      * WSL 
+        ```bash
+        hostname -I
+        ```          
      * In BitBurner go to Options -> Remote API and then:
          * Port: 12525
          * Hostname: result of the wsl.exe command just run
