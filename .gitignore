@@ -1,2 +1,22 @@
-.vscode/extensions.json
-.vscode/settings.json
+NetscriptDefinitions.d.ts
+
+# 1. Ignore the massive downloaded Node tools (never push these)
+node_modules/
+
+# 2. Ignore the compiled JavaScript output (the game has this, Git doesn't need it)
+dist/
+
+# 3. Ignore the game dictionary (it updates constantly and clutters the repo)
+NetscriptDefinitions.d.ts
+package-lock.json
+package.json
+
+# 4. Ignore environment variables or local IDE settings
+.env
+
+# 5. Ignore the docker files (since you deleted them)
+Dockerfile
+.dockerignore
+
+# 6. Ignore this claude garbage
+.claude/
