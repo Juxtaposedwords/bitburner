@@ -2,8 +2,9 @@ import { NS } from "@ns";
 
 export async function main(ns: NS): Promise<void> {
     const args = ns.flags([['d', '']]);
-    // If no argument is provided, default to empty string (root)
-    let targetDir = (args._[0] || args.d || "").toString();
+    
+    // Cast args._ to string[] so TypeScript knows it can be indexed
+    let targetDir = ((args._ as string[])[0] || args.d || "").toString();
 
     // Ensure directory format is correct for ls filtering
     // If you pass "tools", we want to search for "tools/"
@@ -11,7 +12,6 @@ export async function main(ns: NS): Promise<void> {
         targetDir += '/';
     }
 
-    
     // Use Bitburner's native filtering
     const allFiles = ns.ls(ns.getHostname(), targetDir);
     
@@ -70,7 +70,7 @@ export async function main(ns: NS): Promise<void> {
             if (e.isDir) printNode(e.children, indent + (isLast ? "    " : "│   "), path ? `${path}/${e.key}` : e.key);
         });
     };
-
+    
     ns.tprintf("\x1b[37m%s\x1b[0m", targetDir || ".");
     printNode(tree, "", "");
 }
