@@ -1,4 +1,4 @@
-import { ServerMetadata } from "/functional/types/serverMetadata.js";
+import { ServerMetadata } from "functional/types/serverMetadata";
 
 export type Action = 
   | { type: "METADATA_UPDATE"; payload: ServerMetadata }

@@ -1,8 +1,8 @@
 import { NS, Server } from "@ns";
-import { PORTS } from "/functional/types/ports.js";
-import { Action } from "/functional/types/messages.js";
-import { ServerMetadata } from "/functional/types/serverMetadata.js";
-import { createLogger, LOG_LEVEL } from "/tools/logs.js";
+import { PORTS } from "functional/types/ports";
+import { Action } from "functional/types/messages";
+import { ServerMetadata } from "functional/types/serverMetadata";
+import { createLogger, LOG_LEVEL } from "tools/logs";
 
 // --- PURE FUNCTIONS ---
 function toServerMetadata(hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): ServerMetadata {
@@ -36,7 +36,6 @@ function toServerMetadata(hostname: string, pathFromHome: string, serverInfo: Se
   };
 }
 
-// Added an onDiscover callback so we can log the traversal without injecting I/O directly into the function
 function mapNetwork(ns: NS, startNode: string = "home", onDiscover?: (node: string) => void): Map<string, string> {
   const visited = new Set<string>([startNode]);
   const queue = [{ hostname: startNode, path: startNode }];
@@ -48,7 +47,6 @@ function mapNetwork(ns: NS, startNode: string = "home", onDiscover?: (node: stri
       if (!visited.has(neighbor)) {
         visited.add(neighbor);
         
-        // Fire the callback if one was provided
         if (onDiscover) onDiscover(neighbor);
         
         const newPath = `${currentPath} -> ${neighbor}`;
@@ -64,7 +62,6 @@ function mapNetwork(ns: NS, startNode: string = "home", onDiscover?: (node: stri
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   
-  // Lowered the minimum level to DEBUG so the new traversal logs will show up
   const log = createLogger(ns, "Crawler", LOG_LEVEL.DEBUG);
   
   log.info("=== Starting Functional Network Crawler ===");
@@ -72,7 +69,6 @@ export async function main(ns: NS): Promise<void> {
   const portId = PORTS.SERVER_METADATA;
   log.info(`[Phase 1] Mapping network topology...`);
   
-  // Pass a callback to log each node exactly as it is discovered
   const networkTopology = mapNetwork(ns, "home", (node) => {
     log.debug(`[Found] ${node}`);
   });
@@ -99,10 +95,10 @@ export async function main(ns: NS): Promise<void> {
   log.info(`[Phase 3] Broadcasting batch payload to Port ${portId}...`);
   
   const action: Action = { type: "METADATA_BATCH_UPDATE", payload: batchPayload };
-  const portResult = ns.writePort(portId, JSON.stringify(action));
+  const success = ns.tryWritePort(portId, JSON.stringify(action));
 
-  if (portResult === null) {
-    log.error(`Port ${portId} queue is completely full! Batch dropped.`);
+  if (!success) {
+    log.error(`Port ${portId} queue is full! Make sure supervisor.js is running.`);
   } else {
     log.info(`Batch payload delivered successfully.`);
   }

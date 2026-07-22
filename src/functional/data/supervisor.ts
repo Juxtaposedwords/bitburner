@@ -1,10 +1,9 @@
 import { NS } from "@ns";
-import { PORTS } from "/functional/types/ports.js";
-import { Action } from "/functional/types/messages.js";
-import { ServerMetadata } from "/functional/types/serverMetadata.js";
-import { createLogger, LOG_LEVEL } from "/tools/logs.js";
+import { PORTS } from "functional/types/ports";
+import { Action } from "functional/types/messages";
+import { ServerMetadata } from "functional/types/serverMetadata";
+import { createLogger, LOG_LEVEL } from "tools/logs";
 
-// --- IMPURE I/O FUNCTIONS ---
 function loadStateFromDisk(ns: NS): Map<string, ServerMetadata> {
   const state = new Map<string, ServerMetadata>();
   const existingFiles = ns.ls("home", "/data/servers/").filter(f => f.endsWith(".txt"));
@@ -26,12 +25,12 @@ function saveServersToDisk(ns: NS, servers: Iterable<ServerMetadata>): void {
   }
 }
 
-// --- MAIN EVENT LOOP ---
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Supervisor", LOG_LEVEL.INFO);
   
   const portId = PORTS.SERVER_METADATA;
+  
   ns.clearPort(portId); 
   
   log.info("=== Functional State Supervisor ===");
@@ -51,38 +50,47 @@ export async function main(ns: NS): Promise<void> {
     await ns.nextPortWrite(portId);
 
     const serversToSave = new Set<ServerMetadata>();
+    let processedCount = 0;
 
     while (ns.peek(portId) !== "NULL PORT DATA") {
-      const rawMsg = ns.readPort(portId) as string;
-      const action = JSON.parse(rawMsg) as Action;
+      const rawMsg = ns.readPort(portId);
+      
+      if (typeof rawMsg !== "string") {
+        log.warn(`[Poll] Encountered non-string port data, skipping.`);
+        continue;
+      }
 
-      switch (action.type) {
-        case "METADATA_UPDATE": {
-          const server = action.payload;
-          networkState.set(server.hostname, server);
-          serversToSave.add(server);
-          
-          log.debug(`[State Update] Cached: ${server.hostname.padEnd(18)}`);
-          break;
-        }
-        case "METADATA_BATCH_UPDATE": {
-          const servers = action.payload;
-          for (const server of servers) {
+      try {
+        const action = JSON.parse(rawMsg) as Action;
+
+        switch (action.type) {
+          case "METADATA_UPDATE": {
+            const server = action.payload;
             networkState.set(server.hostname, server);
             serversToSave.add(server);
+            processedCount++;
+            break;
           }
-          
-          log.info(`[Batch Update] Cached ${servers.length} servers | Total Tracked: ${networkState.size}`);
-          break;
+          case "METADATA_BATCH_UPDATE": {
+            const servers = action.payload;
+            for (const server of servers) {
+              networkState.set(server.hostname, server);
+              serversToSave.add(server);
+            }
+            processedCount += servers.length;
+            break;
+          }
+          default:
+            log.warn(`[Poll] Unrecognized action type received: ${(action as any).type}`);
         }
-        default:
-          log.warn(`Unrecognized action type received.`);
+      } catch (err) {
+        log.error(`[Poll] Failed to parse port message as JSON. Flushing item.`);
       }
     }
 
     if (serversToSave.size > 0) {
       saveServersToDisk(ns, serversToSave);
-      log.info(`[Disk] Backed up ${serversToSave.size} server files to /data/servers/`);
+      log.info(`[Sync] Processed ${processedCount} updates. Backed up ${serversToSave.size} files to disk. Total tracked: ${networkState.size}`);
     }
   }
 }
