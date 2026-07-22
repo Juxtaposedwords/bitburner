@@ -14,74 +14,31 @@ I have added a Visual Studio task, which runs the `npm run watch` at start time 
   * Powershell(Admin): `wsl.exe --install Ubuntu`
 1. Set up the WSL CLI as the default CLI for VS Code
   * CMD + P ==> `Terminal: Select Default Profile` ==> Select the WSL for Ubuntu
-1. Open up the `WSL` via your windows Launcher
-1. Copy your windows SSH keys you have for your windows:
-    ```bash
-    #!/bin/bash
-
-    # Ask Windows for the current username and strip the invisible carriage return (\r)
-    WIN_USER=$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r')
-
-    # Copy the SSH folder from the dynamic Windows user path into the Linux home directory
-    cp -r "/mnt/c/Users/$WIN_USER/.ssh" ~/
-
-    # Restrict access to the main SSH folder so only the current Linux user can open it
-    chmod 700 ~/.ssh
-
-    # Strip read and write permissions from all other users for the files inside the folder
-    chmod 600 ~/.ssh/*
-
-    # Start the background SSH agent and evaluate its environment variables for the current shell
-    eval "$(ssh-agent -s)"
-
-    # Find any file in the .ssh folder containing "PRIVATE KEY" and load it into the agent
-    for key in $(grep -lr "PRIVATE KEY" ~/.ssh); do
-        ssh-add "$key"
-    done
-    ```
-1. Install a keychain so you don't have to type this stuff EVERY time:
-  ```bash
-  #!/bin/bash
-
-  # 1. Update and install keychain
-  echo "Updating packages and installing keychain..."
-  sudo apt update && sudo apt install -y keychain
-
-  # 2. Identify all SSH private keys in ~/.ssh/
-  # This finds files in ~/.ssh that don't end in .pub, .config, or known/authorized_keys
-  KEYS=$(find "$HOME/.ssh" -maxdepth 1 -type f ! -name "*.pub" ! -name "config" ! -name "known_hosts" ! -name "authorized_keys")
-
-  # Convert the list of files into a space-separated string for keychain
-  KEY_LIST=""
-  for key in $KEYS; do
-      KEY_LIST="$KEY_LIST $(basename "$key")"
-  done
-
-  echo "Found keys: $KEY_LIST"
-
-  # 3. Define the eval string using the dynamic list
-  SHELL_CONFIG="$HOME/.bash_profile"
-  INIT_CMD="eval \$(keychain --eval --agents ssh $KEY_LIST)"
-
-  # 4. Append to .bash_profile only if it doesn't already exist
-  if ! grep -q "keychain" "$SHELL_CONFIG"; then
-      echo "Adding keychain initialization to $SHELL_CONFIG..."
-      echo "" >> "$SHELL_CONFIG"
-      echo "# Initialize SSH Keychain with discovered keys" >> "$SHELL_CONFIG"
-      echo "$INIT_CMD" >> "$SHELL_CONFIG"
-  else
-      echo "Keychain already configured in $SHELL_CONFIG."
-  fi
-
-  echo "--------------------------------------------------------"
-  echo "Setup complete. Your dynamic keys are ready."
-  echo "Run 'source $SHELL_CONFIG' to apply changes now."
-  ```
-  * Note: You'll want to make sure your SSH config includes `AddKeysToAgent yes` like:
+1. Set up your ssh with Windows and WSL
+   1. set up ssh keys agent with windows
+        * Powershell(admin)
+          ```powershell
+            Set-Service ssh-agent -StartupType Automatic
+            Start-Service ssh-agent
+          ```
+  1. Add your ssh keys fro myour directory
+      ```powershell
+      Get-ChildItem "$env:USERPROFILE\.ssh" -File | 
+        Where-Object { $_.Extension -eq "" -and $_.Name -notmatch "config|known_hosts|authorized_keys" } | 
+        ForEach-Object { ssh-add $_.FullName }
       ```
-      HOST *
-        AddKeysToAgent yes
-      ```
+      *Note: Ensure your private key files are located in your Windows `C:\Users\<YourUser>\.ssh` directory.*
+1. Set up WSL to use windows agent keys:
+   * WSL(Ubuntu)
+      ```bash
+        git config --global core.sshCommand "ssh.exe"
+      ``` 
+1. Overriwte the sshe aliases to the end of your `~/.bashrc`
+   * WSL(Ubuntu)
+      ```bash
+        alias ssh='ssh.exe'
+        alias ssh-add='ssh-add.exe'      
+      ``` 
 1. Copy your windows Git configs into WSL:
     ```bash
     #!/bin/bash
@@ -101,12 +58,12 @@ I have added a Visual Studio task, which runs the `npm run watch` at start time 
         echo "No .gitconfig found in C:\Users\\$WIN_USER"
     fi
     ```
-2. Clone your repo into the WSL dirctory.  From the WSL client, now run 
+3. Clone your repo into the WSL dirctory.  From the WSL client, now run 
     ```bash
     cd ~/Development/
     git clone git@github.com:Juxtaposedwords/bitburner.git
     ```
-3. Open VS Code with WSL
+4. Open VS Code with WSL
    1. Open VS Code 
    2. `CMD` + `SHIFT` + `P` ==> `WSL: Connnect to WSL`
    3. Select the Ubuntu WSL
@@ -148,11 +105,11 @@ I have added a Visual Studio task, which runs the `npm run watch` at start time 
         ```          
      * In BitBurner go to Options -> Remote API and then:
 
-        | Setting | Value |
-        |---|---|
-        | `Port` | 12525 |
-        | `Hostname` | {result of the prior step} |
-        | `ReconnectionDelay` | 5 |
+        | Setting             | Value                      |
+        | ------------------- | -------------------------- |
+        | `Port`              | 12525                      |
+        | `Hostname`          | {result of the prior step} |
+        | `ReconnectionDelay` | 5                          |
 
  
 
