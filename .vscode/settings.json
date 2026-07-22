@@ -3,5 +3,8 @@
     "bitburner.fileWatcher.enable": true,
     "bitburner.scriptRoot": "./out",
     "bitburner.showPushSuccessNotification": true,
-    "bitburner.showFileWatcherEnabledNotification": true
+    "bitburner.showFileWatcherEnabledNotification": true,
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false
 }
