@@ -1,11 +1,15 @@
 # Setting all this crap out
 
-Opionated approach here/reminder of how to set up a  linux subsystem with VSCode so you get linux Quality of life + Windows. 
+Opionated approach here/reminder of how to set up a  Windows subsystem (WSL) for Ubuntu with VSCode. As a result we get all of the linux Quality of life + Windows. 
 
 I have added a Visual Studio task, which runs the `npm run watch` at start time of the workspace. 
 
-**NOTE:** You will still have to connect to remote API at start time with each run of BitBurner. 
-
+# Overview
+1. VS Code runs with WSL
+   1. Windows managed ssh keys
+     * *note: Otherwise you'll need to enter you password for each wsl start.* 
+1. A [Visual Studio Code `task`](https://code.visualstudio.com/docs/debugtest/tasks#_custom-tasks) to start up the node transpiler.
+  * seen in the `.vscode/tasks.json`
 
 ## 1. Set up WSL & VS Code
 
