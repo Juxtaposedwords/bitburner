@@ -1,6 +1,6 @@
 import { NS, Server } from "@ns";
 import { PORTS } from "functional/types/ports";
-import { Action } from "functional/types/messages";
+import { Action, ActionType } from "functional/types/messages";
 import { ServerMetadata } from "functional/types/serverMetadata";
 import { createLogger, LOG_LEVEL } from "tools/logs";
 
@@ -76,7 +76,10 @@ const createNodeProcessor = (ns: NS, portId: number, log: any) => (host: string,
   writeWithBackoff(
     ns,
     portId,
-    { type: "METADATA_UPDATE", payload: toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host)) },
+    { 
+      type: ActionType.METADATA_UPDATE, 
+      payload: toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host)) 
+    },
     log
   ).then(success => (
     success ? log.debug(`[Streamed] ${host}`) : log.error(`[Drop] Failed to deliver ${host} after max retries.`),

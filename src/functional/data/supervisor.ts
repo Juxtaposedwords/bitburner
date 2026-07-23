@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 import { PORTS } from "functional/types/ports";
-import { Action } from "functional/types/messages";
+import { Action, ActionType } from "functional/types/messages";
 import { ServerMetadata } from "functional/types/serverMetadata";
 import { createLogger, LOG_LEVEL } from "tools/logs";
 
@@ -30,7 +30,10 @@ export async function main(ns: NS): Promise<void> {
   ns.clearPort(portId); 
   log.info("=== RAM-Cache Supervisor Online ===");
 
+  // 1. In-memory state database (The single source of truth)
   const networkState = loadStateFromDisk(ns);
+  
+  // 2. Buffer for dirty records needing a disk write (Deduplicates naturally)
   const pendingWrites = new Map<string, ServerMetadata>();
 
   if (networkState.size > 0) {
@@ -56,22 +59,36 @@ export async function main(ns: NS): Promise<void> {
         const action = JSON.parse(rawMsg) as Action;
 
         switch (action.type) {
-          case "METADATA_UPDATE": {
+          case ActionType.METADATA_UPDATE: {
             const server = action.payload;
             networkState.set(server.hostname, server);
             pendingWrites.set(server.hostname, server); // Queue for disk
             processedCount++;
             break;
           }
+          case ActionType.METADATA_PATCH: {
+            const patch = action.payload;
+            const existing = networkState.get(patch.hostname);
+            
+            if (existing) {
+              const updated: ServerMetadata = { ...existing, ...patch };
+              networkState.set(patch.hostname, updated);
+              pendingWrites.set(patch.hostname, updated);
+              processedCount++;
+            } else {
+              log.warn(`[Patch] Ignored patch for unknown server: ${patch.hostname}`);
+            }
+            break;
+          }
           default:
-            log.warn(`[Poll] Unrecognized action type: ${(action as any).type}`);
+            log.warn(`[Poll] Unrecognized action type.`);
         }
       } catch (err) {
         log.error(`[Poll] Failed to parse message as JSON. Flushing item.`);
       }
     }
 
-    // 3. Now that the port is empty, safely flush pending writes to disk
+    // 3. Now that the port is empty, safely flush pending writes to disk synchronously
     if (pendingWrites.size > 0) {
       for (const server of pendingWrites.values()) {
         ns.write(`/data/servers/${server.hostname}.txt`, JSON.stringify(server, null, 2), "w");
