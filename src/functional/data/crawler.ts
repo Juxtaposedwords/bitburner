@@ -2,7 +2,7 @@ import { NS, Server } from "@ns";
 import { PORTS } from "functional/types/ports";
 import { Action, ActionType } from "functional/types/messages";
 import { ServerMetadata } from "functional/types/serverMetadata";
-import { createLogger, LOG_LEVEL } from "tools/logs";
+import { createLogger, LOG_LEVEL, Logger, withBackoff } from "tools/logs";
 
 // --- PURE DATA TRANSFORMS ---
 
@@ -34,20 +34,8 @@ const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Se
 
 type FoldState = { readonly visited: ReadonlySet<string>; readonly success: number; readonly dropped: number; };
 
-// --- RECURSIVE MONADIC LOGIC (Expression-Oriented) ---
+// --- RECURSIVE MONADIC LOGIC ---
 
-// Pure recursive expression using ternaries and Promise chaining (no async/await statements)
-const writeWithBackoff = (ns: NS, portId: number, action: Action, log: any, attempt = 1, delay = 50): Promise<boolean> =>
-  ns.tryWritePort(portId, JSON.stringify(action))
-    ? Promise.resolve(true)
-    : attempt >= 5
-      ? Promise.resolve(false)
-      : (
-          log.warn(`[Backoff] Port ${portId} full. Retrying attempt ${attempt}/5 in ${delay}ms...`),
-          ns.sleep(delay).then(() => writeWithBackoff(ns, portId, action, log, attempt + 1, delay * 2))
-        );
-
-// The monadic fold (equivalent to foldM). Evaluates entirely as a single expression.
 const foldNetwork = (
   ns: NS,
   currentHost: string,
@@ -71,31 +59,33 @@ const foldNetwork = (
         )
       );
 
-// Curried higher-order function: injects dependencies (ns, port, log) first, returns the processing function
-const createNodeProcessor = (ns: NS, portId: number, log: any) => (host: string, path: string): Promise<boolean> =>
-  writeWithBackoff(
+const createNodeProcessor = (ns: NS, portId: number, log: Logger) => (host: string, path: string): Promise<boolean> => {
+  const actionPayload = { 
+    type: ActionType.METADATA_UPDATE, 
+    payload: toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host)) 
+  };
+
+  return withBackoff(
     ns,
-    portId,
-    { 
-      type: ActionType.METADATA_UPDATE, 
-      payload: toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host)) 
-    },
-    log
-  ).then(success => (
-    success ? log.debug(`[Streamed] ${host}`) : log.error(`[Drop] Failed to deliver ${host} after max retries.`),
-    success
-  ));
+    () => ns.tryWritePort(portId, JSON.stringify(actionPayload)),
+    (attempt, delay) => log.warn(`[Backoff] Port ${portId} full. Retrying attempt ${attempt}/5 in ${delay}ms...`)
+  ).then(success => 
+    (success 
+      ? log.debug(`[Streamed] ${host}`) 
+      : log.error(`[Drop] Failed to deliver ${host} after max retries.`)
+    ).then(() => success)
+  );
+};
 
 // --- IMPERATIVE SHELL (MAIN) ---
 
 export const main = (ns: NS): Promise<void> => {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Crawler", LOG_LEVEL.DEBUG);
-  log.info("=== Starting Pure Functional Expression Crawler ===");
-
-  // Kick off the monadic pipeline. No intermediate variables are used.
-  return foldNetwork(ns, "home", "home", createNodeProcessor(ns, PORTS.SERVER_METADATA, log))
-    .then(({ success, dropped, visited }) => {
-      log.info(`[Complete] Streamed ${success}/${visited.size} nodes. Dropped: ${dropped}`);
-    });
+  
+  return log.info("=== Starting Pure Functional Expression Crawler ===")
+    .then(() => foldNetwork(ns, "home", "home", createNodeProcessor(ns, PORTS.SERVER_METADATA, log)))
+    .then(({ success, dropped, visited }) => 
+      log.info(`[Complete] Streamed ${success}/${visited.size} nodes. Dropped: ${dropped}`)
+    );
 };

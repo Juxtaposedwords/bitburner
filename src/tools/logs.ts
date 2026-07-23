@@ -10,34 +10,69 @@ export const LOG_LEVEL = {
 export type LogLevel = typeof LOG_LEVEL[keyof typeof LOG_LEVEL];
 
 export interface Logger {
-  debug: (msg: string) => void;
-  info: (msg: string) => void;
-  warn: (msg: string) => void;
-  error: (msg: string) => void;
+  debug: (msg: string) => Promise<void>;
+  info: (msg: string) => Promise<void>;
+  warn: (msg: string) => Promise<void>;
+  error: (msg: string) => Promise<void>;
 }
 
 /**
+ * A generic, functional exponential backoff wrapper.
+ * Exported so other scripts (like crawler) can use it for ports.
+ */
+export const withBackoff = (
+  ns: NS,
+  action: () => boolean,
+  onRetry?: (attempt: number, delay: number) => Promise<void>,
+  attempt = 1,
+  delay = 50
+): Promise<boolean> => {
+  try {
+    if (action()) {
+      return Promise.resolve(true);
+    }
+  } catch (e) {
+    // Treat thrown errors as retryable failures
+  }
+
+  if (attempt >= 5) {
+    return Promise.resolve(false);
+  }
+
+  const nextDelay = delay * 2;
+  return (onRetry ? onRetry(attempt, delay) : Promise.resolve())
+    .then(() => ns.asleep(delay))
+    .then(() => withBackoff(ns, action, onRetry, attempt + 1, nextDelay));
+};
+
+/**
  * Creates a functional logger that dynamically names its file based on the executing script.
- * Output example: /data/logs/home/crawler.txt
  */
 export function createLogger(ns: NS, tag: string, minLevel: LogLevel = LOG_LEVEL.INFO): Logger {
   const host = ns.getHostname();
-  const pid = ns.pid; // Grab the unique Process ID for this specific run
+  const pid = ns.pid; 
   
   const rawScriptName = ns.getScriptName();
   const processName = rawScriptName.split("/").pop()?.replace(".js", "") || "unknown_process";
-
-  // The host is now a directory, and the process name is the file
   const logFile = `/data/logs/${host}/${processName}.txt`;
 
-  const write = (level: LogLevel, levelName: string, msg: string) => {
+  const write = async (level: LogLevel, levelName: string, msg: string) => {
     if (level < minLevel) return;
     
     const time = new Date().toLocaleTimeString();
+    const logString = `[${time}] [PID: ${pid}] [${levelName.padEnd(5)}] [${tag}] ${msg}\n`;
     
-    // The "a" at the end of ns.write guarantees the file is strictly appended to.
-    // Injected the PID directly into the output format.
-    ns.write(logFile, `[${time}] [PID: ${pid}] [${levelName.padEnd(5)}] [${tag}] ${msg}\n`, "a");
+    await withBackoff(
+      ns,
+      () => {
+        ns.write(logFile, logString, "a");
+        return true; 
+      },
+      (attempt) => {
+        if (attempt >= 5) ns.tprint(`CRITICAL LOG FAILURE [${logFile}]: ${logString}`);
+        return Promise.resolve();
+      }
+    );
   };
 
   return {
