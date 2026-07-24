@@ -23,8 +23,8 @@ export interface Logger {
 export const withBackoff = (
   ns: NS,
   action: () => boolean,
-  onRetry?: (attempt: number, delay: number) => Promise<void>,
-  attempt = 1,
+  onRetry?: (retryCount: number, delay: number) => Promise<void>,
+  retryCount = 1,
   delay = 50
 ): Promise<boolean> => {
   try {
@@ -35,14 +35,14 @@ export const withBackoff = (
     // Treat thrown errors as retryable failures
   }
 
-  if (attempt >= 5) {
+  if (retryCount >= 5) {
     return Promise.resolve(false);
   }
 
   const nextDelay = delay * 2;
-  return (onRetry ? onRetry(attempt, delay) : Promise.resolve())
+  return (onRetry ? onRetry(retryCount, delay) : Promise.resolve())
     .then(() => ns.asleep(delay))
-    .then(() => withBackoff(ns, action, onRetry, attempt + 1, nextDelay));
+    .then(() => withBackoff(ns, action, onRetry, retryCount + 1, nextDelay));
 };
 
 /**
@@ -68,8 +68,8 @@ export function createLogger(ns: NS, tag: string, minLevel: LogLevel = LOG_LEVEL
         ns.write(logFile, logString, "a");
         return true; 
       },
-      (attempt) => {
-        if (attempt >= 5) ns.tprint(`CRITICAL LOG FAILURE [${logFile}]: ${logString}`);
+      (retryCount) => {
+        if (retryCount >= 5) ns.tprint(`CRITICAL LOG FAILURE [${logFile}]: ${logString}`);
         return Promise.resolve();
       }
     );

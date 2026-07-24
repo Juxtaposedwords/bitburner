@@ -23,6 +23,25 @@
         "dist/**",
         "NetscriptDefinitions.d.ts"
     ],
-    "rules": {
-    }
+"rules": {
+    "id-denylist": [
+      "error",
+      
+      // Basic Hacking (These add up quickly in parallel scripts)
+      "hack",
+      "grow",
+      "weaken",
+      "share",     
+
+      // Heavy Minigames & End-Game APIs
+      "attempt",   // codingcontract (10 GB)
+      "sleeve",    // (4.0 GB)
+      "stanek",    
+      "gang",      
+      "corporation", 
+      "bladeburner",
+      "stock",
+      "hacknet"
+    ]
+  }
 }
