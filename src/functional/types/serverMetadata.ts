@@ -4,10 +4,12 @@ export interface ServerMetadata {
   ip: string;
   pathFromHome: string;
   maxRam: number;
+  ramAvailable: number;
   cpuCores: number;
   purchasedByPlayer: boolean;
   securityLevel: number;
   minSecurityLevel: number;
+  growthMultiplier: number;
   hacked: boolean;
   backdoorInstalled: boolean;
   hacking: {
