@@ -1,8 +1,8 @@
 import { NS } from "@ns";
-import { PORTS } from "functional/types/ports";
-import { Action, ActionType } from "functional/types/messages";
-import { ServerMetadata } from "functional/types/serverMetadata";
-import { createLogger, LOG_LEVEL } from "tools/logs";
+import { PORTS } from "development/types/ports";
+import { Action, ActionType } from "development/types/messages";
+import { ServerMetadata } from "development/types/serverMetadata";
+import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 
 function loadStateFromDisk(ns: NS): Map<string, ServerMetadata> {
   const state = new Map<string, ServerMetadata>();

@@ -1,4 +1,4 @@
-import { ServerMetadata } from "functional/types/serverMetadata";
+import { ServerMetadata } from "development/types/serverMetadata";
 
 // 1. Define the strict Enum
 export enum ActionType {
