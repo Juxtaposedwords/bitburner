@@ -68,7 +68,7 @@ const createNodeProcessor = (ns: NS, portId: number, log: Logger) => (host: stri
   return withBackoff(
     ns,
     () => ns.tryWritePort(portId, JSON.stringify(actionPayload)),
-    (attempt, delay) => log.warn(`[Backoff] Port ${portId} full. Retrying attempt ${attempt}/5 in ${delay}ms...`)
+    (retryCount, delay) => log.warn(`[Backoff] Port ${portId} full. Retrying attempt ${retryCount}/5 in ${delay}ms...`)
   ).then(success => 
     (success 
       ? log.debug(`[Streamed] ${host}`) 
