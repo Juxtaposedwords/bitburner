@@ -13,10 +13,12 @@ const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Se
   pathFromHome,
   securityLevel: serverInfo.hackDifficulty ?? 0,
   minSecurityLevel: serverInfo.minDifficulty ?? 0,
+  growthMultiplier: serverInfo.serverGrowth ?? 1,
   hacked: serverInfo.hasAdminRights ?? false,
   backdoorInstalled: serverInfo.backdoorInstalled ?? false,
   purchasedByPlayer: serverInfo.purchasedByPlayer ?? false,
   maxRam: serverInfo.maxRam ?? 0,
+  ramAvailable: (serverInfo.maxRam ?? 0) - (serverInfo.ramUsed ?? 0),
   cpuCores: serverInfo.cpuCores ?? 1,
   hacking: {
     requirements: { level: serverInfo.requiredHackingSkill, ports: serverInfo.numOpenPortsRequired },
@@ -31,6 +33,7 @@ const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Se
   moneyAvailable,
   maxMoney: serverInfo.moneyMax,
 });
+
 
 type FoldState = { readonly visited: ReadonlySet<string>; readonly success: number; readonly dropped: number; };
 
