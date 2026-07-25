@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package server_metadata;
+
+// port 100
+
+message AssignRequest {
+  string target = 1;
+  int32 threads = 2;
+  string honking = 3;
+}
+
+message AssignResponse {
+  bool success = 1;
+}
+
+service Supervisor {
+  rpc AssignTask(AssignRequest) returns (AssignResponse);
+}
