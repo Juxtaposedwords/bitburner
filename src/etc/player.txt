@@ -1,0 +1,4 @@
+{
+  "playerInfoPath": "/data/var/player_info.txt",
+  "updateIntervalMs": 5000
+}
