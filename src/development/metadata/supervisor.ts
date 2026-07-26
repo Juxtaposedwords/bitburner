@@ -3,6 +3,8 @@ import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { NewServer } from "development/libraries/rpc";
 import {
   ActionResponse,
+  ListServersRequest,
+  ListServersResponse,
   Metadata,
   PatchMetadataRequest,
   RegisterSupervisor,
@@ -157,6 +159,10 @@ export function createHandlers(log: Logger, state: SupervisorState): SupervisorH
 
       state.processedSinceFlush++;
       return { success: true };
+    },
+
+    ListServers: (_req: ListServersRequest): ListServersResponse => {
+      return { servers: [...state.networkState.values()] };
     },
   };
 }

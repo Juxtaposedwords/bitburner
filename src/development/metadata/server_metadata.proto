@@ -52,7 +52,14 @@ message ActionResponse {
   bool success = 1;
 }
 
+message ListServersRequest {}
+
+message ListServersResponse {
+  repeated Metadata servers = 1;
+}
+
 service Supervisor {
   rpc UpdateMetadata(UpdateMetadataRequest) returns (ActionResponse);
   rpc PatchMetadata(PatchMetadataRequest) returns (ActionResponse);
+  rpc ListServers(ListServersRequest) returns (ListServersResponse);
 }

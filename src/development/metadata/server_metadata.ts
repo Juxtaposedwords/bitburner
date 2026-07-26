@@ -20,6 +20,13 @@ export interface PatchMetadataRequest {
     server?: Metadata;
 }
 
+export interface ListServersRequest {
+}
+
+export interface ListServersResponse {
+    servers?: Metadata[];
+}
+
 export interface Metadata {
     hostname?: string;
     organization?: string;
@@ -60,6 +67,7 @@ export interface HackingPorts {
 export interface SupervisorHandlers {
     UpdateMetadata: (req: UpdateMetadataRequest) => Promise<ActionResponse> | ActionResponse;
     PatchMetadata: (req: PatchMetadataRequest) => Promise<ActionResponse> | ActionResponse;
+    ListServers: (req: ListServersRequest) => Promise<ListServersResponse> | ListServersResponse;
 }
 
 export function NewClient(ns: NS, targetPort = SupervisorPort) {
@@ -100,6 +108,25 @@ export function NewClient(ns: NS, targetPort = SupervisorPort) {
             // The server replies with JSON.stringify(response); parse it back.
             const res = JSON.parse(ns.readPort(replyPort) as string) as RpcResponse<ActionResponse>;
             if (!res.success) throw new Error(`[RPC Error] Supervisor.PatchMetadata: ${res.error}`);
+            return res.data!;
+        },
+        ListServers: async (req: ListServersRequest, timeoutMs = 10000): Promise<ListServersResponse> => {
+            const replyPort = ns.pid + REPLY_PORT_OFFSET;
+            ns.clearPort(replyPort);
+            const envelope: RpcEnvelope<ListServersRequest> = { service: "Supervisor", method: "ListServers", replyPort, payload: req };
+
+            const deadline = Date.now() + timeoutMs;
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), deadline);
+            if (!queued) throw new Error(`[RPC Timeout] Call to Supervisor.ListServers could not be queued.`);
+
+            const replied = await pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", deadline);
+            if (!replied) throw new Error(`[RPC Timeout] Call to Supervisor.ListServers timed out.`);
+
+            // The server replies with JSON.stringify(response); parse it back.
+            const res = JSON.parse(ns.readPort(replyPort) as string) as RpcResponse<ListServersResponse>;
+            if (!res.success) throw new Error(`[RPC Error] Supervisor.ListServers: ${res.error}`);
             return res.data!;
         },
     };

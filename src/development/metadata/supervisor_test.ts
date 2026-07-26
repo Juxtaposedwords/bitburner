@@ -72,6 +72,28 @@ describe("Supervisor RPC handlers", () => {
     });
   });
 
+  describe("ListServers", () => {
+    it("returns every currently-known server", async () => {
+      const state = createSupervisorState(
+        new Map([
+          ["n00dles", metadata("n00dles", { maxRam: 8 })],
+          ["foodnstuff", metadata("foodnstuff", { maxRam: 16 })],
+        ])
+      );
+      const handlers = createHandlers(noopLog, state);
+
+      const res = await handlers.ListServers({});
+
+      expect(res.servers).toEqual([metadata("n00dles", { maxRam: 8 }), metadata("foodnstuff", { maxRam: 16 })]);
+    });
+
+    it("returns an empty list when nothing is known yet", () => {
+      const handlers = createHandlers(noopLog, createSupervisorState());
+
+      expect(handlers.ListServers({})).toEqual({ servers: [] });
+    });
+  });
+
   describe("hostname validation", () => {
     it.each([{ method: "UpdateMetadata" as const }, { method: "PatchMetadata" as const }])(
       "$method throws when the request has no hostname",
