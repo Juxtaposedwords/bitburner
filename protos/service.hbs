@@ -23,7 +23,7 @@ export function NewClient(ns: NS, targetPort = {{defaultPort}}) {
             const replyPort = ns.pid;
             ns.clearPort(replyPort);
             const envelope: RpcEnvelope<{{requestType}}> = { service: "{{../serviceName}}", method: "{{name}}", replyPort, payload: req };
-            ns.writePort(targetPort, JSON.stringify(envelope));
+            ns.writePort(targetPort, envelope);
             
             const start = Date.now();
             while (ns.peek(replyPort) === "NULL PORT DATA") {
@@ -31,7 +31,7 @@ export function NewClient(ns: NS, targetPort = {{defaultPort}}) {
                 await ns.sleep(10);
             }
             
-            const res: RpcResponse<{{responseType}}> = JSON.parse(ns.readPort(replyPort) as string);
+            const res = ns.readPort(replyPort) as RpcResponse<{{responseType}}>;
             if (!res.success) throw new Error(`[RPC Error] {{../serviceName}}.{{name}}: ${res.error}`);
             return res.data!;
         },
@@ -39,6 +39,6 @@ export function NewClient(ns: NS, targetPort = {{defaultPort}}) {
     };
 }
 
-export function Register{{serviceName}}Service(server: RpcServer, handlers: {{serviceName}}Handlers) {
+export function Register{{serviceName}}(server: RpcServer, handlers: {{serviceName}}Handlers) {
     server.registerService("{{serviceName}}", handlers as unknown as Record<string, Function>);
 }

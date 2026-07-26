@@ -33,6 +33,11 @@ async function processFile(filePath) {
     const portMatch = fileContent.match(/port\s+(\d+)/);
     const defaultPort = portMatch ? parseInt(portMatch[1]) : 100;
     
+    // Extract the package name using Regex
+    const packageMatch = fileContent.match(/package\s+([^;]+);/);
+    // Fallback to service name if no package is defined
+    const packageName = packageMatch ? packageMatch[1].trim() : 'unknown_package';
+    
     const outputDir = path.dirname(filePath);
 
     const services = [];
@@ -62,7 +67,8 @@ async function processFile(filePath) {
             context.messages.push({ name: typeName, fields });
         }
 
-        const outputFile = path.join(outputDir, `${service.name}Service.ts`);
+        // Output file is now strictly based on the package name
+        const outputFile = path.join(outputDir, `${packageName}.ts`);
         fs.writeFileSync(outputFile, template(context));
         console.log(`[proto] Generated ${outputFile}`);
     }

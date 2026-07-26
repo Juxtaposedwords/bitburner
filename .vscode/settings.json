@@ -1,10 +1,14 @@
 {
-    "bitburner.authToken": "EY6VfA8dAgP36GC6D8RAnXd73DqiNs0gDVAl3dzjtAsAxqPMNlMAhF0zGrJ54y6s",
-    "bitburner.fileWatcher.enable": true,
-    "bitburner.scriptRoot": "./out",
-    "bitburner.showPushSuccessNotification": true,
-    "bitburner.showFileWatcherEnabledNotification": true,
-    "editor.tabSize": 2,
-    "editor.insertSpaces": true,
-    "editor.detectIndentation": false
+  "bitburner.authToken": "EY6VfA8dAgP36GC6D8RAnXd73DqiNs0gDVAl3dzjtAsAxqPMNlMAhF0zGrJ54y6s",
+  "bitburner.fileWatcher.enable": true,
+  "bitburner.scriptRoot": "./out",
+  "bitburner.showPushSuccessNotification": true,
+  "bitburner.showFileWatcherEnabledNotification": true,
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "[proto3]": {
+    "editor.defaultFormatter": "zxh404.vscode-proto3",
+    "editor.formatOnSave": true
+  }
 }

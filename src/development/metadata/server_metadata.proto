@@ -2,18 +2,59 @@ syntax = "proto3";
 
 package server_metadata;
 
-// port 100
+// port 10
 
-message AssignRequest {
-  string target = 1;
-  int32 threads = 2;
-  string honking = 3;
+message HackingRequirements {
+  optional double level = 1;
+  optional double ports = 2;
 }
 
-message AssignResponse {
+message HackingPorts {
+  optional bool ssh = 1;
+  optional bool ftp = 2;
+  optional bool smtp = 3;
+  optional bool http = 4;
+  optional bool sql = 5;
+}
+message HackingData {
+  optional HackingRequirements requirements = 1;
+  optional HackingPorts ports = 2;
+}
+
+// The core domain object remains clean
+message Metadata {
+  string hostname = 1;
+  optional string organization = 2;
+  optional string ip = 3;
+  optional string pathFromHome = 4;
+  optional double maxRam = 5;
+  optional double ramAvailable = 6;
+  optional double cpuCores = 7;
+  optional bool purchasedByPlayer = 8;
+  optional double securityLevel = 9;
+  optional double minSecurityLevel = 10;
+  optional double growthMultiplier = 11;
+  optional bool hacked = 12;
+  optional bool backdoorInstalled = 13;
+  optional HackingData hacking = 14;
+  optional double moneyAvailable = 15;
+  optional double maxMoney = 16;
+}
+
+// Explicit Request Wrappers
+message UpdateMetadataRequest {
+  Metadata server = 1;
+}
+
+message PatchMetadataRequest {
+  Metadata server = 1;
+}
+
+message ActionResponse {
   bool success = 1;
 }
 
 service Supervisor {
-  rpc AssignTask(AssignRequest) returns (AssignResponse);
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (ActionResponse);
+  rpc PatchMetadata(PatchMetadataRequest) returns (ActionResponse);
 }
