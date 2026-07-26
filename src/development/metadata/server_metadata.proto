@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package server_metadata;
 
-// port 10
-
 message HackingRequirements {
   optional double level = 1;
   optional double ports = 2;

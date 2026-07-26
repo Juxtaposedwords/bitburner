@@ -1,12 +1,10 @@
 import { NS, Server } from "@ns";
-import { PORTS } from "development/types/ports";
-import { Action, ActionType } from "development/types/messages";
-import { ServerMetadata } from "development/types/serverMetadata";
-import { createLogger, LOG_LEVEL, Logger, withBackoff } from "development/libraries/logs";
+import { Metadata, NewClient } from "development/metadata/server_metadata";
+import { createLogger, LOG_LEVEL, Logger } from "development/libraries/logs";
 
 // --- PURE DATA TRANSFORMS ---
 // comment ?
-const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): ServerMetadata => ({
+const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): Metadata => ({
   hostname,
   organization: serverInfo.organizationName ?? "",
   ip: serverInfo.ip ?? "",
@@ -62,22 +60,17 @@ const foldNetwork = (
         )
       );
 
-const createNodeProcessor = (ns: NS, portId: number, log: Logger) => (host: string, path: string): Promise<boolean> => {
-  const actionPayload = { 
-    type: ActionType.METADATA_UPDATE, 
-    payload: toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host)) 
-  };
+const createNodeProcessor = (ns: NS, log: Logger) => {
+  const client = NewClient(ns);
 
-  return withBackoff(
-    ns,
-    () => ns.tryWritePort(portId, JSON.stringify(actionPayload)),
-    (retryCount, delay) => log.warn(`[Backoff] Port ${portId} full. Retrying attempt ${retryCount}/5 in ${delay}ms...`)
-  ).then(success => 
-    (success 
-      ? log.debug(`[Streamed] ${host}`) 
-      : log.error(`[Drop] Failed to deliver ${host} after max retries.`)
-    ).then(() => success)
-  );
+  return (host: string, path: string): Promise<boolean> => {
+    const server = toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host));
+
+    return client
+      .UpdateMetadata({ server })
+      .then(() => log.debug(`[Streamed] ${host}`).then(() => true))
+      .catch((err) => log.error(`[Drop] Failed to deliver ${host}: ${err}`).then(() => false));
+  };
 };
 
 // --- IMPERATIVE SHELL (MAIN) ---
@@ -85,10 +78,10 @@ const createNodeProcessor = (ns: NS, portId: number, log: Logger) => (host: stri
 export const main = (ns: NS): Promise<void> => {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Crawler", LOG_LEVEL.DEBUG);
-  
+
   return log.info("=== Starting Pure Functional Expression Crawler ===")
-    .then(() => foldNetwork(ns, "home", "home", createNodeProcessor(ns, PORTS.SERVER_METADATA, log)))
-    .then(({ success, dropped, visited }) => 
+    .then(() => foldNetwork(ns, "home", "home", createNodeProcessor(ns, log)))
+    .then(({ success, dropped, visited }) =>
       log.info(`[Complete] Streamed ${success}/${visited.size} nodes. Dropped: ${dropped}`)
     );
 };
