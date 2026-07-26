@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { createLogger, LOG_LEVEL } from "development/libraries/logs";
+import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { NewServer } from "development/libraries/rpc";
 import {
   ActionResponse,
@@ -16,7 +16,7 @@ const CONFIG_PATH = "/etc/supervisor.txt";
 /** How often dirty records are flushed to disk. Handlers never touch the filesystem. */
 const FLUSH_INTERVAL_MS = 1000;
 
-type SupervisorConfig = {
+export type SupervisorConfig = {
   serverListPath: string;
   dataServerDir: string;
 };
@@ -27,9 +27,9 @@ const DEFAULT_CONFIG: SupervisorConfig = {
   dataServerDir: "/data/servers/",
 };
 
-const withTrailingSlash = (dir: string): string => (dir.endsWith("/") ? dir : `${dir}/`);
+export const withTrailingSlash = (dir: string): string => (dir.endsWith("/") ? dir : `${dir}/`);
 
-function loadConfig(ns: NS): SupervisorConfig {
+export function loadConfig(ns: NS): SupervisorConfig {
   const rawConfig = ns.read(CONFIG_PATH);
   if (!rawConfig || typeof rawConfig !== "string") {
     // Automatically initialize the config file for next time
@@ -47,7 +47,7 @@ function loadConfig(ns: NS): SupervisorConfig {
   }
 }
 
-function loadStateFromDisk(
+export function loadStateFromDisk(
   ns: NS,
   config: SupervisorConfig
 ): { state: Map<string, Metadata>; hostnames: Set<string> } {
@@ -91,12 +91,102 @@ function loadStateFromDisk(
  * Proto3 `optional` fields arrive as `undefined` when unset, so a plain
  * `{ ...existing, ...patch }` would clobber good values with undefined.
  */
-function mergeDefined(base: Metadata, patch: Metadata): Metadata {
+export function mergeDefined(base: Metadata, patch: Metadata): Metadata {
   const out: Record<string, unknown> = { ...base };
   for (const [key, value] of Object.entries(patch)) {
     if (value !== undefined) out[key] = value;
   }
   return out as Metadata;
+}
+
+/** All of the supervisor's RAM-resident, mutable state. */
+export type SupervisorState = {
+  networkState: Map<string, Metadata>;
+  knownHostnames: Set<string>;
+  pendingWrites: Map<string, Metadata>;
+  listDirty: boolean;
+  processedSinceFlush: number;
+};
+
+export function createSupervisorState(
+  networkState: Map<string, Metadata> = new Map(),
+  knownHostnames: Set<string> = new Set()
+): SupervisorState {
+  return { networkState, knownHostnames, pendingWrites: new Map(), listDirty: false, processedSinceFlush: 0 };
+}
+
+/**
+ * Builds the RPC handlers. These stay synchronous and RAM-only so the
+ * caller's round trip is cheap — durability is `flush`'s job, not theirs.
+ */
+export function createHandlers(log: Logger, state: SupervisorState): SupervisorHandlers {
+  return {
+    UpdateMetadata: (req: UpdateMetadataRequest): ActionResponse => {
+      const server = req.server;
+      if (!server?.hostname) {
+        throw new Error("UpdateMetadata: request.server.hostname is required");
+      }
+
+      state.networkState.set(server.hostname, server);
+      state.pendingWrites.set(server.hostname, server);
+
+      if (!state.knownHostnames.has(server.hostname)) {
+        state.knownHostnames.add(server.hostname);
+        state.listDirty = true;
+      }
+
+      state.processedSinceFlush++;
+      return { success: true };
+    },
+
+    PatchMetadata: async (req: PatchMetadataRequest): Promise<ActionResponse> => {
+      const patch = req.server;
+      if (!patch?.hostname) {
+        throw new Error("PatchMetadata: request.server.hostname is required");
+      }
+
+      const existing = state.networkState.get(patch.hostname);
+      if (!existing) {
+        await log.warn(`[Patch] Ignored patch for unknown server: ${patch.hostname}`);
+        return { success: false };
+      }
+
+      const updated = mergeDefined(existing, patch);
+      state.networkState.set(patch.hostname, updated);
+      state.pendingWrites.set(patch.hostname, updated);
+
+      state.processedSinceFlush++;
+      return { success: true };
+    },
+  };
+}
+
+export async function flush(
+  ns: NS,
+  log: Logger,
+  config: SupervisorConfig,
+  dataDir: string,
+  state: SupervisorState
+): Promise<void> {
+  // Snapshot-and-clear is synchronous, so no handler can interleave here.
+  if (state.pendingWrites.size > 0) {
+    for (const server of state.pendingWrites.values()) {
+      ns.write(`${dataDir}${server.hostname}.txt`, JSON.stringify(server, null, 2), "w");
+    }
+    state.pendingWrites.clear();
+  }
+
+  if (state.listDirty) {
+    state.listDirty = false;
+    ns.write(config.serverListPath, JSON.stringify([...state.knownHostnames], null, 2), "w");
+    await log.debug(`[Disk] Updated master server list index (${state.knownHostnames.size} total servers).`);
+  }
+
+  if (state.processedSinceFlush > 0) {
+    const count = state.processedSinceFlush;
+    state.processedSinceFlush = 0;
+    await log.info(`[Sync] Processed ${count} updates into RAM. Total nodes tracked: ${state.networkState.size}`);
+  }
 }
 
 export async function main(ns: NS): Promise<void> {
@@ -112,85 +202,15 @@ export async function main(ns: NS): Promise<void> {
   const config = loadConfig(ns);
   const dataDir = withTrailingSlash(config.dataServerDir);
 
-  // 2. In-memory state database & tracked hostnames index
+  // 2. In-memory state database & tracked hostnames index, restored from disk
   const { state: networkState, hostnames: knownHostnames } = loadStateFromDisk(ns, config);
+  const state = createSupervisorState(networkState, knownHostnames);
 
-  // 3. Buffer for dirty records needing a disk write
-  const pendingWrites = new Map<string, Metadata>();
-  let listDirty = false;
-  let processedSinceFlush = 0;
-
-  if (networkState.size > 0) {
-    await log.info(`[Boot] Restored ${networkState.size} servers from disk using index list.`);
+  if (state.networkState.size > 0) {
+    await log.info(`[Boot] Restored ${state.networkState.size} servers from disk using index list.`);
   }
 
-  // --- RPC HANDLERS -------------------------------------------------------
-  // These stay synchronous and RAM-only so the caller's round trip is cheap.
-  // Durability is the flush loop's job.
-
-  const handlers: SupervisorHandlers = {
-    UpdateMetadata: (req: UpdateMetadataRequest): ActionResponse => {
-      const server = req.server;
-      if (!server?.hostname) {
-        throw new Error("UpdateMetadata: request.server.hostname is required");
-      }
-
-      networkState.set(server.hostname, server);
-      pendingWrites.set(server.hostname, server);
-
-      if (!knownHostnames.has(server.hostname)) {
-        knownHostnames.add(server.hostname);
-        listDirty = true;
-      }
-
-      processedSinceFlush++;
-      return { success: true };
-    },
-
-    PatchMetadata: async (req: PatchMetadataRequest): Promise<ActionResponse> => {
-      const patch = req.server;
-      if (!patch?.hostname) {
-        throw new Error("PatchMetadata: request.server.hostname is required");
-      }
-
-      const existing = networkState.get(patch.hostname);
-      if (!existing) {
-        await log.warn(`[Patch] Ignored patch for unknown server: ${patch.hostname}`);
-        return { success: false };
-      }
-
-      const updated = mergeDefined(existing, patch);
-      networkState.set(patch.hostname, updated);
-      pendingWrites.set(patch.hostname, updated);
-
-      processedSinceFlush++;
-      return { success: true };
-    },
-  };
-
-  // --- DISK FLUSH ---------------------------------------------------------
-
-  const flush = async (): Promise<void> => {
-    // Snapshot-and-clear is synchronous, so no handler can interleave here.
-    if (pendingWrites.size > 0) {
-      for (const server of pendingWrites.values()) {
-        ns.write(`${dataDir}${server.hostname}.txt`, JSON.stringify(server, null, 2), "w");
-      }
-      pendingWrites.clear();
-    }
-
-    if (listDirty) {
-      listDirty = false;
-      ns.write(config.serverListPath, JSON.stringify([...knownHostnames], null, 2), "w");
-      await log.debug(`[Disk] Updated master server list index (${knownHostnames.size} total servers).`);
-    }
-
-    if (processedSinceFlush > 0) {
-      const count = processedSinceFlush;
-      processedSinceFlush = 0;
-      await log.info(`[Sync] Processed ${count} updates into RAM. Total nodes tracked: ${networkState.size}`);
-    }
-  };
+  const handlers = createHandlers(log, state);
 
   // --- SERVE --------------------------------------------------------------
   // Bitburner disallows concurrent NS calls from one script, so the flush
@@ -206,7 +226,7 @@ export async function main(ns: NS): Promise<void> {
   await server.Serve(async () => {
     if (Date.now() - lastFlush >= FLUSH_INTERVAL_MS) {
       lastFlush = Date.now();
-      await flush();
+      await flush(ns, log, config, dataDir, state);
     }
   });
 }

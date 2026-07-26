@@ -13,6 +13,31 @@ export interface RpcResponse<T = any> {
     error?: string;
 }
 
+/**
+ * Polls `condition` until it's true or `deadline` (a Date.now()-based
+ * timestamp) passes, sleeping with exponential backoff between checks so
+ * callers waiting on port contention or a reply don't busy-poll every 10ms
+ * for the full timeout. Returns whether `condition` became true in time.
+ *
+ * Uses `ns.asleep` (not `ns.sleep`) so a script can have several RPC calls
+ * in flight at once — e.g. fan out with `Promise.all(hosts.map(client.Call))`
+ * — without tripping Bitburner's "concurrent Netscript calls" error.
+ */
+export async function pollWithBackoff(
+    ns: NS,
+    condition: () => boolean,
+    deadline: number,
+    delayMs = 10,
+    maxDelayMs = 200
+): Promise<boolean> {
+    while (!condition()) {
+        if (Date.now() > deadline) return false;
+        await ns.asleep(delayMs);
+        delayMs = Math.min(delayMs * 2, maxDelayMs);
+    }
+    return true;
+}
+
 export interface RpcServer {
     registerService(serviceName: string, handlers: Record<string, Function>): void;
     /**
@@ -61,7 +86,7 @@ export function NewServer(ns: NS, listenPort: number): RpcServer {
                     }
                 }
                 if (onTick) await onTick();
-                await ns.sleep(10);
+                await ns.asleep(10);
             }
         }
     };

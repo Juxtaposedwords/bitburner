@@ -4,7 +4,7 @@ import { createLogger, LOG_LEVEL, Logger } from "development/libraries/logs";
 
 // --- PURE DATA TRANSFORMS ---
 // comment ?
-const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): Metadata => ({
+export const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): Metadata => ({
   hostname,
   organization: serverInfo.organizationName ?? "",
   ip: serverInfo.ip ?? "",
@@ -37,7 +37,7 @@ type FoldState = { readonly visited: ReadonlySet<string>; readonly success: numb
 
 // --- RECURSIVE MONADIC LOGIC ---
 
-const foldNetwork = (
+export const foldNetwork = (
   ns: NS,
   currentHost: string,
   currentPath: string,
