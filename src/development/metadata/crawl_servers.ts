@@ -1,10 +1,11 @@
 import { NS, Server } from "@ns";
-import { Metadata, NewClient } from "development/metadata/server_metadata";
+import * as server_metadata_pb from "development/metadata/server_metadata";
 import { createLogger, LOG_LEVEL, Logger } from "development/libraries/logs";
+import * as rpc from "development/libraries/rpc";
 
 // --- PURE DATA TRANSFORMS ---
 // comment ?
-export const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server, moneyAvailable: number): Metadata => ({
+export const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server): server_metadata_pb.Metadata => ({
   hostname,
   organization: serverInfo.organizationName ?? "",
   ip: serverInfo.ip ?? "",
@@ -28,7 +29,7 @@ export const toServerMetadata = (hostname: string, pathFromHome: string, serverI
       sql: serverInfo.sqlPortOpen ?? false,
     },
   },
-  moneyAvailable,
+  moneyAvailable: serverInfo.moneyAvailable ?? 0,
   maxMoney: serverInfo.moneyMax,
 });
 
@@ -61,15 +62,23 @@ export const foldNetwork = (
       );
 
 const createNodeProcessor = (ns: NS, log: Logger) => {
-  const client = NewClient(ns);
+  const client = server_metadata_pb.NewSupervisorServiceClient(ns);
 
   return (host: string, path: string): Promise<boolean> => {
-    const server = toServerMetadata(host, path, ns.getServer(host), ns.getServerMoneyAvailable(host));
+    const server = toServerMetadata(host, path, ns.getServer(host));
 
     return client
       .UpdateMetadata({ server })
-      .then(() => log.debug(`[Streamed] ${host}`).then(() => true))
-      .catch((err) => log.error(`[Drop] Failed to deliver ${host}: ${err}`).then(() => false));
+      .then((res) =>
+        res.status === rpc.Codes.OK
+          ? log.debug(`[Streamed] ${host}`).then(() => true)
+          : log.error(`[Drop] Failed to deliver ${host} (${rpc.Codes[res.status]}): ${res.error}`).then(() => false)
+      )
+      // Safety net for anything genuinely unexpected (e.g. a malformed reply
+      // failing JSON.parse) rather than an ordinary status failure above —
+      // foldNetwork has no error handler of its own, so an unhandled
+      // rejection here would kill the whole crawl, not just drop this host.
+      .catch((err) => log.error(`[Drop] Unexpected error delivering ${host}: ${err}`).then(() => false));
   };
 };
 

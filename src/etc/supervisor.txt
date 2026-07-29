@@ -1,4 +1,4 @@
 {
-  "serverListPath": "/data/var/supervisor_server_list.txt",
-  "dataServerDir": "/data/servers/"
+  "serverListPath": "/var/supervisor/server_list.txt",
+  "dataServerDir": "/var/supervisor/servers/"
 }

@@ -19,6 +19,17 @@ message HackingData {
   optional HackingPorts ports = 2;
 }
 
+// Lifecycle stage. Never sent by a client write (crawl_servers doesn't know
+// the player's current hacking level or owned port-openers) - only ever
+// computed live by ListServers from centrally-tracked player state, so it's
+// never stale the way a stored/pushed value could be.
+enum ServerStatus {
+  DISCOVERED = 0;
+  ROOTABLE = 1;
+  ROOTED = 2;
+  ELIGIBLE = 3;
+}
+
 // The core domain object remains clean
 message Metadata {
   string hostname = 1;
@@ -37,6 +48,7 @@ message Metadata {
   optional HackingData hacking = 14;
   optional double moneyAvailable = 15;
   optional double maxMoney = 16;
+  optional ServerStatus status = 17;
 }
 
 // Explicit Request Wrappers
@@ -48,18 +60,25 @@ message PatchMetadataRequest {
   Metadata server = 1;
 }
 
-message ActionResponse {
-  bool success = 1;
-}
+// Outcome now travels as the RPC's transport-level RpcStatus (see rpc.ts) -
+// success is RpcStatus.OK, a missing/unknown record is RpcStatus.NOT_FOUND,
+// so these carry no payload of their own.
+message UpdateMetadataResponse {}
 
-message ListServersRequest {}
+message PatchMetadataResponse {}
+
+message ListServersRequest {
+  // Eligibility (rooted, has money, hacking level met) is a server-side
+  // concept computed from centrally-tracked state, not re-derived by callers.
+  optional bool eligibleOnly = 1;
+}
 
 message ListServersResponse {
   repeated Metadata servers = 1;
 }
 
-service Supervisor {
-  rpc UpdateMetadata(UpdateMetadataRequest) returns (ActionResponse);
-  rpc PatchMetadata(PatchMetadataRequest) returns (ActionResponse);
+service SupervisorService {
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+  rpc PatchMetadata(PatchMetadataRequest) returns (PatchMetadataResponse);
   rpc ListServers(ListServersRequest) returns (ListServersResponse);
 }

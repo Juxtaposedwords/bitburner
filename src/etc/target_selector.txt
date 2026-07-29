@@ -1,0 +1,3 @@
+{
+  "weightsPath": "/var/target_selector/weights.txt"
+}

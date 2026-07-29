@@ -1,7 +1,11 @@
 import { NS } from "@ns";
+import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 
 const CONFIG_PATH = "/etc/player.txt";
+const TARGET_SELECTOR_SCRIPT = "development/metadata/target_selector.js";
+
+const PORT_OPENER_PROGRAMS = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe"];
 
 type PlayerConfig = {
   playerInfoPath: string;
@@ -9,26 +13,21 @@ type PlayerConfig = {
 };
 
 const DEFAULT_CONFIG: PlayerConfig = {
-  playerInfoPath: "/var/supervisor/playerinfo.txt",
+  playerInfoPath: "/var/supervisor/player.txt",
   updateIntervalMs: 5000,
 };
 
 function loadConfig(ns: NS): PlayerConfig {
-  const rawConfig = ns.read(CONFIG_PATH);
-  if (!rawConfig || typeof rawConfig !== "string") {
-    ns.write(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2), "w");
-    return DEFAULT_CONFIG;
-  }
+  return loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
+}
 
-  try {
-    const parsed = JSON.parse(rawConfig) as Partial<PlayerConfig>;
-    return {
-      playerInfoPath: parsed.playerInfoPath ?? DEFAULT_CONFIG.playerInfoPath,
-      updateIntervalMs: parsed.updateIntervalMs ?? DEFAULT_CONFIG.updateIntervalMs,
-    };
-  } catch {
-    return DEFAULT_CONFIG;
-  }
+/**
+ * Hacking level is the only thing that currently invalidates target weights
+ * (see target_selector.ts), so this is the one place that watches for it —
+ * this loop already polls the whole player object anyway.
+ */
+export function hackingLevelChanged(previous: number | undefined, current: number): boolean {
+  return previous !== undefined && current !== previous;
 }
 
 export async function main(ns: NS): Promise<void> {
@@ -37,13 +36,24 @@ export async function main(ns: NS): Promise<void> {
 
   const config = loadConfig(ns);
 
-  log.info(`[PlayerMonitor] Started. Writing player info to ${config.playerInfoPath} every ${config.updateIntervalMs / 1000}s...`);
+  await log.info(
+    `[PlayerMonitor] Started. Writing player info to ${config.playerInfoPath} every ${config.updateIntervalMs / 1000}s...`
+  );
+
+  let lastHackingLevel: number | undefined;
 
   while (true) {
     const player = ns.getPlayer();
-    ns.write(config.playerInfoPath, JSON.stringify(player, null, 2), "w");
-    log.debug(`[PlayerMonitor] Updated player info on disk.`);
-    
-    await ns.sleep(config.updateIntervalMs);
+    const portOpenersOwned = PORT_OPENER_PROGRAMS.filter((program) => ns.fileExists(program, "home")).length;
+    ns.write(config.playerInfoPath, JSON.stringify({ ...player, portOpenersOwned }, null, 2), "w");
+    await log.debug(`[PlayerMonitor] Updated player info on disk.`);
+
+    if (hackingLevelChanged(lastHackingLevel, player.skills.hacking)) {
+      ns.run(TARGET_SELECTOR_SCRIPT);
+      await log.info(`[PlayerMonitor] Hacking level changed to ${player.skills.hacking}; triggered target selector.`);
+    }
+    lastHackingLevel = player.skills.hacking;
+
+    await ns.asleep(config.updateIntervalMs);
   }
 }

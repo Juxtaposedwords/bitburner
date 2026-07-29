@@ -144,7 +144,7 @@ export async function main(ns: NS): Promise<void> {
   }
 
   const cleanProcess = process.replace(".js", "").replace(".txt", "");
-  const logFile = `/data/logs/${host}/${cleanProcess}.txt`;
+  const logFile = `/var/log/${host}/${cleanProcess}.txt`;
 
   if (!ns.fileExists(logFile)) {
     ns.tprint(`[404] No log file found at: ${logFile}`);
@@ -216,7 +216,7 @@ export async function main(ns: NS): Promise<void> {
 export function autocomplete(data: AutocompleteData, args: string[]): string[] {
   const logFiles = data.txts
     .map((f: string) => (f.startsWith("/") ? f.slice(1) : f))
-    .filter((f: string) => f.startsWith("data/logs/"));
+    .filter((f: string) => f.startsWith("var/log/"));
 
   const hostToProcesses = new Map<string, Set<string>>();
 

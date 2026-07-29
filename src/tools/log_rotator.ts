@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 
-const LOG_DIR_SUBSTRING = "/data/logs/";
+const LOG_DIR_SUBSTRING = "/var/log/";
 const BACKUP_SUFFIX = ".1";
 const MAX_LOG_SIZE_BYTES = 100_000;
 const SWEEP_INTERVAL_MS = 60_000;

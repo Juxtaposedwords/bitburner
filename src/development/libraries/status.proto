@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package status;
+
+// gRPC's status codes (https://grpc.io/docs/guides/status-codes/), reused
+// as-is rather than inventing our own - one shared vocabulary every service
+// and handler returns through, not a bespoke enum per method. Most of these
+// have no current caller in this codebase (PERMISSION_DENIED,
+// UNAUTHENTICATED, ...) but are here for when they do, same as gRPC itself
+// defines the full set regardless of which a given service actually uses.
+//
+// UNKNOWN is 0 (not OK, unlike gRPC's own numbering) so that an unset status
+// field reads as "not actually set" rather than silently looking like
+// success - the standard proto3 reason a message's zero value should be a
+// safe default, not a meaningful one.
+enum Codes {
+  UNKNOWN = 0;
+  OK = 1;
+  CANCELLED = 2;
+  INVALID_ARGUMENT = 3;
+  DEADLINE_EXCEEDED = 4;
+  NOT_FOUND = 5;
+  ALREADY_EXISTS = 6;
+  PERMISSION_DENIED = 7;
+  RESOURCE_EXHAUSTED = 8;
+  FAILED_PRECONDITION = 9;
+  ABORTED = 10;
+  OUT_OF_RANGE = 11;
+  UNIMPLEMENTED = 12;
+  INTERNAL = 13;
+  UNAVAILABLE = 14;
+  UNAUTHENTICATED = 15;
+}

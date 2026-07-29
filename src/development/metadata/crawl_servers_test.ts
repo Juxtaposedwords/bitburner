@@ -25,10 +25,11 @@ describe("toServerMetadata", () => {
       smtpPortOpen: false,
       httpPortOpen: true,
       sqlPortOpen: false,
+      moneyAvailable: 5e8,
       moneyMax: 1e9,
     });
 
-    expect(toServerMetadata("ecorp", "home -> ecorp", server, 5e8)).toEqual({
+    expect(toServerMetadata("ecorp", "home -> ecorp", server)).toEqual({
       hostname: "ecorp",
       organization: "ECorp",
       ip: "1.2.3.4",
@@ -63,19 +64,19 @@ describe("toServerMetadata", () => {
     { field: "maxRam" as const, expected: 0 },
     { field: "cpuCores" as const, expected: 1 },
   ])("defaults $field to $expected when the server doesn't report it", ({ field, expected }) => {
-    const result = toServerMetadata("n00dles", "home", fakeServer(), 0);
+    const result = toServerMetadata("n00dles", "home", fakeServer());
 
     expect(result[field]).toBe(expected);
   });
 
   it("computes ramAvailable from maxRam minus ramUsed", () => {
-    const result = toServerMetadata("n00dles", "home", fakeServer({ maxRam: 64, ramUsed: 16 }), 0);
+    const result = toServerMetadata("n00dles", "home", fakeServer({ maxRam: 64, ramUsed: 16 }));
 
     expect(result.ramAvailable).toBe(48);
   });
 
   it("defaults all hacking port flags to false, leaving unreported requirements undefined", () => {
-    const result = toServerMetadata("n00dles", "home", fakeServer(), 0);
+    const result = toServerMetadata("n00dles", "home", fakeServer());
 
     expect(result.hacking).toEqual({
       requirements: { level: undefined, ports: undefined },

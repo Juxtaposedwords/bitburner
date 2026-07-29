@@ -54,7 +54,7 @@ export function createLogger(ns: NS, tag: string, minLevel: LogLevel = LOG_LEVEL
   
   const rawScriptName = ns.getScriptName();
   const processName = rawScriptName.split("/").pop()?.replace(".js", "") || "unknown_process";
-  const logFile = `/data/logs/${host}/${processName}.txt`;
+  const logFile = `/var/log/${host}/${processName}.txt`;
 
   const write = async (level: LogLevel, levelName: string, msg: string) => {
     if (level < minLevel) return;
