@@ -2,6 +2,7 @@
 {{#if services.length}}
 import { NS } from "@ns";
 import * as rpc from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 
 {{#each services}}
 /** Port this service listens on, assigned by the generator's port registry. */
@@ -45,12 +46,12 @@ export function New{{name}}Client(ns: NS, targetPort = {{name}}Port) {
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), deadline);
             if (!queued) {
-                return { status: rpc.Codes.DEADLINE_EXCEEDED, error: `Call to {{../name}}.{{name}} could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to {{../name}}.{{name}} could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", deadline);
             if (!replied) {
-                return { status: rpc.Codes.DEADLINE_EXCEEDED, error: `Call to {{../name}}.{{name}} timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to {{../name}}.{{name}} timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.

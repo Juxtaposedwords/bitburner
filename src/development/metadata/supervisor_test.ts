@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeStatus, createHandlers, createSupervisorState, isEligible, isRootable } from "development/metadata/supervisor";
 import { Logger } from "development/libraries/logs";
-import * as rpc from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const metadata = (hostname: string, overrides: Partial<server_metadata_pb.Metadata> = {}): server_metadata_pb.Metadata => ({
@@ -67,7 +67,7 @@ describe("Supervisor RPC handlers", () => {
       const handlers = createHandlers(noopLog, state);
 
       await expect(handlers.PatchMetadata({ server: metadata("unknown-host") })).rejects.toMatchObject({
-        status: rpc.Codes.NOT_FOUND,
+        status: Codes.NOT_FOUND,
       });
       expect(state.pendingWrites.size).toBe(0);
     });
@@ -170,7 +170,7 @@ describe("Supervisor RPC handlers", () => {
         await expect(
           Promise.resolve().then(() => handlers[method]({ server: {} as server_metadata_pb.Metadata }))
         ).rejects.toMatchObject({
-          status: rpc.Codes.INVALID_ARGUMENT,
+          status: Codes.INVALID_ARGUMENT,
           message: expect.stringContaining("hostname is required"),
         });
       }

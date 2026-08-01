@@ -2,6 +2,7 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import * as rpc from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CONFIG_PATH = "/etc/supervisor.txt";
@@ -176,7 +177,7 @@ export function createHandlers(log: Logger, state: SupervisorState): server_meta
     UpdateMetadata: (req: server_metadata_pb.UpdateMetadataRequest): server_metadata_pb.UpdateMetadataResponse => {
       const server = req.server;
       if (!server?.hostname) {
-        throw new rpc.RpcError(rpc.Codes.INVALID_ARGUMENT, "UpdateMetadata: request.server.hostname is required");
+        throw new rpc.RpcError(Codes.INVALID_ARGUMENT, "UpdateMetadata: request.server.hostname is required");
       }
 
       state.networkState.set(server.hostname, server);
@@ -194,13 +195,13 @@ export function createHandlers(log: Logger, state: SupervisorState): server_meta
     PatchMetadata: async (req: server_metadata_pb.PatchMetadataRequest): Promise<server_metadata_pb.PatchMetadataResponse> => {
       const patch = req.server;
       if (!patch?.hostname) {
-        throw new rpc.RpcError(rpc.Codes.INVALID_ARGUMENT, "PatchMetadata: request.server.hostname is required");
+        throw new rpc.RpcError(Codes.INVALID_ARGUMENT, "PatchMetadata: request.server.hostname is required");
       }
 
       const existing = state.networkState.get(patch.hostname);
       if (!existing) {
         await log.warn(`[Patch] Ignored patch for unknown server: ${patch.hostname}`);
-        throw new rpc.RpcError(rpc.Codes.NOT_FOUND, `PatchMetadata: unknown hostname '${patch.hostname}'`);
+        throw new rpc.RpcError(Codes.NOT_FOUND, `PatchMetadata: unknown hostname '${patch.hostname}'`);
       }
 
       const updated = mergeDefined(existing, patch);

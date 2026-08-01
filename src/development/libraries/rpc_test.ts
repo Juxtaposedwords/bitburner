@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getCode, getMessage, RpcResponse, Codes } from "development/libraries/rpc";
+import { getCode, getMessage, RpcResponse } from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 
 describe("getCode", () => {
   it("returns the response's status", () => {

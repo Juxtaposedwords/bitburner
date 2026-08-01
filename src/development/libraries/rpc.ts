@@ -1,8 +1,6 @@
 import { NS } from "@ns";
 import { Codes } from "development/libraries/status";
 
-export { Codes } from "development/libraries/status";
-
 export interface RpcEnvelope<T = any> {
     service: string;
     method: string;

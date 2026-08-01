@@ -1,7 +1,7 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
-import * as rpc from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CONFIG_PATH = "/etc/target_selector.txt";
@@ -79,8 +79,8 @@ export async function main(ns: NS): Promise<void> {
   }
 
   const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({ eligibleOnly: true });
-  if (res.status !== rpc.Codes.OK) {
-    await log.warn(`[Weights] ListServers failed (${rpc.Codes[res.status]}): ${res.error}`);
+  if (res.status !== Codes.OK) {
+    await log.warn(`[Weights] ListServers failed (${Codes[res.status]}): ${res.error}`);
     return;
   }
 

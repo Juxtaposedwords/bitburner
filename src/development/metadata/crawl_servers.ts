@@ -1,7 +1,7 @@
 import { NS, Server } from "@ns";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 import { createLogger, LOG_LEVEL, Logger } from "development/libraries/logs";
-import * as rpc from "development/libraries/rpc";
+import { Codes } from "development/libraries/status";
 
 // --- PURE DATA TRANSFORMS ---
 // comment ?
@@ -70,9 +70,9 @@ const createNodeProcessor = (ns: NS, log: Logger) => {
     return client
       .UpdateMetadata({ server })
       .then((res) =>
-        res.status === rpc.Codes.OK
+        res.status === Codes.OK
           ? log.debug(`[Streamed] ${host}`).then(() => true)
-          : log.error(`[Drop] Failed to deliver ${host} (${rpc.Codes[res.status]}): ${res.error}`).then(() => false)
+          : log.error(`[Drop] Failed to deliver ${host} (${Codes[res.status]}): ${res.error}`).then(() => false)
       )
       // Safety net for anything genuinely unexpected (e.g. a malformed reply
       // failing JSON.parse) rather than an ordinary status failure above —
