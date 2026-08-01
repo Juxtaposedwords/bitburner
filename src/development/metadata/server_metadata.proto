@@ -19,10 +19,13 @@ message HackingData {
   optional HackingPorts ports = 2;
 }
 
-// Lifecycle stage. Never sent by a client write (crawl_servers doesn't know
-// the player's current hacking level or owned port-openers) - only ever
-// computed live by ListServers from centrally-tracked player state, so it's
-// never stale the way a stored/pushed value could be.
+// Lifecycle stage. Only DISCOVERED and ROOTED are ever stored: crawl_servers
+// writes one of those two (all it can observe about a server on its own),
+// and a rooter would flip DISCOVERED -> ROOTED on a successful nuke. The
+// other two values, ROOTABLE and ELIGIBLE, are refinements ListServers
+// computes live from centrally-tracked player state (hacking level, owned
+// port-openers) - never stored, so that half of the lifecycle can't go
+// stale the way a stored/pushed value could.
 enum ServerStatus {
   DISCOVERED = 0;
   ROOTABLE = 1;
@@ -43,7 +46,6 @@ message Metadata {
   optional double securityLevel = 9;
   optional double minSecurityLevel = 10;
   optional double growthMultiplier = 11;
-  optional bool hacked = 12;
   optional bool backdoorInstalled = 13;
   optional HackingData hacking = 14;
   optional double moneyAvailable = 15;

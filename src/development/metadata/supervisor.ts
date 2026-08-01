@@ -143,26 +143,34 @@ export function createSupervisorState(
  * current hacking level.
  */
 export function isEligible(server: server_metadata_pb.Metadata, hackingLevel: number): boolean {
-  return !!server.hacked && (server.maxMoney ?? 0) > 0 && (server.hacking?.requirements?.level ?? Infinity) <= hackingLevel;
+  return (
+    server.status === server_metadata_pb.ServerStatus.ROOTED &&
+    (server.maxMoney ?? 0) > 0 &&
+    (server.hacking?.requirements?.level ?? Infinity) <= hackingLevel
+  );
 }
 
 /** Whether a not-yet-rooted server could be nuked right now, given how many port-openers are owned. */
 export function isRootable(server: server_metadata_pb.Metadata, portOpenersOwned: number): boolean {
-  return !server.hacked && (server.hacking?.requirements?.ports ?? Infinity) <= portOpenersOwned;
+  return (
+    server.status === server_metadata_pb.ServerStatus.DISCOVERED &&
+    (server.hacking?.requirements?.ports ?? Infinity) <= portOpenersOwned
+  );
 }
 
 /**
- * The single lifecycle stage a server is in right now. Computed fresh from
- * centrally-tracked player state every time it's asked for — never stored on
- * the record itself, so it can't go stale the way a value a crawler pushed
- * once and forgot about could.
+ * The single lifecycle stage a server is in right now. Refines the stored
+ * DISCOVERED/ROOTED base fact (see ServerStatus in the proto) against
+ * centrally-tracked player state every time it's asked for, so the
+ * player-state-dependent half of the lifecycle (ROOTABLE, ELIGIBLE) can't go
+ * stale the way a value a crawler pushed once and forgot about could.
  */
 export function computeStatus(
   server: server_metadata_pb.Metadata,
   hackingLevel: number,
   portOpenersOwned: number
 ): server_metadata_pb.ServerStatus {
-  if (server.hacked) {
+  if (server.status === server_metadata_pb.ServerStatus.ROOTED) {
     return isEligible(server, hackingLevel) ? server_metadata_pb.ServerStatus.ELIGIBLE : server_metadata_pb.ServerStatus.ROOTED;
   }
   return isRootable(server, portOpenersOwned) ? server_metadata_pb.ServerStatus.ROOTABLE : server_metadata_pb.ServerStatus.DISCOVERED;

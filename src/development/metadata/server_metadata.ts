@@ -47,7 +47,6 @@ export interface Metadata {
     securityLevel?: number;
     minSecurityLevel?: number;
     growthMultiplier?: number;
-    hacked?: boolean;
     backdoorInstalled?: boolean;
     hacking?: HackingData;
     moneyAvailable?: number;

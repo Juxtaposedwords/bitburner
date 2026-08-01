@@ -1,6 +1,7 @@
 import { NS, Server } from "@ns";
 import { describe, expect, it } from "vitest";
 import { foldNetwork, toServerMetadata } from "development/metadata/crawl_servers";
+import { ServerStatus } from "development/metadata/server_metadata";
 
 const fakeServer = (overrides: Partial<Server> = {}): Server => overrides as Server;
 
@@ -37,7 +38,7 @@ describe("toServerMetadata", () => {
       securityLevel: 50,
       minSecurityLevel: 10,
       growthMultiplier: 3,
-      hacked: true,
+      status: ServerStatus.ROOTED,
       backdoorInstalled: true,
       purchasedByPlayer: true,
       maxRam: 64,
@@ -58,7 +59,7 @@ describe("toServerMetadata", () => {
     { field: "securityLevel" as const, expected: 0 },
     { field: "minSecurityLevel" as const, expected: 0 },
     { field: "growthMultiplier" as const, expected: 1 },
-    { field: "hacked" as const, expected: false },
+    { field: "status" as const, expected: ServerStatus.DISCOVERED },
     { field: "backdoorInstalled" as const, expected: false },
     { field: "purchasedByPlayer" as const, expected: false },
     { field: "maxRam" as const, expected: 0 },
