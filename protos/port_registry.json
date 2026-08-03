@@ -1,3 +1,5 @@
 {
-  "server_metadata.SupervisorService": 10
+  "server_metadata.SupervisorService": 10,
+  "player_metadata.PlayerService": 11,
+  "scheduler.SchedulerService": 12
 }

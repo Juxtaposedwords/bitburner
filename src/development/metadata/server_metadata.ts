@@ -6,11 +6,15 @@ import { Codes } from "development/libraries/status";
 /** Port this service listens on, assigned by the generator's port registry. */
 export const SupervisorServicePort = 10;
 
-export enum ServerStatus {
-    DISCOVERED = 0,
+export enum RootStatus {
+    UNROOTABLE = 0,
     ROOTABLE = 1,
     ROOTED = 2,
-    ELIGIBLE = 3,
+}
+
+export enum HackStatus {
+    UNHACKABLE = 0,
+    HACKABLE = 1,
 }
 
 export interface UpdateMetadataRequest {
@@ -51,7 +55,8 @@ export interface Metadata {
     hacking?: HackingData;
     moneyAvailable?: number;
     maxMoney?: number;
-    status?: ServerStatus;
+    rootStatus?: RootStatus;
+    hackStatus?: HackStatus;
 }
 
 export interface HackingData {

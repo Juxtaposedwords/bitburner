@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package scheduler;
+
+// The shared "what is home's effort going toward right now" concept - not
+// necessarily owned by scheduler.ts alone. HACK and GROW_STATS both drive
+// scheduler.ts's own batch loop (only HACK gets real behavior for now);
+// CRIME is a placeholder for a future, separate daemon that would watch
+// this same config and do something with no relationship to hack/grow/weaken
+// batching at all - defined now so the schema doesn't need another breaking
+// change later, not implemented anywhere yet.
+enum Approach {
+  HACK = 0;
+  GROW_STATS = 1;
+  CRIME = 2;
+}
+
+message SchedulerConfig {
+  optional Approach approach = 1;
+  // Fraction of a target's max money stolen per batch (e.g. 0.1 = 10%).
+  optional double hack_fraction = 2;
+  // Gap, in milliseconds, between each of a batch's four actions finishing.
+  optional double spacing_ms = 3;
+  // Pin scheduler.ts to a specific host instead of re-reading
+  // target_selector.ts's weights.txt top pick. Unset = auto (default).
+  optional string target_override = 4;
+  // Below this hacking level, home is included in the worker-host pool
+  // too (see home_reserved_ram_gb) - early game, home may be the only
+  // significant RAM source before enough is rooted/purchased elsewhere.
+  // At or above this level, home reverts to fully reserved for
+  // development, same as every other host stays reserved always.
+  optional double home_fallback_hacking_level = 5;
+  // How much of home's RAM stays off-limits even while the fallback
+  // above is active, so there's always headroom left for development.
+  optional double home_reserved_ram_gb = 6;
+}
+
+message GetSchedulerConfigRequest {}
+
+message GetSchedulerConfigResponse {
+  SchedulerConfig config = 1;
+}
+
+message PatchSchedulerConfigRequest {
+  // Same "ignore undefined fields" merge semantics as PatchMetadata/
+  // PatchPlayerMetadata - only fields actually set here overwrite
+  // state.config. No key needed: there's only ever one scheduler config.
+  SchedulerConfig config = 1;
+}
+
+message PatchSchedulerConfigResponse {}
+
+// Unlike PlayerService (which rides on SupervisorService's port),
+// scheduler.ts is its own daemon/process, so it runs its own rpc.NewServer
+// on SchedulerServicePort (auto-assigned below, like every other service).
+service SchedulerService {
+  rpc GetSchedulerConfig(GetSchedulerConfigRequest) returns (GetSchedulerConfigResponse);
+  rpc PatchSchedulerConfig(PatchSchedulerConfigRequest) returns (PatchSchedulerConfigResponse);
+}

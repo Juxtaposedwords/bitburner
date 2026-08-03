@@ -19,18 +19,30 @@ message HackingData {
   optional HackingPorts ports = 2;
 }
 
-// Lifecycle stage. Only DISCOVERED and ROOTED are ever stored: crawl_servers
-// writes one of those two (all it can observe about a server on its own),
-// and a rooter would flip DISCOVERED -> ROOTED on a successful nuke. The
-// other two values, ROOTABLE and ELIGIBLE, are refinements ListServers
-// computes live from centrally-tracked player state (hacking level, owned
-// port-openers) - never stored, so that half of the lifecycle can't go
-// stale the way a stored/pushed value could.
-enum ServerStatus {
-  DISCOVERED = 0;
+// Root-access axis. Only UNROOTABLE and ROOTED are ever stored:
+// crawl_servers writes one of those two (all it can observe about a server
+// on its own), and the rooter flips UNROOTABLE -> ROOTED on a successful
+// nuke. ROOTABLE is a refinement ListServers computes live from
+// centrally-tracked player state (owned port-openers) - never stored, so
+// it can't go stale the way a stored/pushed value could.
+//
+// This is a genuinely independent axis from HackStatus below: whether a
+// server can be rooted depends only on ports vs. owned port-openers,
+// nothing to do with the player's hacking level.
+enum RootStatus {
+  UNROOTABLE = 0;
   ROOTABLE = 1;
   ROOTED = 2;
-  ELIGIBLE = 3;
+}
+
+// Hackability axis: purely a live comparison of the player's current
+// hacking level against the server's required level - never stored, since
+// nothing ever *does* anything to cause this transition, unlike rooting.
+// It climbs on its own as the player gains hacking XP, independent of
+// root status - a server can be HACKABLE long before it's ever rooted.
+enum HackStatus {
+  UNHACKABLE = 0;
+  HACKABLE = 1;
 }
 
 // The core domain object remains clean
@@ -50,7 +62,8 @@ message Metadata {
   optional HackingData hacking = 14;
   optional double moneyAvailable = 15;
   optional double maxMoney = 16;
-  optional ServerStatus status = 17;
+  optional RootStatus rootStatus = 17;
+  optional HackStatus hackStatus = 18;
 }
 
 // Explicit Request Wrappers

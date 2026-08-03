@@ -4,6 +4,31 @@ Goals:
 1. Practice funcioanl programming
 2. Work on using a file-based approach
 
+## Services
+
+### Daemons
+
+- **`supervisor.ts`** — RPC server; stores server metadata, dispatches jobs on player-state changes.
+- **`player.ts`** — polls player stats, writes a snapshot to disk every 5s.
+- **`log_rotator.ts`** — truncates any log file over 100KB, keeps one backup.
+
+### One-shot jobs
+
+- **`crawl_servers.ts`** — scans the whole network, reports each server's facts to supervisor.
+- **`rooter.ts`** — opens ports and nukes every currently-rootable server.
+- **`target_selector.ts`** — ranks attackable servers by a `$/sec` proxy.
+
+### Orchestration
+
+- **`boot.ts`** — launches the daemons, then runs one-shot jobs in dependency order.
+
+### Tools
+
+- **`wipe_data.ts`** — deletes `/var/log/` and `/var/supervisor/` for a clean test run.
+- **`scan.ts`** — prints the network as a table with root/hacking-level status.
+- **`tree.ts`** — prints a filtered directory listing of files on a server.
+- **`logger.ts`** — tails and filters log files in-terminal, with per-process coloring.
+
 ## Journal
 
 ### 07/18

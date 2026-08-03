@@ -2,6 +2,7 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
+import { FORCE_ARG } from "development/metadata/dispatch";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CONFIG_PATH = "/etc/target_selector.txt";
@@ -42,7 +43,14 @@ export function computeWeights(servers: server_metadata_pb.Metadata[]): Weighted
     .sort((a, b) => b.weight - a.weight);
 }
 
-/** Hacking level is the only thing that currently invalidates weights (see supervisor.ts's isEligible). */
+/**
+ * Hacking level is the one thing this function itself can check without
+ * outside input. It's not the only thing that can make weights stale
+ * though — a server getting newly rooted can too, but that can't be
+ * detected from a stored hacking level alone, so dispatch.ts's rooter
+ * trigger bypasses this check entirely via FORCE_ARG rather than teaching
+ * this function about a second, unrelated signal.
+ */
 export function shouldRecompute(storedHackingLevel: number | undefined, currentHackingLevel: number): boolean {
   return storedHackingLevel !== currentHackingLevel;
 }
@@ -59,10 +67,12 @@ export function readWeightsFile(ns: NS, path: string): WeightsFile | undefined {
 
 /**
  * A one-time job, not a daemon: computes weights once and exits. Triggered
- * on demand by player.ts when it sees the hacking level change, and once at
- * boot (see boot.ts) so a restart is never left without any weights at all.
- * Re-running it when nothing's actually changed is a cheap no-op — that's
- * the point of stamping the file with the hacking level it was computed at.
+ * on demand by supervisor.ts's dispatch background task (see dispatch.ts)
+ * when it sees the hacking level change or a rooting pass finish, and once
+ * at boot (see boot.ts) so a restart is never left without any weights at
+ * all. Re-running it when nothing's actually changed is a cheap no-op —
+ * that's the point of stamping the file with the hacking level it was
+ * computed at.
  */
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
@@ -72,8 +82,9 @@ export async function main(ns: NS): Promise<void> {
 
   const hackingLevel = ns.getHackingLevel();
   const existing = readWeightsFile(ns, config.weightsPath);
+  const forced = ns.args.includes(FORCE_ARG);
 
-  if (!shouldRecompute(existing?.hackingLevel, hackingLevel)) {
+  if (!forced && !shouldRecompute(existing?.hackingLevel, hackingLevel)) {
     await log.info(`[Weights] Already up to date for hacking level ${hackingLevel}.`);
     return;
   }

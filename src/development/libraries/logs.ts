@@ -17,6 +17,23 @@ export interface Logger {
 }
 
 /**
+ * ns.write validates a file's actual extension (the suffix after the last
+ * dot) against a fixed allow-list (.txt/.json/.css/scripts) - appending a
+ * generation suffix *after* ".txt" (e.g. "foo.txt.1") produces a name whose
+ * extension is ".1", which ns.write rejects outright. Inserting the suffix
+ * *before* ".txt" instead keeps every log-rotation backup a valid file.
+ */
+export const LOG_BACKUP_SUFFIX = ".1";
+
+export function logBackupPath(file: string): string {
+  return file.endsWith(".txt") ? `${file.slice(0, -".txt".length)}${LOG_BACKUP_SUFFIX}.txt` : `${file}${LOG_BACKUP_SUFFIX}`;
+}
+
+export function isLogBackup(file: string): boolean {
+  return file.endsWith(`${LOG_BACKUP_SUFFIX}.txt`);
+}
+
+/**
  * A generic, functional exponential backoff wrapper.
  * Exported so other scripts (like crawler) can use it for ports.
  */

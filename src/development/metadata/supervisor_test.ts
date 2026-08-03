@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStatus, createHandlers, createSupervisorState, isEligible, isRootable } from "development/metadata/supervisor";
+import { computeHackStatus, computeRootStatus, createHandlers, createPlayerHandlers, createSupervisorState, hasMoney, isEligible, isRootable } from "development/metadata/supervisor";
 import { Logger } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
 import * as server_metadata_pb from "development/metadata/server_metadata";
@@ -41,9 +41,9 @@ describe("Supervisor RPC handlers", () => {
     it.each([
       {
         name: "overwrites a defined field",
-        base: { maxRam: 8, status: server_metadata_pb.ServerStatus.DISCOVERED },
-        patch: { status: server_metadata_pb.ServerStatus.ROOTED },
-        expected: { maxRam: 8, status: server_metadata_pb.ServerStatus.ROOTED },
+        base: { maxRam: 8, rootStatus: server_metadata_pb.RootStatus.UNROOTABLE },
+        patch: { rootStatus: server_metadata_pb.RootStatus.ROOTED },
+        expected: { maxRam: 8, rootStatus: server_metadata_pb.RootStatus.ROOTED },
       },
       {
         name: "ignores an undefined field",
@@ -74,7 +74,7 @@ describe("Supervisor RPC handlers", () => {
   });
 
   describe("ListServers", () => {
-    it("returns every currently-known server", async () => {
+    it("returns every currently-known server, with rootStatus/hackStatus refined live", async () => {
       const state = createSupervisorState(
         new Map([
           ["n00dles", metadata("n00dles", { maxRam: 8 })],
@@ -86,8 +86,8 @@ describe("Supervisor RPC handlers", () => {
       const res = await handlers.ListServers({});
 
       expect(res.servers).toEqual([
-        metadata("n00dles", { maxRam: 8, status: server_metadata_pb.ServerStatus.DISCOVERED }),
-        metadata("foodnstuff", { maxRam: 16, status: server_metadata_pb.ServerStatus.DISCOVERED }),
+        metadata("n00dles", { maxRam: 8, rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hackStatus: server_metadata_pb.HackStatus.UNHACKABLE }),
+        metadata("foodnstuff", { maxRam: 16, rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hackStatus: server_metadata_pb.HackStatus.UNHACKABLE }),
       ]);
     });
 
@@ -98,9 +98,9 @@ describe("Supervisor RPC handlers", () => {
     });
 
     it("filters to only eligible servers when eligibleOnly is set", async () => {
-      const eligible = metadata("n00dles", { status: server_metadata_pb.ServerStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 5 } } });
-      const notRooted = metadata("foodnstuff", { status: server_metadata_pb.ServerStatus.DISCOVERED, maxMoney: 1000 });
-      const levelTooHigh = metadata("joesguns", { status: server_metadata_pb.ServerStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 500 } } });
+      const eligible = metadata("n00dles", { rootStatus: server_metadata_pb.RootStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 5 } } });
+      const notRooted = metadata("foodnstuff", { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, maxMoney: 1000 });
+      const levelTooHigh = metadata("joesguns", { rootStatus: server_metadata_pb.RootStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 500 } } });
 
       const state = createSupervisorState(
         new Map([
@@ -115,16 +115,27 @@ describe("Supervisor RPC handlers", () => {
 
       const res = await handlers.ListServers({ eligibleOnly: true });
 
-      expect(res.servers).toEqual([{ ...eligible, status: server_metadata_pb.ServerStatus.ELIGIBLE }]);
+      expect(res.servers).toEqual([{ ...eligible, rootStatus: server_metadata_pb.RootStatus.ROOTED, hackStatus: server_metadata_pb.HackStatus.HACKABLE }]);
+    });
+  });
+
+  describe("hasMoney", () => {
+    it.each([
+      { name: "rooted with money", overrides: {}, expected: true },
+      { name: "not rooted", overrides: { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE }, expected: false },
+      { name: "rooted but nothing to steal", overrides: { maxMoney: 0 }, expected: false },
+    ])("$name", ({ overrides, expected }) => {
+      const server = metadata("n00dles", { rootStatus: server_metadata_pb.RootStatus.ROOTED, maxMoney: 1000, ...overrides });
+      expect(hasMoney(server)).toBe(expected);
     });
   });
 
   describe("isEligible", () => {
-    const base = metadata("n00dles", { status: server_metadata_pb.ServerStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 50 } } });
+    const base = metadata("n00dles", { rootStatus: server_metadata_pb.RootStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 50 } } });
 
     it.each([
       { name: "rooted, has money, and within reach", overrides: {}, hackingLevel: 100, expected: true },
-      { name: "not rooted", overrides: { status: server_metadata_pb.ServerStatus.DISCOVERED }, hackingLevel: 100, expected: false },
+      { name: "not rooted", overrides: { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE }, hackingLevel: 100, expected: false },
       { name: "no money to steal", overrides: { maxMoney: 0 }, hackingLevel: 100, expected: false },
       { name: "hacking level requirement not yet met", overrides: {}, hackingLevel: 10, expected: false },
       { name: "unknown hacking requirement fails closed", overrides: { hacking: undefined }, hackingLevel: 100, expected: false },
@@ -134,28 +145,36 @@ describe("Supervisor RPC handlers", () => {
   });
 
   describe("isRootable", () => {
-    const base = metadata("n00dles", { status: server_metadata_pb.ServerStatus.DISCOVERED, hacking: { requirements: { ports: 2 } } });
+    const base = metadata("n00dles", { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hacking: { requirements: { ports: 2 } } });
 
     it.each([
       { name: "enough port-openers owned", overrides: {}, portOpenersOwned: 2, expected: true },
       { name: "not enough port-openers owned", overrides: {}, portOpenersOwned: 1, expected: false },
-      { name: "already rooted", overrides: { status: server_metadata_pb.ServerStatus.ROOTED }, portOpenersOwned: 5, expected: false },
+      { name: "already rooted", overrides: { rootStatus: server_metadata_pb.RootStatus.ROOTED }, portOpenersOwned: 5, expected: false },
       { name: "unknown port requirement fails closed", overrides: { hacking: undefined }, portOpenersOwned: 5, expected: false },
     ])("$name", ({ overrides, portOpenersOwned, expected }) => {
       expect(isRootable({ ...base, ...overrides }, portOpenersOwned)).toBe(expected);
     });
   });
 
-  describe("computeStatus", () => {
-    const eligible = metadata("n00dles", { status: server_metadata_pb.ServerStatus.ROOTED, maxMoney: 1000, hacking: { requirements: { level: 5 } } });
-
+  describe("computeRootStatus", () => {
     it.each([
-      { name: "not rooted, not enough ports open", server: metadata("a", { status: server_metadata_pb.ServerStatus.DISCOVERED, hacking: { requirements: { ports: 2 } } }), hackingLevel: 100, portOpenersOwned: 0, expected: server_metadata_pb.ServerStatus.DISCOVERED },
-      { name: "not rooted, enough ports open", server: metadata("a", { status: server_metadata_pb.ServerStatus.DISCOVERED, hacking: { requirements: { ports: 2 } } }), hackingLevel: 100, portOpenersOwned: 2, expected: server_metadata_pb.ServerStatus.ROOTABLE },
-      { name: "rooted, but hacking level not yet met", server: eligible, hackingLevel: 1, portOpenersOwned: 0, expected: server_metadata_pb.ServerStatus.ROOTED },
-      { name: "rooted, hackable", server: eligible, hackingLevel: 100, portOpenersOwned: 0, expected: server_metadata_pb.ServerStatus.ELIGIBLE },
-    ])("$name", ({ server, hackingLevel, portOpenersOwned, expected }) => {
-      expect(computeStatus(server, hackingLevel, portOpenersOwned)).toBe(expected);
+      { name: "not enough ports open", server: metadata("a", { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hacking: { requirements: { ports: 2 } } }), portOpenersOwned: 0, expected: server_metadata_pb.RootStatus.UNROOTABLE },
+      { name: "enough ports open", server: metadata("a", { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hacking: { requirements: { ports: 2 } } }), portOpenersOwned: 2, expected: server_metadata_pb.RootStatus.ROOTABLE },
+      { name: "already rooted stays rooted regardless of ports", server: metadata("a", { rootStatus: server_metadata_pb.RootStatus.ROOTED }), portOpenersOwned: 0, expected: server_metadata_pb.RootStatus.ROOTED },
+    ])("$name", ({ server, portOpenersOwned, expected }) => {
+      expect(computeRootStatus(server, portOpenersOwned)).toBe(expected);
+    });
+  });
+
+  describe("computeHackStatus", () => {
+    it.each([
+      { name: "hacking level not yet met", server: metadata("a", { hacking: { requirements: { level: 50 } } }), hackingLevel: 10, expected: server_metadata_pb.HackStatus.UNHACKABLE },
+      { name: "hacking level met", server: metadata("a", { hacking: { requirements: { level: 50 } } }), hackingLevel: 100, expected: server_metadata_pb.HackStatus.HACKABLE },
+      { name: "unrooted server is still a valid comparison — independent of root status", server: metadata("a", { rootStatus: server_metadata_pb.RootStatus.UNROOTABLE, hacking: { requirements: { level: 50 } } }), hackingLevel: 100, expected: server_metadata_pb.HackStatus.HACKABLE },
+      { name: "unknown hacking requirement fails closed", server: metadata("a", { hacking: undefined }), hackingLevel: 100, expected: server_metadata_pb.HackStatus.UNHACKABLE },
+    ])("$name", ({ server, hackingLevel, expected }) => {
+      expect(computeHackStatus(server, hackingLevel)).toBe(expected);
     });
   });
 
@@ -175,5 +194,93 @@ describe("Supervisor RPC handlers", () => {
         });
       }
     );
+  });
+});
+
+describe("Player RPC handlers", () => {
+  describe("GetPlayerMetadata", () => {
+    it("returns the current hackingLevel/portOpenersOwned from state", () => {
+      const state = createSupervisorState(new Map(), new Set(), 42, 3);
+      const handlers = createPlayerHandlers(state);
+
+      expect(handlers.GetPlayerMetadata({})).toEqual({
+        player: expect.objectContaining({ hackingLevel: 42, portOpenersOwned: 3 }),
+      });
+    });
+
+    it("reflects state mutated after the handlers were built (e.g. by the background refresh task)", () => {
+      const state = createSupervisorState();
+      const handlers = createPlayerHandlers(state);
+
+      state.player.hackingLevel = 100;
+      state.player.portOpenersOwned = 5;
+
+      expect(handlers.GetPlayerMetadata({})).toEqual({
+        player: expect.objectContaining({ hackingLevel: 100, portOpenersOwned: 5 }),
+      });
+    });
+
+    it("also serves the rest of the player's skills", () => {
+      const state = createSupervisorState();
+      const handlers = createPlayerHandlers(state);
+
+      state.player.strength = 10;
+      state.player.defense = 20;
+      state.player.dexterity = 30;
+      state.player.agility = 40;
+      state.player.charisma = 50;
+      state.player.intelligence = 60;
+
+      expect(handlers.GetPlayerMetadata({})).toEqual({
+        player: expect.objectContaining({ strength: 10, defense: 20, dexterity: 30, agility: 40, charisma: 50, intelligence: 60 }),
+      });
+    });
+  });
+
+  describe("PatchPlayerMetadata", () => {
+    it("merges a defined field into state.player, visible to a later GetPlayerMetadata", () => {
+      const state = createSupervisorState();
+      const handlers = createPlayerHandlers(state);
+
+      const res = handlers.PatchPlayerMetadata({ player: { singularityAvailable: true } });
+
+      expect(res).toEqual({});
+      expect(state.player.singularityAvailable).toBe(true);
+      expect(handlers.GetPlayerMetadata({})).toEqual({
+        player: expect.objectContaining({ singularityAvailable: true }),
+      });
+    });
+
+    it("ignores explicitly-undefined fields rather than clobbering existing state", () => {
+      const state = createSupervisorState(new Map(), new Set(), 42);
+      const handlers = createPlayerHandlers(state);
+
+      handlers.PatchPlayerMetadata({ player: { hackingLevel: undefined, singularityAvailable: true } });
+
+      expect(state.player.hackingLevel).toBe(42);
+      expect(state.player.singularityAvailable).toBe(true);
+    });
+
+    it("does nothing when no player field is given", () => {
+      const state = createSupervisorState(new Map(), new Set(), 42, 3);
+      const handlers = createPlayerHandlers(state);
+      const before = { ...state.player };
+
+      const res = handlers.PatchPlayerMetadata({});
+
+      expect(res).toEqual({});
+      expect(state.player).toEqual(before);
+      expect(state.playerStateDirty).toBe(false);
+    });
+
+    it("marks playerStateDirty so flush() persists the change", () => {
+      const state = createSupervisorState();
+      const handlers = createPlayerHandlers(state);
+
+      expect(state.playerStateDirty).toBe(false);
+      handlers.PatchPlayerMetadata({ player: { singularityAvailable: true } });
+
+      expect(state.playerStateDirty).toBe(true);
+    });
   });
 });

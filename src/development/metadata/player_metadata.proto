@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package player_metadata;
+
+// Intentionally narrow: hacking_level/port_openers_owned (what's actually
+// consumed today, see supervisor.ts's isRootable/isEligible) plus the rest
+// of ns.getPlayer().skills - not a mirror of Bitburner's full Player
+// object (no money, karma, jobs, factions, mults, ...). Extend further
+// when a real consumer needs more.
+message PlayerMetadata {
+  optional double hacking_level = 1;
+  optional double port_openers_owned = 2;
+  optional double strength = 3;
+  optional double defense = 4;
+  optional double dexterity = 5;
+  optional double agility = 6;
+  optional double charisma = 7;
+  optional double intelligence = 8;
+  // Whether ns.singularity is usable right now (Source-File 4 owned, or
+  // currently playing BitNode 4) - computed once by a one-shot detector
+  // script (the only thing that ever calls the expensive ns.getResetInfo())
+  // and patched in here, rather than every consumer re-deriving it.
+  optional bool singularity_available = 9;
+}
+
+message GetPlayerMetadataRequest {}
+
+message GetPlayerMetadataResponse {
+  PlayerMetadata player = 1;
+}
+
+message PatchPlayerMetadataRequest {
+  // Same "ignore undefined fields" merge semantics as SupervisorService's
+  // PatchMetadata - only fields actually set here overwrite state.player.
+  // No key needed (unlike PatchMetadata's hostname): there's only ever one
+  // player.
+  PlayerMetadata player = 1;
+}
+
+message PatchPlayerMetadataResponse {}
+
+// Served by supervisor.ts on SupervisorServicePort (see server_metadata.proto),
+// not the port auto-assigned to PlayerService below — supervisor already runs
+// one RPC server and registers this service's handlers on it alongside
+// SupervisorService's own, the same way a single .proto file can declare
+// multiple services onto one port. Callers must construct
+// NewPlayerServiceClient(ns, SupervisorServicePort) explicitly rather than
+// relying on this service's own default port, since nothing listens there.
+service PlayerService {
+  rpc GetPlayerMetadata(GetPlayerMetadataRequest) returns (GetPlayerMetadataResponse);
+  rpc PatchPlayerMetadata(PatchPlayerMetadataRequest) returns (PatchPlayerMetadataResponse);
+}

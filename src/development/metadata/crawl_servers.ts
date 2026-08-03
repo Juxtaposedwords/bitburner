@@ -13,7 +13,7 @@ export const toServerMetadata = (hostname: string, pathFromHome: string, serverI
   securityLevel: serverInfo.hackDifficulty ?? 0,
   minSecurityLevel: serverInfo.minDifficulty ?? 0,
   growthMultiplier: serverInfo.serverGrowth ?? 1,
-  status: serverInfo.hasAdminRights ? server_metadata_pb.ServerStatus.ROOTED : server_metadata_pb.ServerStatus.DISCOVERED,
+  rootStatus: serverInfo.hasAdminRights ? server_metadata_pb.RootStatus.ROOTED : server_metadata_pb.RootStatus.UNROOTABLE,
   backdoorInstalled: serverInfo.backdoorInstalled ?? false,
   purchasedByPlayer: serverInfo.purchasedByPlayer ?? false,
   maxRam: serverInfo.maxRam ?? 0,

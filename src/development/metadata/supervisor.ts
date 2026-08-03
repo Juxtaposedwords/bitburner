@@ -1,8 +1,11 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
+import { applyDefined } from "development/libraries/merge";
 import * as rpc from "development/libraries/rpc";
 import { Codes } from "development/libraries/status";
+import { DispatchSnapshot, ROOTER_MARKER_PATH, scriptsToLaunch } from "development/metadata/dispatch";
+import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CONFIG_PATH = "/etc/supervisor.txt";
@@ -13,10 +16,23 @@ const FLUSH_INTERVAL_MS = 1000;
 /** How often player state (hacking level, owned port-openers) is refreshed from player.ts's snapshot. */
 const PLAYER_CONTEXT_REFRESH_INTERVAL_MS = 10;
 
+/**
+ * How often the dispatch check runs. Doesn't need to be tight like the
+ * player-context refresh above — player.ts itself only ever writes a new
+ * snapshot to disk every 5s, so checking for a change more often than that
+ * can't find one any sooner.
+ */
+const DISPATCH_CHECK_INTERVAL_MS = 5000;
+
 export type SupervisorConfig = {
   serverListPath: string;
   dataServerDir: string;
   playerInfoPath: string;
+  // Supervisor's own persisted copy of state.player (distinct from
+  // playerInfoPath above, which player.ts owns) - specifically for fields
+  // like singularityAvailable that only ever arrive via PatchPlayerMetadata
+  // and have no other source to re-derive from on restart.
+  playerStatePath: string;
 };
 
 // Default configuration if the config file hasn't been created yet
@@ -25,6 +41,7 @@ const DEFAULT_CONFIG: SupervisorConfig = {
   dataServerDir: "/var/supervisor/servers/",
   // Written by player.ts; read-only from here.
   playerInfoPath: "/var/supervisor/player.txt",
+  playerStatePath: "/var/supervisor/player_state.txt",
 };
 
 export const withTrailingSlash = (dir: string): string => (dir.endsWith("/") ? dir : `${dir}/`);
@@ -71,7 +88,22 @@ export function loadStateFromDisk(
   return { state, hostnames };
 }
 
-export type PlayerContext = { hackingLevel?: number; portOpenersOwned?: number };
+/**
+ * Supervisor's own persisted copy of state.player (see playerStatePath) —
+ * restores fields like singularityAvailable across a restart, since
+ * they're never re-derived from anywhere else the way hackingLevel/
+ * portOpenersOwned are (those get refreshed from player.ts's snapshot
+ * within the first PLAYER_CONTEXT_REFRESH_INTERVAL_MS tick regardless).
+ */
+export function loadPlayerStateFromDisk(ns: NS, config: SupervisorConfig): player_metadata_pb.PlayerMetadata {
+  const raw = ns.read(config.playerStatePath);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as player_metadata_pb.PlayerMetadata;
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Reads player state out of player.ts's snapshot rather than calling
@@ -79,14 +111,36 @@ export type PlayerContext = { hackingLevel?: number; portOpenersOwned?: number }
  * dedicated RAM allocations for functions it'd only ever use here, whereas
  * `ns.read` is already part of its footprint. Fields come back undefined
  * (leaving the corresponding state untouched) if the snapshot doesn't exist
- * yet or is unreadable.
+ * yet or is unreadable. Returns the same generated type PlayerService
+ * serves (player_metadata.proto), rather than a second hand-written type
+ * shadowing the same fields.
  */
-export function readPlayerContext(ns: NS, path: string): PlayerContext {
+export function readPlayerContext(ns: NS, path: string): player_metadata_pb.PlayerMetadata {
   const raw = ns.read(path);
   if (!raw) return {};
   try {
-    const player = JSON.parse(raw) as { skills?: { hacking?: number }; portOpenersOwned?: number };
-    return { hackingLevel: player.skills?.hacking, portOpenersOwned: player.portOpenersOwned };
+    const player = JSON.parse(raw) as {
+      skills?: {
+        hacking?: number;
+        strength?: number;
+        defense?: number;
+        dexterity?: number;
+        agility?: number;
+        charisma?: number;
+        intelligence?: number;
+      };
+      portOpenersOwned?: number;
+    };
+    return {
+      hackingLevel: player.skills?.hacking,
+      portOpenersOwned: player.portOpenersOwned,
+      strength: player.skills?.strength,
+      defense: player.skills?.defense,
+      dexterity: player.skills?.dexterity,
+      agility: player.skills?.agility,
+      charisma: player.skills?.charisma,
+      intelligence: player.skills?.intelligence,
+    };
   } catch {
     return {};
   }
@@ -112,11 +166,18 @@ export type SupervisorState = {
   knownHostnames: Set<string>;
   pendingWrites: Map<string, server_metadata_pb.Metadata>;
   listDirty: boolean;
+  /** Set by PatchPlayerMetadata; tells flush() to persist state.player (see playerStatePath). */
+  playerStateDirty: boolean;
   processedSinceFlush: number;
-  /** Refreshed every Serve() tick (see main()) so handlers never need `ns`. */
-  hackingLevel: number;
-  /** Refreshed every Serve() tick alongside hackingLevel; see readPlayerContext. */
-  portOpenersOwned: number;
+  /**
+   * Refreshed every Serve() tick (see main()) so handlers never need `ns`.
+   * hackingLevel/portOpenersOwned are the only fields any decision here
+   * consumes today (isRootable/isEligible); the rest ride along for
+   * PlayerService. Fields are non-optional in practice (createSupervisorState
+   * always populates real numbers) even though the generated type marks
+   * them optional — see readPlayerContext.
+   */
+  player: player_metadata_pb.PlayerMetadata;
 };
 
 export function createSupervisorState(
@@ -130,50 +191,69 @@ export function createSupervisorState(
     knownHostnames,
     pendingWrites: new Map(),
     listDirty: false,
+    playerStateDirty: false,
     processedSinceFlush: 0,
-    hackingLevel,
-    portOpenersOwned,
+    player: {
+      hackingLevel,
+      portOpenersOwned,
+      strength: 1,
+      defense: 1,
+      dexterity: 1,
+      agility: 1,
+      charisma: 1,
+      intelligence: 0,
+    },
   };
 }
 
-/**
- * Centralizes "is this server currently worth targeting" so callers (e.g. a
- * future target-selection daemon) don't each re-derive the same rule from
- * raw fields: rooted, has money to steal, and within reach of the player's
- * current hacking level.
- */
-export function isEligible(server: server_metadata_pb.Metadata, hackingLevel: number): boolean {
-  return (
-    server.status === server_metadata_pb.ServerStatus.ROOTED &&
-    (server.maxMoney ?? 0) > 0 &&
-    (server.hacking?.requirements?.level ?? Infinity) <= hackingLevel
-  );
+/** Whether a rooted server has any money on it worth stealing at all — independent of the player's current reach. */
+export function hasMoney(server: server_metadata_pb.Metadata): boolean {
+  return server.rootStatus === server_metadata_pb.RootStatus.ROOTED && (server.maxMoney ?? 0) > 0;
 }
 
-/** Whether a not-yet-rooted server could be nuked right now, given how many port-openers are owned. */
+/**
+ * Whether a not-yet-rooted server could be nuked right now, given how many
+ * port-openers are owned. Independent of hacking level entirely — root
+ * access in Bitburner only ever depends on ports, never player skill.
+ */
 export function isRootable(server: server_metadata_pb.Metadata, portOpenersOwned: number): boolean {
   return (
-    server.status === server_metadata_pb.ServerStatus.DISCOVERED &&
+    server.rootStatus === server_metadata_pb.RootStatus.UNROOTABLE &&
     (server.hacking?.requirements?.ports ?? Infinity) <= portOpenersOwned
   );
 }
 
 /**
- * The single lifecycle stage a server is in right now. Refines the stored
- * DISCOVERED/ROOTED base fact (see ServerStatus in the proto) against
- * centrally-tracked player state every time it's asked for, so the
- * player-state-dependent half of the lifecycle (ROOTABLE, ELIGIBLE) can't go
- * stale the way a value a crawler pushed once and forgot about could.
+ * Refines the stored UNROOTABLE/ROOTED base fact (see RootStatus in the
+ * proto) against the player's current port-openers every time it's asked
+ * for, so ROOTABLE can't go stale the way a value a crawler pushed once
+ * and forgot about could.
  */
-export function computeStatus(
-  server: server_metadata_pb.Metadata,
-  hackingLevel: number,
-  portOpenersOwned: number
-): server_metadata_pb.ServerStatus {
-  if (server.status === server_metadata_pb.ServerStatus.ROOTED) {
-    return isEligible(server, hackingLevel) ? server_metadata_pb.ServerStatus.ELIGIBLE : server_metadata_pb.ServerStatus.ROOTED;
-  }
-  return isRootable(server, portOpenersOwned) ? server_metadata_pb.ServerStatus.ROOTABLE : server_metadata_pb.ServerStatus.DISCOVERED;
+export function computeRootStatus(server: server_metadata_pb.Metadata, portOpenersOwned: number): server_metadata_pb.RootStatus {
+  if (server.rootStatus === server_metadata_pb.RootStatus.ROOTED) return server_metadata_pb.RootStatus.ROOTED;
+  return isRootable(server, portOpenersOwned) ? server_metadata_pb.RootStatus.ROOTABLE : server_metadata_pb.RootStatus.UNROOTABLE;
+}
+
+/**
+ * Whether the player's current hacking level meets a server's requirement.
+ * Independent of root status entirely — purely a threshold comparison
+ * against a fixed per-server requirement, never stored (there's no action
+ * that causes this transition, only the player's hacking XP climbing).
+ */
+export function computeHackStatus(server: server_metadata_pb.Metadata, hackingLevel: number): server_metadata_pb.HackStatus {
+  return (server.hacking?.requirements?.level ?? Infinity) <= hackingLevel
+    ? server_metadata_pb.HackStatus.HACKABLE
+    : server_metadata_pb.HackStatus.UNHACKABLE;
+}
+
+/**
+ * Centralizes "is this server currently worth targeting" so callers (e.g.
+ * a future target-selection daemon) don't each re-derive the same rule
+ * from raw fields: rooted, has money to steal, and within reach of the
+ * player's current hacking level.
+ */
+export function isEligible(server: server_metadata_pb.Metadata, hackingLevel: number): boolean {
+  return hasMoney(server) && computeHackStatus(server, hackingLevel) === server_metadata_pb.HackStatus.HACKABLE;
 }
 
 /**
@@ -221,13 +301,43 @@ export function createHandlers(log: Logger, state: SupervisorState): server_meta
     },
 
     ListServers: (req: server_metadata_pb.ListServersRequest): server_metadata_pb.ListServersResponse => {
+      const hackingLevel = state.player.hackingLevel ?? 0;
       const servers = [...state.networkState.values()].map((server) => ({
         ...server,
-        status: computeStatus(server, state.hackingLevel, state.portOpenersOwned),
+        rootStatus: computeRootStatus(server, state.player.portOpenersOwned ?? 0),
+        hackStatus: computeHackStatus(server, hackingLevel),
       }));
       return {
-        servers: req.eligibleOnly ? servers.filter((server) => server.status === server_metadata_pb.ServerStatus.ELIGIBLE) : servers,
+        servers: req.eligibleOnly ? servers.filter((server) => isEligible(server, hackingLevel)) : servers,
       };
+    },
+  };
+}
+
+/**
+ * Serves the same player fields the background task below already
+ * refreshes into `state` — so other scripts can get current player context
+ * over RPC (free primitives, see server_metadata.md's RAM notes) instead
+ * of each paying for their own `ns.getPlayer()` call.
+ */
+export function createPlayerHandlers(state: SupervisorState): player_metadata_pb.PlayerServiceHandlers {
+  return {
+    GetPlayerMetadata: (): player_metadata_pb.GetPlayerMetadataResponse => ({ player: state.player }),
+
+    // Lets a one-shot script (e.g. a Source-File/Singularity detector) push
+    // a fact into player state once, rather than every future consumer
+    // re-deriving it themselves. No key needed, unlike PatchMetadata's
+    // hostname - there's only ever one player. Marks playerStateDirty so
+    // flush() persists it - otherwise this patch wouldn't survive a
+    // supervisor restart, since nothing else re-derives fields like
+    // singularityAvailable the way hackingLevel gets refreshed from
+    // player.ts's snapshot on every tick regardless.
+    PatchPlayerMetadata: (req: player_metadata_pb.PatchPlayerMetadataRequest): player_metadata_pb.PatchPlayerMetadataResponse => {
+      if (req.player) {
+        applyDefined(state.player, req.player);
+        state.playerStateDirty = true;
+      }
+      return {};
     },
   };
 }
@@ -262,6 +372,11 @@ export async function flush(
   }
   const knownHostnameCount = state.knownHostnames.size;
 
+  if (state.playerStateDirty) {
+    state.playerStateDirty = false;
+    ns.write(config.playerStatePath, JSON.stringify(state.player, null, 2), "w");
+  }
+
   const processedCount = state.processedSinceFlush;
   state.processedSinceFlush = 0;
   const networkSize = state.networkState.size;
@@ -291,27 +406,50 @@ export async function main(ns: NS): Promise<void> {
   // 2. In-memory state database & tracked hostnames index, restored from disk
   const { state: networkState, hostnames: knownHostnames } = loadStateFromDisk(ns, config);
   const state = createSupervisorState(networkState, knownHostnames);
+  applyDefined(state.player, loadPlayerStateFromDisk(ns, config));
 
   if (state.networkState.size > 0) {
     await log.info(`[Boot] Restored ${state.networkState.size} servers from disk using index list.`);
   }
 
   const handlers = createHandlers(log, state);
+  const playerHandlers = createPlayerHandlers(state);
 
   // --- SERVE --------------------------------------------------------------
 
+  // One RPC server, two services registered onto it: PlayerService rides
+  // along on SupervisorServicePort rather than its own auto-assigned port
+  // (see player_metadata.proto) — callers must construct
+  // NewPlayerServiceClient(ns, SupervisorServicePort) explicitly.
   const server = rpc.NewServer(ns, server_metadata_pb.SupervisorServicePort);
   server_metadata_pb.RegisterSupervisorService(server, handlers);
+  player_metadata_pb.RegisterPlayerService(server, playerHandlers);
 
   server.addBackgroundTask(() => {
-    const playerContext = readPlayerContext(ns, config.playerInfoPath);
-    if (playerContext.hackingLevel !== undefined) state.hackingLevel = playerContext.hackingLevel;
-    if (playerContext.portOpenersOwned !== undefined) state.portOpenersOwned = playerContext.portOpenersOwned;
+    applyDefined(state.player, readPlayerContext(ns, config.playerInfoPath));
   }, PLAYER_CONTEXT_REFRESH_INTERVAL_MS);
 
   server.addBackgroundTask(async () => {
     await flush(ns, log, config, dataDir, state);
   }, FLUSH_INTERVAL_MS);
+
+  // Dispatches one-shot jobs when the state that gates them changes (see
+  // dispatch.ts) — hackingLevel/portOpenersOwned come from the task above,
+  // which already refreshes them, so there's nothing new to read there;
+  // the rooter's completion marker is the one new (free) read here.
+  let lastSnapshot: DispatchSnapshot | undefined;
+  server.addBackgroundTask(async () => {
+    const snapshot: DispatchSnapshot = {
+      hackingLevel: state.player.hackingLevel ?? 0,
+      portOpenersOwned: state.player.portOpenersOwned ?? 0,
+      rooterMarker: ns.read(ROOTER_MARKER_PATH),
+    };
+    for (const { script, args } of scriptsToLaunch(lastSnapshot, snapshot)) {
+      ns.run(script, 1, ...(args ?? []));
+      await log.info(`[Dispatch] Launched ${script}${args ? ` ${args.join(" ")}` : ""}.`);
+    }
+    lastSnapshot = snapshot;
+  }, DISPATCH_CHECK_INTERVAL_MS);
 
   await log.info(`[Supervisor] Serving Supervisor RPC on Port ${server_metadata_pb.SupervisorServicePort}...`);
   await server.Serve();
