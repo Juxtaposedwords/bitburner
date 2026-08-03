@@ -1,7 +1,26 @@
 import { NS } from "@ns";
 
+const HELP_FLAGS = ["help", "-h", "--help"];
+
+function printHelp(ns: NS): void {
+    ns.tprint(
+        [
+            "Usage: run tools/scan.js [-a] [-p] [-d <depth>] [help]",
+            "  -a          Show the full network tree (equivalent to -d 99).",
+            "  -p          Show port/skill details (Req, SSH, FTP, SMTP, HTTP, SQL columns).",
+            "  -d <depth>  Limit the tree to <depth> hops from home (default: 1, or 99 with -a).",
+            "  help        Show this message.",
+        ].join("\n")
+    );
+}
+
 /** @param {NS} ns */
 export async function main(ns: NS): Promise<void> {
+    if (ns.args.some((arg) => HELP_FLAGS.includes(String(arg)))) {
+        printHelp(ns);
+        return;
+    }
+
     const showAll: boolean = ns.args.includes("-a");
     const showDetails: boolean = ns.args.includes("-p");
     
@@ -45,7 +64,13 @@ export async function main(ns: NS): Promise<void> {
         return `${color}${" ".repeat(left)}${text}${" ".repeat(right)}${reset}`;
     };
 
-    // Print Header
+    // Build every row as one combined string, printed in a single ns.tprint
+    // call at the end - Bitburner prefixes each individual ns.tprint/tprintf
+    // call with "tools/scan.js: ", so per-row printing would repeat that
+    // prefix on every line of the table instead of once.
+    const outputLines: string[] = [];
+
+    // Header
     let headerFormat = `%-${hostColWidth}s %-10s %-8s`;
     const headerArgs: (string | number)[] = [
         "Hostname", center("Root", 10, cyan), center("H.Lvl", 8, cyan)
@@ -55,9 +80,9 @@ export async function main(ns: NS): Promise<void> {
         headerFormat += ` %-5s %-5s %-5s %-5s %-5s %-5s`;
         headerArgs.push("Req", "SSH", "FTP", "SMTP", "HTTP", "SQL");
     }
-    ns.tprintf(headerFormat, ...headerArgs);
+    outputLines.push(ns.sprintf(headerFormat, ...headerArgs));
 
-    // 2. Print based on the pre-calculated list
+    // 2. Build a row for each server in the pre-calculated list
     for (const item of renderedServers) {
         const s = ns.getServer(item.host);
         const hasRoot = s.hasAdminRights ?? false;
@@ -81,6 +106,8 @@ export async function main(ns: NS): Promise<void> {
                 center(s.sqlPortOpen ? "Y" : "N", 5, s.sqlPortOpen ? green : red)
             );
         }
-        ns.tprintf(rowFormat, ...rowArgs);
+        outputLines.push(ns.sprintf(rowFormat, ...rowArgs));
     }
+
+    ns.tprint(outputLines.join("\n"));
 }

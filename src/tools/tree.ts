@@ -1,5 +1,32 @@
 import { NS } from "@ns";
 
+// Only these extensions are valid scripts as far as ns.getScriptRam is
+// concerned - everything else (.msg lore files, .cct contracts, .json,
+// .css, ...) must not be queried for RAM cost, or it throws.
+const SCRIPT_EXTENSIONS = [".js", ".jsx", ".ts", ".tsx"];
+
+function classify(key: string, isDir: boolean): string {
+    if (isDir) return "D";
+    if (key.endsWith(".txt")) return "T";
+    if (key.endsWith(".lit")) return "L";
+    if (key.endsWith(".exe")) return "X";
+    if (key.endsWith(".msg")) return "M";
+    if (key.endsWith(".cct")) return "C";
+    if (SCRIPT_EXTENSIONS.some((ext) => key.endsWith(ext))) return "S";
+    return "F";
+}
+
+const COLOR_BY_TYPE: Record<string, string> = {
+    D: "\x1b[36m", // cyan
+    T: "\x1b[33m", // yellow
+    L: "\x1b[35m", // magenta
+    X: "\x1b[32m", // green
+    M: "\x1b[34m", // blue
+    C: "\x1b[31m", // red
+    S: "\x1b[37m", // white
+    F: "\x1b[90m", // gray
+};
+
 export async function main(ns: NS): Promise<void> {
     const args = ns.flags([['d', '']]);
     
@@ -50,7 +77,7 @@ export async function main(ns: NS): Promise<void> {
             key,
             isDir: node[key]._isDir,
             children: node[key]._children,
-            type: node[key]._isDir ? "D" : (key.endsWith('.txt') ? "T" : key.endsWith('.lit') ? "L" : key.endsWith('.exe') ? "X" : "S")
+            type: classify(key, node[key]._isDir)
         }));
 
         const sorted = entries.sort((a, b) => (a.type === b.type ? a.key.localeCompare(b.key) : a.type.localeCompare(b.type)));
@@ -59,14 +86,18 @@ export async function main(ns: NS): Promise<void> {
             const isLast = i === sorted.length - 1;
             const fullPath = targetDir + (path ? `${path}/` : "") + e.key;
             const size = e.type === "S" ? ns.getScriptRam(fullPath).toFixed(2) + "GB" : "";
-            
-            let color = e.type === "D" ? "\x1b[36m" : e.type === "T" ? "\x1b[33m" : e.type === "L" ? "\x1b[35m" : e.type === "X" ? "\x1b[32m" : "\x1b[37m";
+
+            const color = COLOR_BY_TYPE[e.type];
 
             const marker = isLast ? "└── " : "├── ";
             const branchText = `${indent}${marker}${e.key}`;
             const padding = " ".repeat(Math.max(0, globalBranchWidth - branchText.length + 2));
             
-            ns.tprintf(`${color}${branchText}${padding}%s %s\x1b[0m`, e.type, size);
+            // Every dynamic piece (branchText embeds the raw filename) must
+            // go through a %s argument, never be spliced into the format
+            // string itself - a filename containing a literal "%" would
+            // otherwise be re-parsed by sprintf as a placeholder and throw.
+            ns.tprintf("%s%s%s%s %s\x1b[0m", color, branchText, padding, e.type, size);
             if (e.isDir) printNode(e.children, indent + (isLast ? "    " : "│   "), path ? `${path}/${e.key}` : e.key);
         });
     };
