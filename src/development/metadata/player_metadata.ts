@@ -30,6 +30,7 @@ export interface PlayerMetadata {
     charisma?: number;
     intelligence?: number;
     singularityAvailable?: boolean;
+    money?: number;
 }
 
 export interface PlayerServiceHandlers {

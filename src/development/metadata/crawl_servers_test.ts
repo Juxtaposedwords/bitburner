@@ -1,7 +1,7 @@
 import { NS, Server } from "@ns";
 import { describe, expect, it } from "vitest";
-import { foldNetwork, toServerMetadata } from "development/metadata/crawl_servers";
-import { RootStatus } from "development/metadata/server_metadata";
+import { classifyServerKind, foldNetwork, toServerMetadata } from "development/metadata/crawl_servers";
+import { RootStatus, ServerKind } from "development/metadata/server_metadata";
 
 const fakeServer = (overrides: Partial<Server> = {}): Server => overrides as Server;
 
@@ -40,7 +40,7 @@ describe("toServerMetadata", () => {
       growthMultiplier: 3,
       rootStatus: RootStatus.ROOTED,
       backdoorInstalled: true,
-      purchasedByPlayer: true,
+      kind: ServerKind.PURCHASED,
       maxRam: 64,
       ramAvailable: 48,
       cpuCores: 4,
@@ -61,7 +61,7 @@ describe("toServerMetadata", () => {
     { field: "growthMultiplier" as const, expected: 1 },
     { field: "rootStatus" as const, expected: RootStatus.UNROOTABLE },
     { field: "backdoorInstalled" as const, expected: false },
-    { field: "purchasedByPlayer" as const, expected: false },
+    { field: "kind" as const, expected: ServerKind.NPC },
     { field: "maxRam" as const, expected: 0 },
     { field: "cpuCores" as const, expected: 1 },
   ])("defaults $field to $expected when the server doesn't report it", ({ field, expected }) => {
@@ -83,6 +83,31 @@ describe("toServerMetadata", () => {
       requirements: { level: undefined, ports: undefined },
       ports: { ssh: false, ftp: false, smtp: false, http: false, sql: false },
     });
+  });
+});
+
+describe("classifyServerKind", () => {
+  it("classifies \"home\" as HOME regardless of purchasedByPlayer", () => {
+    expect(classifyServerKind("home", false)).toBe(ServerKind.HOME);
+    expect(classifyServerKind("home", true)).toBe(ServerKind.HOME);
+  });
+
+  it("classifies a hacknet-server-<N> hostname as HACKNET even though ns reports it as purchasedByPlayer", () => {
+    expect(classifyServerKind("hacknet-server-0", true)).toBe(ServerKind.HACKNET);
+    expect(classifyServerKind("hacknet-server-12", true)).toBe(ServerKind.HACKNET);
+  });
+
+  it("classifies any other purchasedByPlayer host as PURCHASED", () => {
+    expect(classifyServerKind("pserv-0", true)).toBe(ServerKind.PURCHASED);
+  });
+
+  it("classifies a non-purchased, non-special host as NPC", () => {
+    expect(classifyServerKind("n00dles", false)).toBe(ServerKind.NPC);
+  });
+
+  it("does not misclassify a hostname that merely contains \"hacknet-server\" as a substring", () => {
+    expect(classifyServerKind("not-hacknet-server-0", true)).toBe(ServerKind.PURCHASED);
+    expect(classifyServerKind("hacknet-server-abc", true)).toBe(ServerKind.PURCHASED);
   });
 });
 

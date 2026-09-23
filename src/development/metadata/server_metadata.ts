@@ -6,6 +6,13 @@ import { Codes } from "development/libraries/status";
 /** Port this service listens on, assigned by the generator's port registry. */
 export const SupervisorServicePort = 10;
 
+export enum ServerKind {
+    NPC = 0,
+    HOME = 1,
+    HACKNET = 2,
+    PURCHASED = 3,
+}
+
 export enum RootStatus {
     UNROOTABLE = 0,
     ROOTABLE = 1,
@@ -47,7 +54,7 @@ export interface Metadata {
     maxRam?: number;
     ramAvailable?: number;
     cpuCores?: number;
-    purchasedByPlayer?: boolean;
+    kind?: ServerKind;
     securityLevel?: number;
     minSecurityLevel?: number;
     growthMultiplier?: number;

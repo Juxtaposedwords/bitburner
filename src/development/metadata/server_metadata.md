@@ -77,6 +77,36 @@ This is what `ListServers({ eligibleOnly: true })` filters on, and what
 the two independent ones plus the static money fact, computed fresh on
 every call.
 
+### `kind`: what a server *is*, not the same thing as `purchasedByPlayer`
+
+`ns`'s own `Server.purchasedByPlayer` is one boolean covering three unrelated
+cases — its own doc comment: *"e.g., home, cloud servers, hacknet servers"*.
+That's not specific enough for `purchased_server_daemon.ts` (below), which
+needs to tell "a real `ns.cloud` server" apart from `home` or a Hacknet
+server — `ns.cloud.upgradeServer`/`getServerUpgradeCost` only operate on
+servers `ns.cloud` itself created, not the other two. Rather than bolt a
+second, overlapping field onto `Metadata` (a refinement of
+`purchasedByPlayer` for three of its four values is just two sources of
+truth that can drift), `Metadata.kind` (`ServerKind`: `NPC` / `HOME` /
+`HACKNET` / `PURCHASED`) **replaces** it outright:
+
+```ts
+function classifyServerKind(hostname, purchasedByPlayer) {
+  if (hostname === "home") return HOME;
+  if (/^hacknet-server-\d+$/.test(hostname)) return HACKNET;
+  return purchasedByPlayer ? PURCHASED : NPC;
+}
+```
+
+Computed once, in `crawl_servers.ts`'s `toServerMetadata` (the single place
+every `Server` → `Metadata` conversion happens, whether from a real crawl or
+`purchased_server_daemon.ts`'s own `UpdateMetadata` push after buying a
+server) — Bitburner gives no more direct signal than the boolean plus the
+hostname, so this falls back to the two facts available: the fixed `"home"`
+hostname, and Hacknet Servers' name always being `hacknet-server-<N>`
+(game-generated, not player-renameable, unlike cloud servers which support
+`ns.cloud.renameServer`).
+
 ## Dispatch: who launches `rooter.ts` and `target_selector.ts`, and when
 
 Lives in `supervisor.ts`, as a third `addBackgroundTask` (alongside the
@@ -119,9 +149,10 @@ rather than once inside a one-shot script like `boot.ts`'s equivalent
 two RPCs. `GetPlayerMetadata` returns `hackingLevel`/`portOpenersOwned`
 (what anything here actually consumes today) plus the rest of
 `ns.getPlayer().skills` (`strength`, `defense`, `dexterity`, `agility`,
-`charisma`, `intelligence`), and `singularityAvailable` — still not a
-mirror of Bitburner's full `Player` object (no `money`, `karma`, `jobs`,
-`factions`, `mults`, ...). `PatchPlayerMetadata` (same "ignore
+`charisma`, `intelligence`), `singularityAvailable`, and `money` (added
+for `hacknet_daemon.ts` — see below) — still not a full mirror of
+Bitburner's `Player` object (no `karma`, `jobs`, `factions`, `mults`,
+...), extended only as real consumers need more. `PatchPlayerMetadata` (same "ignore
 explicitly-undefined fields" merge semantics as `SupervisorService`'s
 `PatchMetadata`, no key needed since there's only ever one player) lets a
 one-shot script push a fact into player state once —
@@ -196,26 +227,42 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   (referencing all three functions) regardless of which branch runs,
   vs. ~1.7–1.75 GB each separately — a delta that multiplies by thread
   count.
-- **Worker hosts: `home` reserved for development, with an early-game
-  fallback.** Hack/grow/weaken threads run on rooted servers other than
-  `home` (`listWorkerHosts`, via `ListServers` — purchased servers count
-  once bought). Below `SchedulerConfig.homeFallbackHackingLevel` (default
-  50), `home` is included too, since early on it may be the only
-  significant RAM source before enough is rooted/purchased elsewhere — but
-  even then, `homeReservedRamGb` (default 5) always stays off-limits, so
-  development keeps some headroom. At or above that hacking level, `home`
-  reverts to fully reserved, same as it stays for every other purpose in
-  this codebase. Both are live-patchable via `PatchSchedulerConfig`.
+- **Worker hosts: `home` and Hacknet servers reserved, with an early-game
+  home fallback.** Hack/grow/weaken threads run on rooted servers other
+  than `home` and `ServerKind.HACKNET` hosts (`listWorkerHosts`, via
+  `ListServers` — purchased/`ns.cloud` servers count once bought). Hacknet
+  servers are excluded because `ns.formulas.hacknetServers.hashGainRate`
+  takes `ramUsed` as an input — running HWGW scripts on one measurably cuts
+  its own hash output, undermining the entire point of
+  `purchased_server_daemon.ts`'s counterpart, `hacknet_daemon.ts` (see
+  below). Below `SchedulerConfig.homeFallbackHackingLevel` (default 50),
+  `home` is included too, since early on it may be the only significant
+  RAM source before enough is rooted/purchased elsewhere — but even then,
+  `homeReservedRamGb` (default 5) always stays off-limits, so development
+  keeps some headroom. At or above that hacking level, `home` reverts to
+  fully reserved, same as it stays for every other purpose in this
+  codebase. Both are live-patchable via `PatchSchedulerConfig`.
   `hack`/`grow`/`weaken` don't need to run *from* the target or from the
-  same host as each other, so `allocateAcrossHosts` (`hwgw.ts`) places
-  each of a batch's four actions independently, greedy first-fit against
-  live per-host free RAM (not a stale crawled snapshot, since other things
-  could be running there) — if *any* of the four can't be placed anywhere,
-  the whole batch is skipped rather than firing a partial one, and the
-  next tick retries (now logged, with the GB needed vs. available, instead
-  of failing silently). `ensureWorkersDeployed` `ns.scp`s the three worker
-  scripts to a host the first time it's used (`ns.exec` requires the
-  script already present on the destination — it doesn't copy for you;
+  same host as each other, so `allocateAcrossHosts` (`hwgw.ts`) places each
+  of a batch's four actions independently, **round-robin** across live
+  per-host free RAM (not a stale crawled snapshot, since other things could
+  be running there) — one thread per host-with-room per pass, cycling
+  until the full count is placed, rather than draining the biggest host
+  first. This spreads a batch across the whole eligible fleet instead of
+  concentrating it on the fewest/biggest hosts (a real problem in
+  practice — a target's batch fitting entirely on one or two big hosts
+  left everything else idle even with plenty of rooted/purchased capacity
+  to spare). It's still scoped to whatever the batch's thread count
+  actually needs — a 5-thread request only ever touches ~5 hosts, it
+  doesn't manufacture extra work to keep every host busy regardless of
+  batch size, that's a separate lever (`hackFraction`/batch sizing) not
+  addressed here. If *any* of the four actions can't be placed anywhere
+  even after exhausting every host's capacity, the whole batch is skipped
+  rather than firing a partial one, and the next tick retries (logged,
+  with the GB needed vs. available, instead of failing silently).
+  `ensureWorkersDeployed` `ns.scp`s the three worker scripts to a host the
+  first time it's used (`ns.exec` requires the script already present on
+  the destination — it doesn't copy for you;
   a no-op on `home`, which already has them).
 - **`scheduler_daemon.ts`** — prep phase (weakens/grows the target to
   min-security/max-money, since batch math is only valid from that
@@ -267,3 +314,153 @@ that cost is never paid when it can't be used:
 unaffected either way — that's how `portOpenersOwned` gets tracked
 regardless of whether a program arrived via `program_shopper.ts` or a
 manual purchase.
+
+## Hacknet manager: `hacknet_daemon.ts`, BitNode-agnostic by construction
+
+Grows the Hacknet Node/Server fleet and spends hashes, without any
+BitNode-specific branching. `ns.hacknet.purchaseNode()`/`upgradeLevel()`/
+`upgradeRam()`/`upgradeCore()` behave identically whether a node is a
+plain Hacknet Node (produces money directly — true in most BitNodes) or a
+Hacknet Server (produces hashes — BN9/BN10/SF9); only the hash-spending
+half of the API (`numHashes`/`spendHashes`/`hashCost`/`upgradeCache`) is
+Server-specific, and it's naturally gated behind
+`ns.hacknet.hashCapacity() > 0` (zero outside a Hacknet-Server context).
+So the daemon always runs, everywhere, and just does whatever's currently
+possible — no explicit "am I in BN9" check anywhere.
+
+**No proto, no RPC service** — deliberately, unlike every other daemon in
+this codebase. `HacknetConfig` has no consumer except the daemon itself
+(unlike `PlayerMetadata`, which `scheduler_daemon.ts`/`boot.ts` genuinely
+read), so a full proto + generated client/server + auto-assigned port
+would be pure overhead. Instead it rides on
+`development/libraries/config.ts`'s `loadJsonConfig` — the same helper
+`supervisor.ts`/`player.ts` already use for their own `/etc/*.txt` files —
+called fresh on *every* tick rather than once at startup, so hand-editing
+`/etc/hacknet.txt` takes effect within one tick. This is actually a step
+up from `SchedulerConfig`'s RPC-only approach: that config isn't
+persisted across a `scheduler_daemon.js` restart today (pure in-memory,
+patched only via `PatchSchedulerConfig`), while a file-based config
+survives one for free.
+
+- **`hacknet_decisions.ts`** — pure, `ns`-free (mirrors `hwgw.ts`'s
+  style): `decideNodeInvestment` picks the single best affordable action
+  (buy a new node, or upgrade one axis of an existing one) within
+  `min(money - reserveMoney, money * maxSpendFraction)` — an absolute
+  floor and a relative throttle together, the same pairing
+  `homeReservedRamGb`/`homeFallbackHackingLevel` uses in
+  `scheduler.proto`. "Best" depends on whether the optional `gainRate`
+  parameter is supplied:
+  - **Without it** (no `Formulas.exe`): cheapest-affordable wins — the
+    original v1 heuristic, unchanged, kept as the fallback.
+  - **With it**: every candidate is scored by true ROI,
+    `(productionAfter - productionBefore) / cost`, computed via
+    `gainRate(level, ram, cores)` — a closure `hacknet_daemon.ts` only
+    provides when `Formulas.exe` is owned, wired to `ns.formulas.
+    hacknetServers.hashGainRate`/`ns.formulas.hacknetNodes.moneyGainRate`
+    (the real game formulas — unlike every other capability-gated API
+    touched this session, every `ns.formulas.*` function is confirmed
+    0 GB RAM cost, so this needed no `detect_capabilities.ts`-style
+    isolation, just a plain `ns.fileExists` check re-run every tick).
+    `ramUsed` is always passed as `0` — a deliberate simplification, since
+    the goal is *relative* ranking between upgrades, not predicting exact
+    output (a Hacknet Server's real `ramUsed` fluctuates as
+    `scheduler_daemon.ts` places HWGW workers on it), and it lets one
+    3-argument closure serve both formulas (`moneyGainRate` doesn't take
+    `ramUsed` at all). Cache upgrades are excluded from ROI scoring
+    entirely — they don't affect production rate, only hash storage
+    capacity, so they'd always score `0` and never win on merit; a known,
+    explicit scope-cut is that this doesn't guard against hash-storage
+    overflow, acceptable since hashes get spent every tick whenever
+    anything's affordable.
+
+  `pickHashUpgrade` returns the first name in a priority list that's both
+  recognized and currently affordable, skipping anything else rather than
+  erroring.
+- **`hacknet_daemon.ts`** — a plain polling loop (`player.ts`'s style, not
+  `scheduler_daemon.ts`'s RPC-server style), ticking every 5s (purchases
+  are lumpy/infrequent — no need for the batch scheduler's 1s
+  granularity). Each tick: reads `money` over `PlayerService` (no local
+  `ns.getPlayer()` cost), gathers live per-node current stats
+  (`getNodeStats`) and upgrade costs (`getCacheUpgradeCost` only queried
+  when `hashCapacity() > 0`, since the docs mark it Server-only and don't
+  specify behavior against a plain Node), builds the `gainRate` closure
+  above if `Formulas.exe` exists, executes whatever `decideNodeInvestment`
+  picks, and — only in a Server context — spends hashes on the first
+  affordable entry in `config.hashSpendPriority`. For the two
+  target-scoped upgrades ("Reduce Minimum Security", "Increase Maximum
+  Money"), `config.hashSpendTargetOverride` wins if set, otherwise it
+  resolves the *same* target `scheduler_daemon.ts` is currently attacking
+  (via that daemon's own exported `resolveTarget`, over a
+  `GetSchedulerConfig` RPC call), so hash spending automatically
+  synergizes with the HWGW loop instead of needing duplicate targeting
+  config.
+- **`boot.ts`** launches it alongside `scheduler_daemon.js`, last — same
+  reasoning as the scheduler: real RAM cost (~17 `ns.hacknet.*`/RPC
+  references), no dependency on a rooted network or ranked target, so no
+  reason to compete with bootstrap-critical one-shots for a
+  RAM-constrained `home`.
+
+**Diagnosability:** unlike `scheduler_daemon.ts` (which `WARN`s on every tick
+a batch doesn't fit), a `{ kind: "none" }` tick here is otherwise silent —
+indistinguishable in the logs from the process being stuck. Both
+`decideNodeInvestment` and `decideServerInvestment` (below) return the full
+evaluation, not just the winning decision (budget, and the best/cheapest
+candidate considered even if unaffordable), and both daemons run at
+`LOG_LEVEL.DEBUG` and log that evaluation every tick (including whether ROI
+mode or the cheapest-first fallback is active) — so a quiet daemon is always
+distinguishable from a stuck one by checking its own log file, not by
+comparing timestamps against other daemons' activity.
+
+## Purchased-server manager: `purchased_server_daemon.ts` (`ns.cloud`)
+
+Grows and upgrades the fleet the scheduler draws RAM from beyond just
+Hacknet Servers — this BitNode's API renamed the classic "purchased server"
+mechanic to `ns.cloud` (not the older top-level `ns.purchaseServer`/
+`ns.deleteServer`; confirmed by reading `NetscriptDefinitions.d.ts`
+directly). File/daemon names still say "purchased server" — the well-known
+community term — even though the API underneath is `ns.cloud.*`.
+
+Same self-contained, no-proto shape as `hacknet_daemon.ts` and the same
+reasoning: nothing else needs to query or patch this config remotely, so
+`/etc/purchased_servers.txt` via `loadJsonConfig` (re-read every tick, live
+hand-editable) beats a proto + generated client + port for no benefit.
+
+**`SupervisorService` is the single source of truth for the fleet, not a
+second `ns.cloud.getServerNames()` view of it.** Two things this fixes:
+- **Discovery**: `crawl_servers.js` only runs once, at boot; `dispatch.ts`
+  never re-triggers it. A brand-new hostname from `purchaseServer` would
+  stay invisible to `scheduler_daemon.ts`'s worker pool indefinitely without
+  a manual re-crawl. Fixed by pushing the new server's metadata in directly
+  the moment `purchaseServer` succeeds — `toServerMetadata` (already
+  exported by `crawl_servers.ts`) + `ns.getServer(hostname)` +
+  `UpdateMetadata` — no crawl, no wait.
+- **Staying current**: `ListServers`'s handler recomputes `rootStatus`/
+  `hackStatus` live, but *not* `maxRam`/`ramAvailable` — those are whatever
+  was last pushed. Upgrading a purchased server's RAM would leave
+  supervisor's record stale otherwise, so every successful `upgradeServer`
+  call is followed by a `PatchMetadata` refreshing it.
+
+This makes the daemon's own enumeration trivially precise too — it filters
+`ListServers` on `kind === ServerKind.PURCHASED` (see above) rather than
+`ns.cloud.getServerNames()` (which would need its own 1.05 GB, on top of
+being a second, syncable-out-of-date view of the same fleet).
+
+- **`purchased_server_decisions.ts`** — pure, `ns`-free (mirrors
+  `hacknet_decisions.ts`): `decideServerInvestment` picks the cheapest
+  affordable action between buying a new server (sized to match the
+  *smallest* currently-owned one, keeping the fleet balanced instead of
+  buying permanently-undersized stragglers late-game, or `startingRamGb` if
+  nothing's owned yet) and upgrading the weakest owned server (doubling its
+  RAM, clamped to `ns.cloud.getRamLimit()`) — same budget pairing
+  (`reserveMoney` floor + `maxSpendFraction` throttle) as the Hacknet
+  manager, same "simplest reasonable v1, not ROI-optimal" tradeoff.
+- **`purchased_server_daemon.ts`** — plain polling loop, 5s tick (lumpy,
+  infrequent decisions, same reasoning as Hacknet). Reads `money` over
+  `PlayerService` (no local `ns.getPlayer()` cost), enumerates owned
+  purchased servers via `SupervisorService.ListServers`, executes whatever
+  `decideServerInvestment` picks via `ns.cloud.purchaseServer`/
+  `upgradeServer`, and patches supervisor's record as described above.
+- **`boot.ts`** launches it alongside `scheduler_daemon.js`/
+  `hacknet_daemon.js`, last — same reasoning: real RAM cost (~4.5 GB, six
+  `ns.cloud.*` references), no dependency on a rooted network or ranked
+  target.

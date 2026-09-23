@@ -2,10 +2,10 @@ import { NS } from "@ns";
 
 // Runtime data only — never /etc/, so configs survive a wipe and don't need
 // to be recreated by hand before the next test run.
-const WIPE_PREFIXES = ["/var/log/", "/var/supervisor/"];
+export const WIPE_PREFIXES = ["/var/log/", "/var/supervisor/"];
 
-export async function main(ns: NS): Promise<void> {
-  const host = ns.getHostname();
+/** Deletes every file under WIPE_PREFIXES on `host`; returns how many were removed. Extracted so tools/test_restart.ts can reuse it without spawning a subprocess. */
+export function wipeVarData(ns: NS, host: string): number {
   let removed = 0;
 
   for (const prefix of WIPE_PREFIXES) {
@@ -13,6 +13,13 @@ export async function main(ns: NS): Promise<void> {
       if (ns.rm(file, host)) removed++;
     }
   }
+
+  return removed;
+}
+
+export async function main(ns: NS): Promise<void> {
+  const host = ns.getHostname();
+  const removed = wipeVarData(ns, host);
 
   ns.tprint(`[Wipe] Removed ${removed} file(s) under ${WIPE_PREFIXES.join(", ")} on ${host}.`);
 }

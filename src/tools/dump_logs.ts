@@ -5,7 +5,7 @@ const LOG_DIR = "/var/log/";
 const DEFAULT_TAIL = 200;
 // Deliberately outside LOG_DIR (no "/var/log/" substring) so a re-run's
 // ns.ls(host, LOG_DIR) scan never picks up its own previous output.
-const DEFAULT_OUTPUT = "/var/log_dump.txt";
+export const DEFAULT_OUTPUT = "/var/log_dump.txt";
 
 interface ParsedArgs {
   tailLines: number;
@@ -58,28 +58,40 @@ export function buildDump(files: { path: string; content: string }[], tailLines:
   return sections.join("\n\n");
 }
 
-export async function main(ns: NS): Promise<void> {
-  ns.disableLog("ALL");
-  const { tailLines, includeBackups, output } = parseArgs(ns.args);
-
-  const host = ns.getHostname();
+/**
+ * Lists every log file on `host`, builds the combined dump, and writes it
+ * to `output`. Returns the number of files included (0 means nothing was
+ * written). Extracted so tools/test_restart.ts can reuse it without
+ * spawning a subprocess.
+ */
+export function collectAndWriteDump(ns: NS, host: string, tailLines: number, includeBackups: boolean, output: string): number {
   const logFiles = ns
     .ls(host, LOG_DIR)
     .filter((f) => f !== output && f.endsWith(".txt"))
     .filter((f) => includeBackups || !isLogBackup(f))
     .sort();
 
-  if (logFiles.length === 0) {
+  if (logFiles.length === 0) return 0;
+
+  const files = logFiles.map((path) => ({ path, content: ns.read(path) }));
+  ns.write(output, buildDump(files, tailLines), "w");
+  return logFiles.length;
+}
+
+export async function main(ns: NS): Promise<void> {
+  ns.disableLog("ALL");
+  const { tailLines, includeBackups, output } = parseArgs(ns.args);
+
+  const host = ns.getHostname();
+  const fileCount = collectAndWriteDump(ns, host, tailLines, includeBackups, output);
+
+  if (fileCount === 0) {
     ns.tprint(`[DumpLogs] No log files found under ${LOG_DIR} on ${host}.`);
     return;
   }
 
-  const files = logFiles.map((path) => ({ path, content: ns.read(path) }));
-  const dump = buildDump(files, tailLines);
-
-  ns.write(output, dump, "w");
   ns.tprint(
-    `[DumpLogs] Wrote ${logFiles.length} file(s) (last ${Number.isFinite(tailLines) ? tailLines : "all"} lines each) to ${output}. ` +
+    `[DumpLogs] Wrote ${fileCount} file(s) (last ${Number.isFinite(tailLines) ? tailLines : "all"} lines each) to ${output}. ` +
       `Open it in the Script Editor and copy its contents (Ctrl+A, Ctrl+C).`
   );
 }

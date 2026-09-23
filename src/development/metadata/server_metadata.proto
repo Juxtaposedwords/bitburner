@@ -45,6 +45,20 @@ enum HackStatus {
   HACKABLE = 1;
 }
 
+// What a server *is*, not just whether the player owns it - ns's own
+// Server.purchasedByPlayer is one boolean covering three unrelated cases
+// (home, cloud servers, hacknet servers), which isn't specific enough for
+// purchased_server_daemon.ts to tell "a real ns.cloud server" apart from
+// "home" or a hacknet server (ns.cloud.upgradeServer only works on the
+// former). Computed once in crawl_servers.ts's classifyServerKind, the
+// single place every Server -> Metadata conversion happens.
+enum ServerKind {
+  NPC = 0;
+  HOME = 1;
+  HACKNET = 2;
+  PURCHASED = 3;
+}
+
 // The core domain object remains clean
 message Metadata {
   string hostname = 1;
@@ -54,7 +68,7 @@ message Metadata {
   optional double maxRam = 5;
   optional double ramAvailable = 6;
   optional double cpuCores = 7;
-  optional bool purchasedByPlayer = 8;
+  optional ServerKind kind = 8;
   optional double securityLevel = 9;
   optional double minSecurityLevel = 10;
   optional double growthMultiplier = 11;

@@ -21,6 +21,10 @@ message PlayerMetadata {
   // script (the only thing that ever calls the expensive ns.getResetInfo())
   // and patched in here, rather than every consumer re-deriving it.
   optional bool singularity_available = 9;
+  // Populated for hacknet_daemon.ts, which needs live cash to decide what
+  // it can afford - reads it here instead of paying its own ns.getPlayer()
+  // (0.5 GB) the way every other PlayerService consumer already does.
+  optional double money = 10;
 }
 
 message GetPlayerMetadataRequest {}

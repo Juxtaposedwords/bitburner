@@ -67,21 +67,31 @@ export function resolveTarget(ns: NS, config: scheduler_pb.SchedulerConfig): str
   return weightsFile?.weights[0]?.hostname;
 }
 
-// --- Worker hosts: everywhere except `home` ---------------------------
+// --- Worker hosts: everywhere except `home` and Hacknet servers --------
 
 /**
- * Every rooted server except `home` — the pool hack/grow/weaken threads
- * are allowed to run on. Queried fresh each call rather than cached, since
- * the pool only grows as rooter.ts roots more servers (or the player buys
- * some), and the RPC round trip is free (see server_metadata.md's RAM
- * notes) — there's no cost to asking supervisor again.
+ * Every rooted server except `home` and Hacknet servers — the pool
+ * hack/grow/weaken threads are allowed to run on. Hacknet servers are
+ * excluded deliberately: ns.formulas.hacknetServers.hashGainRate takes
+ * ramUsed as an input, so running HWGW scripts on one measurably reduces
+ * its own hash output (see hacknet_decisions.ts) - they're reserved for
+ * hash production, not general worker capacity. Queried fresh each call
+ * rather than cached, since the pool only grows as rooter.ts roots more
+ * servers (or the player buys some), and the RPC round trip is free (see
+ * server_metadata.md's RAM notes) — there's no cost to asking supervisor
+ * again.
  */
 async function listWorkerHosts(ns: NS): Promise<string[]> {
   const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({});
   if (res.status !== Codes.OK) return [];
 
   return (res.data?.servers ?? [])
-    .filter((server) => server.rootStatus === server_metadata_pb.RootStatus.ROOTED && server.hostname !== HOME)
+    .filter(
+      (server) =>
+        server.rootStatus === server_metadata_pb.RootStatus.ROOTED &&
+        server.hostname !== HOME &&
+        server.kind !== server_metadata_pb.ServerKind.HACKNET
+    )
     .map((server) => server.hostname as string);
 }
 
@@ -127,10 +137,12 @@ async function getWorkerCapacities(ns: NS, config: scheduler_pb.SchedulerConfig)
 
 /**
  * Weakens/grows `target` until it sits at min-security/max-money — batch
- * math is only valid from that baseline. Uses whichever worker host
- * currently has the most free RAM; unlike a batch's four coordinated
- * actions, prep doesn't need an exact thread count to make progress, just
- * however many threads fit (fewer just means it takes longer).
+ * math is only valid from that baseline. Fires across every worker host
+ * with room, not just the single biggest one — unlike a batch's four
+ * coordinated actions, prep doesn't need an exact thread count to make
+ * progress, just as many threads as it can get, so there's no need for
+ * allocateAcrossHosts' split-a-request-across-hosts bookkeeping: each host
+ * just runs as many threads as its own free RAM allows.
  */
 async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<void> {
   while (true) {
@@ -152,12 +164,25 @@ async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.Sc
       continue;
     }
 
-    const best = capacities[0];
     const script = action === "weaken" ? WEAKEN_WORKER : GROW_WORKER;
-    ensureWorkersDeployed(ns, best.host);
+    const scriptRam = ns.getScriptRam(script);
 
-    const threads = Math.max(1, Math.floor(best.freeRam / ns.getScriptRam(script)));
-    ns.exec(script, best.host, threads, target, 0);
+    let totalThreads = 0;
+    const hostsUsed: string[] = [];
+    for (const { host, freeRam } of capacities) {
+      const threads = Math.floor(freeRam / scriptRam);
+      if (threads <= 0) continue;
+
+      ensureWorkersDeployed(ns, host);
+      ns.exec(script, host, threads, target, 0);
+      totalThreads += threads;
+      hostsUsed.push(host);
+    }
+
+    await log.debug(
+      `[Scheduler] Prep ${action} on ${target}: security=${security.toFixed(2)}/${minSecurity.toFixed(2)} money=$${money.toFixed(0)}/$${maxMoney.toFixed(0)} ` +
+        `${totalThreads} thread(s) across ${hostsUsed.length} host(s) (${hostsUsed.join(", ")}).`
+    );
 
     const waitMs = (action === "weaken" ? ns.getWeakenTime(target) : ns.getGrowTime(target)) + 200;
     await ns.asleep(waitMs);
@@ -249,7 +274,10 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
 
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
-  const log = createLogger(ns, "Scheduler", LOG_LEVEL.INFO);
+  // DEBUG so a long-running prep phase (which used to log nothing at all
+  // per iteration) is visible tick-by-tick, same reasoning as hacknet_daemon.ts/
+  // purchased_server_daemon.ts (see server_metadata.md).
+  const log = createLogger(ns, "Scheduler", LOG_LEVEL.DEBUG);
 
   const state = createSchedulerState();
   const handlers = createHandlers(state);

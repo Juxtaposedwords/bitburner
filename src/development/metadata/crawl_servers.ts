@@ -4,7 +4,22 @@ import { createLogger, LOG_LEVEL, Logger } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
 
 // --- PURE DATA TRANSFORMS ---
-// comment ?
+
+// ns's own Server.purchasedByPlayer is one boolean covering three unrelated
+// cases (home, cloud servers, hacknet servers - see its own doc comment),
+// which isn't specific enough for purchased_server_daemon.ts to tell "a
+// real ns.cloud server" apart from "home" or a hacknet server. Bitburner
+// gives no more direct signal than that boolean plus the hostname, so this
+// falls back to the two facts we do have: the fixed "home" hostname, and
+// Hacknet Servers' name always being "hacknet-server-<N>" (game-generated,
+// not player-renameable, unlike cloud servers which support
+// ns.cloud.renameServer).
+export const classifyServerKind = (hostname: string, purchasedByPlayer: boolean): server_metadata_pb.ServerKind => {
+  if (hostname === "home") return server_metadata_pb.ServerKind.HOME;
+  if (/^hacknet-server-\d+$/.test(hostname)) return server_metadata_pb.ServerKind.HACKNET;
+  return purchasedByPlayer ? server_metadata_pb.ServerKind.PURCHASED : server_metadata_pb.ServerKind.NPC;
+};
+
 export const toServerMetadata = (hostname: string, pathFromHome: string, serverInfo: Server): server_metadata_pb.Metadata => ({
   hostname,
   organization: serverInfo.organizationName ?? "",
@@ -15,7 +30,7 @@ export const toServerMetadata = (hostname: string, pathFromHome: string, serverI
   growthMultiplier: serverInfo.serverGrowth ?? 1,
   rootStatus: serverInfo.hasAdminRights ? server_metadata_pb.RootStatus.ROOTED : server_metadata_pb.RootStatus.UNROOTABLE,
   backdoorInstalled: serverInfo.backdoorInstalled ?? false,
-  purchasedByPlayer: serverInfo.purchasedByPlayer ?? false,
+  kind: classifyServerKind(hostname, serverInfo.purchasedByPlayer ?? false),
   maxRam: serverInfo.maxRam ?? 0,
   ramAvailable: (serverInfo.maxRam ?? 0) - (serverInfo.ramUsed ?? 0),
   cpuCores: serverInfo.cpuCores ?? 1,

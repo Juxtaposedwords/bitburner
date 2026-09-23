@@ -130,6 +130,7 @@ export function readPlayerContext(ns: NS, path: string): player_metadata_pb.Play
         intelligence?: number;
       };
       portOpenersOwned?: number;
+      money?: number;
     };
     return {
       hackingLevel: player.skills?.hacking,
@@ -140,6 +141,7 @@ export function readPlayerContext(ns: NS, path: string): player_metadata_pb.Play
       agility: player.skills?.agility,
       charisma: player.skills?.charisma,
       intelligence: player.skills?.intelligence,
+      money: player.money,
     };
   } catch {
     return {};
