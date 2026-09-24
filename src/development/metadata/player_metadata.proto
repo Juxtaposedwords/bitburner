@@ -25,6 +25,11 @@ message PlayerMetadata {
   // it can afford - reads it here instead of paying its own ns.getPlayer()
   // (0.5 GB) the way every other PlayerService consumer already does.
   optional double money = 10;
+  // Whether ns.gang is usable right now (Source-File 2 owned, or currently
+  // playing BitNode 2) - a separate capability from singularity_available
+  // (gated by SF4 instead), computed and patched in the same
+  // detect_capabilities.ts pass.
+  optional bool gang_available = 11;
 }
 
 message GetPlayerMetadataRequest {}

@@ -5,6 +5,9 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CAPABILITY_DETECTOR_SCRIPT = "development/metadata/detect_capabilities.js";
 const PROGRAM_SHOPPER_SCRIPT = "tools/program_shopper.js";
+const BACKDOOR_SCRIPT = "development/metadata/backdoor_daemon.js";
+const FACTION_SCRIPT = "development/metadata/faction_daemon.js";
+const GANG_SCRIPT = "development/metadata/gang_daemon.js";
 const SCHEDULER_SCRIPT = "development/metadata/scheduler_daemon.js";
 const HACKNET_SCRIPT = "development/metadata/hacknet_daemon.js";
 const PURCHASED_SERVER_SCRIPT = "development/metadata/purchased_server_daemon.js";
@@ -74,21 +77,33 @@ export async function main(ns: NS): Promise<void> {
     await launchAndWait(ns, script, ONE_SHOT_TIMEOUT_MS);
   }
 
-  // Source-File 4 / Singularity availability never changes mid-session (see
-  // server_metadata.md), so once supervisor already has it — persisted
-  // across restarts via state.player, not just this process's memory —
-  // there's no need to pay ns.getResetInfo()'s cost again by re-running
-  // detect_capabilities.js. Supervisor is guaranteed reachable here: the
-  // ONE_SHOT loop above already RPC'd it successfully.
+  // Source-File 2/4 (gang/singularity) availability never changes
+  // mid-session (see server_metadata.md), so once supervisor already has
+  // both — persisted across restarts via state.player, not just this
+  // process's memory — there's no need to pay ns.getResetInfo()'s cost
+  // again by re-running detect_capabilities.js. Checking BOTH fields
+  // matters: a save from before gangAvailable existed would otherwise
+  // have singularityAvailable already set (skipping re-detection forever)
+  // while gangAvailable stays permanently undefined. Supervisor is
+  // guaranteed reachable here: the ONE_SHOT loop above already RPC'd it
+  // successfully.
   const playerClient = player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort);
   let playerRes = await playerClient.GetPlayerMetadata({});
-  if (playerRes.data?.player?.singularityAvailable === undefined) {
+  if (playerRes.data?.player?.singularityAvailable === undefined || playerRes.data?.player?.gangAvailable === undefined) {
     await launchAndWait(ns, CAPABILITY_DETECTOR_SCRIPT, ONE_SHOT_TIMEOUT_MS);
     playerRes = await playerClient.GetPlayerMetadata({});
   }
 
   if (playerRes.data?.player?.singularityAvailable) {
     launchIfNotRunning(ns, PROGRAM_SHOPPER_SCRIPT);
+    launchIfNotRunning(ns, BACKDOOR_SCRIPT);
+    launchIfNotRunning(ns, FACTION_SCRIPT);
+  }
+
+  // Independent capability from singularityAvailable - gated by
+  // Source-File 2, not 4 - so checked and launched separately.
+  if (playerRes.data?.player?.gangAvailable) {
+    launchIfNotRunning(ns, GANG_SCRIPT);
   }
 
   // Last: everything it depends on (a rooted network, a ranked target) is

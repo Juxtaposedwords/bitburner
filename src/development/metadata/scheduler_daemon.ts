@@ -30,7 +30,12 @@ const BATCH_CHECK_INTERVAL_MS = 1000;
 
 const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
   approach: scheduler_pb.Approach.HACK,
-  hackFraction: 0.1,
+  // Lower than the "textbook" 0.1 - at current fleet size (~660GB free)
+  // a 0.1 batch against a juicy target needs over 1TB total and skips
+  // almost every tick. 0.02 trades a smaller cut per batch for actually
+  // firing regularly; raise this back up as the fleet grows (see
+  // server_metadata.md).
+  hackFraction: 0.02,
   spacingMs: 200,
   homeFallbackHackingLevel: 50,
   homeReservedRamGb: 5,

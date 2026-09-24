@@ -10,7 +10,7 @@ describe("Scheduler RPC handlers", () => {
       const handlers = createHandlers(state);
 
       expect(handlers.GetSchedulerConfig({})).toEqual({
-        config: { approach: Approach.HACK, hackFraction: 0.1, spacingMs: 200, homeFallbackHackingLevel: 50, homeReservedRamGb: 5 },
+        config: { approach: Approach.HACK, hackFraction: 0.02, spacingMs: 200, homeFallbackHackingLevel: 50, homeReservedRamGb: 5 },
       });
     });
 

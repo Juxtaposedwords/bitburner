@@ -2,8 +2,9 @@ import { NS } from "@ns";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 
 /**
- * The only file in the codebase allowed to reference ns.singularity.* —
- * kept completely isolated from supervisor.ts/scheduler_daemon.ts/
+ * One of a small set of files allowed to reference ns.singularity.* (along
+ * with development/metadata/backdoor_daemon.ts and faction_daemon.ts) —
+ * each kept completely isolated from supervisor.ts/scheduler_daemon.ts/
  * everything else so its RAM cost (2-32 GB per function depending on
  * Source-File 4's level, see server_metadata.md) never leaks into another
  * script's footprint. Only launched by boot.ts when

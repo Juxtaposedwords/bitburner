@@ -14,6 +14,16 @@ export function computeSingularityAvailable(currentNode: number, ownedSF: Map<nu
 }
 
 /**
+ * ns.gang requires Source-File 2 outside BitNode 2 (see
+ * server_metadata.md) — same shape as computeSingularityAvailable, just a
+ * different Source-File/BitNode number and a genuinely independent
+ * capability (owning one doesn't imply the other).
+ */
+export function computeGangAvailable(currentNode: number, ownedSF: Map<number, number>): boolean {
+  return currentNode === 2 || (ownedSF.get(2) ?? 0) >= 1;
+}
+
+/**
  * The only place in the codebase that calls ns.getResetInfo() (1 GB, plain
  * base NS, no Source-File requirement) — a one-shot job, not a daemon.
  * boot.ts only launches this when supervisor doesn't already have
@@ -27,13 +37,14 @@ export async function main(ns: NS): Promise<void> {
 
   const resetInfo = ns.getResetInfo();
   const singularityAvailable = computeSingularityAvailable(resetInfo.currentNode, resetInfo.ownedSF);
+  const gangAvailable = computeGangAvailable(resetInfo.currentNode, resetInfo.ownedSF);
 
   const client = player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort);
-  const res = await client.PatchPlayerMetadata({ player: { singularityAvailable } });
+  const res = await client.PatchPlayerMetadata({ player: { singularityAvailable, gangAvailable } });
   if (res.status !== Codes.OK) {
     await log.warn(`[CapabilityDetector] PatchPlayerMetadata failed (${Codes[res.status]}): ${res.error}`);
     return;
   }
 
-  await log.info(`[CapabilityDetector] singularityAvailable = ${singularityAvailable}.`);
+  await log.info(`[CapabilityDetector] singularityAvailable = ${singularityAvailable}, gangAvailable = ${gangAvailable}.`);
 }

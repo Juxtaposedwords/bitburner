@@ -31,6 +31,7 @@ export interface PlayerMetadata {
     intelligence?: number;
     singularityAvailable?: boolean;
     money?: number;
+    gangAvailable?: boolean;
 }
 
 export interface PlayerServiceHandlers {

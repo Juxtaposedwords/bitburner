@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package gang;
+
+// Governs how aggressively gang_daemon.ts pursues territory (see
+// server_metadata.md). CONSOLIDATE (default) never touches the
+// "Territory Warfare" task or ns.gang.setTerritoryWarfare at all - zero
+// risk, today's behavior. GROWING trains power risk-free (power accrues
+// from Territory-Warfare-assigned members every cycle regardless of
+// whether clashes are engaged - see Gang.ts's
+// processTerritoryAndPowerGains), then only calls setTerritoryWarfare(true)
+// once win chance against every rival holding territory clears a safety
+// margin. No service here - this enum-only file mirrors
+// development/libraries/status.proto's shape.
+enum GangPosture {
+  CONSOLIDATE = 0;
+  GROWING = 1;
+}

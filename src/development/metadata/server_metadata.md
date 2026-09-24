@@ -149,16 +149,19 @@ rather than once inside a one-shot script like `boot.ts`'s equivalent
 two RPCs. `GetPlayerMetadata` returns `hackingLevel`/`portOpenersOwned`
 (what anything here actually consumes today) plus the rest of
 `ns.getPlayer().skills` (`strength`, `defense`, `dexterity`, `agility`,
-`charisma`, `intelligence`), `singularityAvailable`, and `money` (added
-for `hacknet_daemon.ts` — see below) — still not a full mirror of
-Bitburner's `Player` object (no `karma`, `jobs`, `factions`, `mults`,
-...), extended only as real consumers need more. `PatchPlayerMetadata` (same "ignore
-explicitly-undefined fields" merge semantics as `SupervisorService`'s
-`PatchMetadata`, no key needed since there's only ever one player) lets a
-one-shot script push a fact into player state once —
-`detect_capabilities.ts` is the only place that calls the expensive
-`ns.getResetInfo()`, once, and patches `singularityAvailable` in via this
-RPC, rather than every consumer re-deriving it. `SupervisorState.player`
+`charisma`, `intelligence`), `singularityAvailable`, `money` (added for
+`hacknet_daemon.ts` — see below), and `gangAvailable` (added for
+`gang_daemon.ts` — an independent capability gated by Source-File 2, not
+4, so it's its own field rather than reusing `singularityAvailable`) —
+still not a full mirror of Bitburner's `Player` object (no `karma`,
+`jobs`, `factions`, `mults`, ...), extended only as real consumers need
+more. `PatchPlayerMetadata` (same "ignore explicitly-undefined fields"
+merge semantics as `SupervisorService`'s `PatchMetadata`, no key needed
+since there's only ever one player) lets a one-shot script push a fact
+into player state once — `detect_capabilities.ts` is the only place that
+calls the expensive `ns.getResetInfo()`, once, and patches both
+`singularityAvailable` and `gangAvailable` in via this RPC in the same
+call, rather than every consumer re-deriving them. `SupervisorState.player`
 holds this directly as the generated `PlayerMetadata` type rather than
 duplicating its fields by hand — the background refresh task below patches
 it in place via `applyDefined` (the same helper `PatchPlayerMetadata`
@@ -301,14 +304,15 @@ that cost is never paid when it can't be used:
   `ns.getResetInfo()`; computes `singularityAvailable` and
   `PatchPlayerMetadata`s it (see above for why that's durable, not just
   in-memory).
-- **`tools/program_shopper.ts`** — the only place that references
-  `ns.singularity.*` anywhere in the codebase, kept fully isolated so its
-  cost can never leak into `supervisor.ts`/`scheduler_daemon.ts`'s own
-  footprint. `boot.ts` only launches it when `singularityAvailable` is
-  true; a fixed 30s poll loop (not event-triggered — purchasing is gated
-  by *money*, not hacking level, and SF4 ownership can't change
-  mid-session) calls `purchaseTor()` (idempotent) then buys whichever of
-  the five port-openers it can currently afford.
+- **`tools/program_shopper.ts`** — one of three places that reference
+  `ns.singularity.*` (along with `backdoor_daemon.ts`/`faction_daemon.ts`
+  below), each kept fully isolated so its cost can never leak into
+  `supervisor.ts`/`scheduler_daemon.ts`'s own footprint. `boot.ts` only
+  launches it when `singularityAvailable` is true; a fixed 30s poll loop
+  (not event-triggered — purchasing is gated by *money*, not hacking
+  level, and SF4 ownership can't change mid-session) calls `purchaseTor()`
+  (idempotent) then buys whichever of the five port-openers it can
+  currently afford.
 
 `player.ts`'s existing `ns.fileExists` detection of owned programs is
 unaffected either way — that's how `portOpenersOwned` gets tracked
@@ -464,3 +468,235 @@ being a second, syncable-out-of-date view of the same fleet).
   `hacknet_daemon.js`, last — same reasoning: real RAM cost (~4.5 GB, six
   `ns.cloud.*` references), no dependency on a rooted network or ranked
   target.
+
+## Backdoor + Faction managers: the first steps toward actually finishing a BitNode
+
+Everything above grows money and hacking level forever but never moves
+toward *completing* a BitNode — that requires factions, augmentations,
+and eventually hacking `w0r1d_d43m0n`. `backdoor_daemon.ts` and
+`faction_daemon.ts` are the first two pieces of that (join factions, work
+for reputation, optionally buy augmentations and install them); nothing
+here yet drives toward the endgame server itself.
+
+**No proto changes were needed for either.** `Metadata.backdoorInstalled`
+(field 13) and `Metadata.pathFromHome` (field 4, `"home -> a -> b"`) were
+already in `server_metadata.proto`, already populated live by
+`crawl_servers.ts` from `ns.getServer()` — just never acted on before.
+Faction/augmentation state doesn't get a service either: like
+`hacknet_daemon.ts`'s node stats, it's cheap to re-derive fresh from
+`ns.singularity.*` every tick, and nothing else in the codebase needs to
+consume it, so a new `FactionService` would have been machinery with no
+second caller.
+
+- **`backdoor_daemon.ts`** — mirrors `rooter.ts`'s shape exactly (a pure
+  `selectBackdoorTargets` filter + a thin loop, no separate decisions
+  file, same as `rooter.ts`/`rooter_test.ts`). Filters
+  `SupervisorService.ListServers` to `rootStatus === ROOTED && hackStatus
+  === HACKABLE && kind === NPC && !backdoorInstalled`. `hackStatus` is
+  required, not optional: `rootStatus === ROOTED` only means enough ports
+  were open to `nuke` — rooting has no hacking-level check at all — while
+  `installBackdoor()` needs the same hacking-skill check as an actual
+  hack, which is the other, independent axis (see "Two independent axes,
+  not one lifecycle chain" above; hit this exact bug live — `computek`
+  rooted fine but was above hacking level, and `installBackdoor` threw).
+  Walks each target's `pathFromHome` hop by hop via
+  `ns.singularity.connect()` (it can only connect to a direct neighbor —
+  confirmed in `NetscriptDefinitions.d.ts`), calls `installBackdoor()`,
+  connects back to `home`, then `PatchMetadata`es `backdoorInstalled: true`
+  back — the exact call shape `rooter.ts` already uses for `rootStatus`.
+- **`faction_decisions.ts`** — pure, `ns`-free (mirrors
+  `hacknet_decisions.ts`). Only ever makes *one* decision per tick
+  (join/work-target/buy), the same "re-derive everything fresh next tick"
+  shape as the Hacknet manager, so there's no purchase queue to track
+  across calls. `decideAugmentationPurchase` picks the cheapest
+  augmentation that's affordable, has its reputation requirement met, and
+  has every prereq already owned (including augmentations bought-but-not-
+  yet-installed this session — `ns.singularity.getOwnedAugmentations(true)`).
+  NeuroFlux Governor is the one exemption from "already owned" exclusion —
+  it's uncapped and repeatable, unlike every other augmentation. The
+  price inflation the game applies after every purchase (to *all*
+  remaining unpurchased augmentations, not just the one bought) needs no
+  special modeling here: since only one augmentation is bought per tick
+  and prices are re-queried live from `ns.singularity` every tick, the
+  inflation is already reflected by the time the next decision runs.
+- **`faction_daemon.ts`** — the impure shell. Config at `/etc/faction.txt`
+  via `loadJsonConfig` (same live-hand-editable pattern as Hacknet/
+  purchased-server). `autoPurchaseAugmentations`/`autoInstall` both
+  **default to false** — buying spends real money and
+  `ns.singularity.installAugmentations(bootScript)` wipes every running
+  script and reboots straight into `bootScript` (`boot.ts` re-detects
+  capabilities and relaunches everything, including this daemon, from
+  scratch) — so the daemon runs safely in "join + grind reputation only"
+  mode until both are explicitly enabled. **No persisted state of its
+  own** — `ns.getPlayer().factions` gives the live, current membership
+  list directly, so there's nothing to keep in sync. This wasn't the
+  original design: it used to persist its own `/var/faction_state.txt`
+  copy, on the (mistaken) reasoning that membership "can't be re-derived
+  live" since `checkFactionInvitations()` stops listing a faction once
+  you're in it — true of that one function, but
+  `ns.getPlayer().factions` gives it directly regardless. That file lived
+  on home and survived an `installAugmentations` reset untouched even
+  though the reset clears `Player.factions` entirely (confirmed against
+  Bitburner's own `PlayerObjectGeneralMethods.ts`: `this.factions = []`,
+  restoring only `keep`-flagged factions and the gang's own founding
+  faction) — so the daemon kept believing it was still joined to
+  factions it had actually lost, forever blocking re-invitation. Reading
+  `ns.getPlayer().factions` fresh every tick has no such staleness
+  window, and also correctly picks up any faction joined outside this
+  daemon entirely (e.g. manually, to found a gang) instead of never
+  learning about it — a real gap the file-based version had even before
+  any install ever happened.
+- Both are the second and third files (after `tools/program_shopper.ts`)
+  allowed to reference `ns.singularity.*`, each isolated in its own script
+  for the same RAM-cost reason. `boot.ts` launches both alongside
+  `program_shopper.js`, gated behind `singularityAvailable`.
+- **`tools/augmentation_report.ts`** — a fourth `ns.singularity`-touching
+  file, but a one-shot diagnostic (`run tools/augmentation_report.js`),
+  not a daemon `boot.ts` launches. Dumps everything relevant to "should
+  we install augmentations yet": current money/hacking level/Hacknet
+  node count (what an install resets), joined factions' reputation, the
+  full not-yet-owned augmentation catalog (price already reflecting the
+  live `1.9^queuedCount` batch-purchase multiplier — confirmed via
+  Bitburner's own source, `AugmentationHelpers.ts`/`Constants.ts` —
+  rep/prereq/affordability per entry), the pending (bought-not-installed)
+  list, and gang status. Reuses `faction_daemon.ts`'s own `gatherCatalog`/
+  `gatherReps`/`getPendingAugmentations` (all exported for this) and feeds
+  the same data through the real `decideAugmentationPurchase`/
+  `decideInstallReady` so its "what would happen right now" lines are the
+  live decision, never a separately-derived guess. Same reasoning for the
+  gang section: reuses `gang_daemon.ts`'s exported config/state readers
+  and `gang_decisions.ts`'s `decideStandDown`.
+
+## Gang manager: `gang_daemon.ts`
+
+Manages an *already-created* gang — task assignment, equipment purchases,
+ascension, recruiting. **Doesn't automate creating the gang itself**
+(`ns.gang.createGang`), which needs sufficiently negative karma outside
+BitNode 2 (i.e. automating crime) — a separate, out-of-scope piece of
+work; `tick()` just idles (logging once) until `ns.gang.inGang()` is
+true, same as the player creating one manually today.
+
+`ns.gang` is gated behind **Source-File 2**, not 4 — a capability fully
+independent of `singularityAvailable`, so it gets its own
+`PlayerMetadata.gangAvailable` field and its own
+`computeGangAvailable`/`boot.ts` gate, mirroring
+`computeSingularityAvailable` exactly (see above). **Unlike
+`ns.singularity.*`, `ns.gang.*` functions have normal fixed RAM costs** —
+no 16×/4×/1× Source-File multiplier, confirmed by reading every
+function's doc comment — so `gang_daemon.ts` doesn't need the same
+single-file isolation invariant `program_shopper.ts`/`backdoor_daemon.ts`/
+`faction_daemon.ts` have. It's still its own daemon purely for the same
+config/log modularity reason Hacknet and purchased-server are split.
+
+Task scoring is entirely `ns.formulas.gang`-driven (0 GB, gated by
+`Formulas.exe` — already owned, same as the Hacknet ROI mode):
+`GangTaskStats` has no discrete "task type" field (no money/respect/
+wanted enum — confirmed by reading the full interface), so picking a
+task by name pattern-matching (e.g. hardcoding `"Vigilante Justice"`)
+isn't type-safe or robust. Instead `moneyGain(gang, member, task)`/
+`wantedLevelGain(gang, member, task)` give real per-tick numbers for any
+member+task pairing, and `gang_decisions.ts`'s `decideMemberTask` just
+picks the best-scoring one. No non-formula fallback exists here (unlike
+Hacknet) — without `Formulas.exe`, `gang_daemon.ts` just idles.
+
+- **`gang_decisions.ts`** — pure, `ns`-free (mirrors `hacknet_decisions.ts`).
+  `decideMemberTask` maximizes `moneyGain` for most members;
+  `GangGenInfo.wantedPenalty` is a *multiplier* (1.0 = no penalty at all,
+  dropping toward 0 as wanted level outgrows respect — confirmed live: a
+  healthy gang sat between 0.979 and 1.000, never anywhere near 0), so
+  the trigger is `wantedPenalty` dropping *below* `config.minWantedPenalty`
+  (a floor, e.g. `0.9`), not exceeding a max — got this backwards on the
+  first pass, which silently reserved members for wanted-control duty
+  nearly all the time even with no actual wanted problem. Once genuinely
+  triggered, a `config.wantedReductionFraction` slice of the roster (by
+  stable index) switches to whichever task minimizes `wantedLevelGain`
+  instead — same "ROI-*informed*, not ROI-*optimal*" tradeoff already
+  accepted for Hacknet/purchased-server, not a joint optimization across
+  the whole roster. `decideEquipmentPurchase` is cheapest-first
+  affordable, same shape as `decideNodeInvestment`'s non-ROI fallback —
+  **deliberate scope cut**: a true ROI version would need to simulate
+  each equipment's stat-multiplier effect on `moneyGain` first, but the
+  exact stacking rule for `EquipmentStats` onto `GangMemberInfo`'s
+  `*_mult` fields isn't nailed down anywhere in
+  `NetscriptDefinitions.d.ts`, so this doesn't guess at it.
+  `decideAscension` (per-member threshold check) and
+  `selectBestAscensionCandidate` (picks at most the single best-scoring
+  eligible member) together enforce **one ascension per tick, never
+  more** — ascending costs the gang's entire respect pool
+  (`GangMemberAscension.respect`: "amount of respect lost from
+  ascending"), and the first version ascended every eligible member in
+  the same tick, crashing live respect from 357M to 38.5K in one shot
+  (a one-time backlog of years of unspent stats, but the pacing bug
+  would repeat it any time several members cross the threshold at once).
+  Same "one decision per tick, re-derive fresh next tick" pacing already
+  used for equipment/Hacknet/purchased-server/faction purchases.
+  `decideAscension`'s average is over a member's *trained* stats only
+  (factors > ~1.0, i.e. actually earned some experience) — averaging in
+  every stat unconditionally meant a combat-focused member's permanently
+  untrained `hack` factor (always ~1.0, since they never work hacking
+  tasks) dragged the average below threshold even when every stat that
+  member actually uses cleared it comfortably. Caught live: the in-game
+  UI showed every member as ascension-ready while the buggy version kept
+  rejecting all of them.
+  Recruiting has no decision function at all (trivial: recruit whenever
+  `canRecruitMember()` allows it), same reasoning `rooter.ts`'s `root()`
+  isn't wrapped in one either.
+- **`gang_daemon.ts`** — plain 5s-tick polling loop (same cadence as
+  Hacknet/purchased-server). Config at `/etc/gang.txt` via
+  `loadJsonConfig`. Reads money over `PlayerService` (no local
+  `ns.getPlayer()` cost) — gang income needs no separate collection step,
+  it flows straight into the same money `player.ts`/`PlayerService`
+  already track. `boot.ts` launches it gated behind `gangAvailable`,
+  independent of the `singularityAvailable`-gated block above.
+
+### Territory: `GangPosture` (`gang.proto`), no longer a scope cut
+
+Originally `ns.gang.setTerritoryWarfare` was never called at all (a scope cut, since
+`NetscriptDefinitions.d.ts` doesn't document clash-loss consequences). Reversed after pulling
+Bitburner's actual source (`src/Gang/formulas/formulas.ts`, `src/Gang/Gang.ts`) at the user's
+request: 0% territory suppresses money/respect gains by **orders of magnitude**
+(`territoryMult` floors at `0.005` vs. a `>1` *bonus* at high territory for tasks with a
+meaningful `territory.money`/`.respect` weight, e.g. `1.5` for Human Trafficking) — not cosmetic,
+and worth pursuing carefully rather than leaving off forever.
+
+**Key mechanic that makes a *safe* growth phase possible**: gang `power` accrues from members
+assigned to the `"Territory Warfare"` task **unconditionally, every cycle, regardless of whether
+`setTerritoryWarfare(true)` has ever been called** (`Gang.ts`'s `calculatePower()`/
+`processTerritoryAndPowerGains`) — building power and risking real clashes are two independent
+switches in the game's own code. So training power is zero-risk; only *engaging* clashes is
+risky (`clash()` rolls a real, permanent ~0.35%/0.175% (lost/won) chance of a member dying, plus
+territory changing hands based on `getChanceToWinClash`'s `myPower/(myPower+theirPower)`).
+
+- **`gang.proto`** (new, enum-only, no `service` — mirrors
+  `development/libraries/status.proto`'s exact shape, confirmed as a supported pattern in
+  `protos/build.mjs`'s `serviceNodes.length === 0` branch): `enum GangPosture { CONSOLIDATE = 0;
+  GROWING = 1; }`. `GangConfig.posture` in `/etc/gang.txt` stores the **string** form
+  (`"CONSOLIDATE"`/`"GROWING"`), not the raw numeric enum — every other config file in this
+  codebase is meant to be hand-edited as readable JSON, and a bare `"posture": 1` would break
+  that. `parsePosture` converts it to the real `GangPosture` enum at the point of use, the same
+  boundary-casting pattern `hacknet_daemon.ts` already uses for `HashUpgradeName`/`FactionNameType`.
+  Defaults to `"CONSOLIDATE"` — opt into `"GROWING"` explicitly, same "ask before hard-to-reverse"
+  spirit as `autoInstall`/`autoPurchaseAugmentations` defaulting off in `faction_daemon.ts`.
+- **`decideTerritoryWarfareAssignment`** (`gang_decisions.ts`) carves `config.territoryWarfareMembers`
+  members off the front of the roster onto `"Territory Warfare"` whenever posture is `GROWING`
+  and the circuit breaker (below) hasn't tripped — zero otherwise. The remaining members still go
+  through the existing money/wanted-control logic (`assignTasks`), re-indexed within that
+  remaining subset so the wanted-control reservation fraction stays meaningful.
+- **`decideTerritoryReadiness`** gates *engaging* clashes: true only if our power favors us
+  (`myPower/(myPower+rivalPower) >= config.minClashWinChance`, default `0.65` — comfortably past
+  break-even, not just `>0.5`) against **every** rival currently holding territory (from
+  `ns.gang.getAllGangInformation()`), not just the average — one bad matchup is enough to lose
+  territory back even while winning everywhere else. `manageTerritoryEngagement` only calls
+  `setTerritoryWarfare` when the desired state actually differs from
+  `gang.territoryWarfareEngaged`, same discipline as the `ns.singularity.workForFaction` fix
+  (never restart an already-correct state every tick for no reason).
+- **Casualty circuit breaker**: `/var/gang_state.txt` (mirrors `faction_daemon.ts`'s
+  `/var/faction_state.txt` exactly — separate from policy config, daemon-owned) tracks
+  `lastKnownMemberCount`/`casualties`. `detectCasualties` compares tick-over-tick member count
+  (accounting for a same-tick recruit so it doesn't mask a death), and once cumulative casualties
+  reach `config.maxCasualties` (default `1` — a single permanent death is enough),
+  `decideStandDown` trips and the daemon **overrides `posture` at runtime without touching
+  `/etc/gang.txt`** — zero Territory Warfare assignment, `setTerritoryWarfare(false)` — logging
+  exactly how to resume (edit `/var/gang_state.txt`'s `casualties` back down, or delete the file).
+  Nothing auto-clears it; same "a permanent loss requires an explicit human decision to retry"
+  principle as `autoInstall`/`autoPurchaseAugmentations`.
