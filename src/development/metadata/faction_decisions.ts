@@ -1,5 +1,7 @@
 /**
- * Pure decision logic for faction_daemon.ts - no `ns` dependency, mirrors
+ * Pure decision logic for faction_daemon.ts - no `ns` dependency (except a
+ * single type-only import for the eligibility engine below, erased at
+ * compile time - see that section's own comment), mirrors
  * hacknet_decisions.ts's shape. faction_daemon.ts re-derives every input
  * here fresh from ns.singularity.* each tick (reputation, catalog, owned
  * augmentations) rather than persisting any of it itself, the same
@@ -16,6 +18,8 @@
  * re-queries live prices from ns.singularity every tick, the inflation is
  * already reflected in `catalog` by the time the next decision runs.
  */
+import type { PlayerRequirement } from "@ns";
+
 export const NEUROFLUX_GOVERNOR = "NeuroFlux Governor";
 
 export type AugmentationInfo = {
@@ -66,13 +70,32 @@ export function decideWorkTarget(
 }
 
 /**
- * Cheapest augmentation that's affordable, has its reputation requirement
- * met, and has every prereq already owned - same greedy cheapest-first
- * shape as decideNodeInvestment's non-ROI fallback. `owned` should include
- * augmentations already purchased-but-not-yet-installed this session (see
- * ns.singularity.getOwnedAugmentations(true)) so a prereq bought earlier
- * this run counts immediately, and so we don't try to buy the same
- * (non-repeatable) augmentation twice before an install.
+ * Most EXPENSIVE augmentation that's affordable, has its reputation
+ * requirement met, and has every prereq already owned - deliberately
+ * the opposite of the obvious "cheapest first" greedy shape. The game's
+ * price inflation (confirmed via Bitburner's own AugmentationHelpers.ts/
+ * Constants.ts: each purchase multiplies every remaining unpurchased
+ * augmentation's price by 1.9, permanently, for the rest of this batch)
+ * applies to whichever augmentation is bought at position k regardless
+ * of which one it is - so for a FIXED set you're going to buy anyway,
+ * the order changes the total cost. By the rearrangement inequality,
+ * pairing the largest prices with the smallest multiplier (buy expensive
+ * first, cheap last) minimizes total spend: three augmentations priced
+ * $10/$100/$1000 cost $3810 bought cheapest-first (10×1.9⁰ + 100×1.9¹ +
+ * 1000×1.9²) versus $1226 bought priciest-first (1000×1.9⁰ + 100×1.9¹ +
+ * 10×1.9²) - under a third as much for the identical set. This also
+ * fixes the "cheap purchase inflates a soon-to-unlock better one's
+ * price for no benefit" problem without needing to model projected rep
+ * gain rates: buying whatever's most valuable *whenever it first
+ * becomes eligible* already front-loads value ahead of the multiplier,
+ * which is the actual goal a rep-timing lookahead would have been
+ * chasing. Price is used as the value proxy (no augmentation "power"
+ * metric exists to compare against) - same "simplest reasonable v1"
+ * tradeoff as everywhere else in this codebase. `owned` should include
+ * augmentations already purchased-but-not-yet-installed this session
+ * (see ns.singularity.getOwnedAugmentations(true)) so a prereq bought
+ * earlier this run counts immediately, and so we don't try to buy the
+ * same (non-repeatable) augmentation twice before an install.
  */
 export function decideAugmentationPurchase(
   money: number,
@@ -94,11 +117,298 @@ export function decideAugmentationPurchase(
 
   if (eligible.length === 0) return { kind: "none" };
 
-  const cheapest = eligible.reduce((best, aug) => (aug.price < best.price ? aug : best));
-  return { kind: "buy", faction: cheapest.faction, augmentation: cheapest.name };
+  const mostExpensive = eligible.reduce((best, aug) => (aug.price > best.price ? aug : best));
+  return { kind: "buy", faction: mostExpensive.faction, augmentation: mostExpensive.name };
 }
 
 /** True once this tick found nothing left worth buying and something purchased-but-uninstalled is actually waiting to be installed. */
 export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAugmentations: string[]): boolean {
   return purchaseDecision.kind === "none" && pendingAugmentations.length > 0;
+}
+
+/**
+ * Active faction eligibility: everything above only ever reacts to
+ * ns.singularity.checkFactionInvitations() - it never does anything to
+ * become eligible for a faction we're not yet invited to. This section
+ * adds that, for three categories the player chose (city, company,
+ * criminal/gang factions) after reviewing Bitburner's full faction
+ * requirement list.
+ *
+ * Key discovery this is all built on:
+ * ns.singularity.getFactionInviteRequirements(faction) returns the exact,
+ * structured, live PlayerRequirement[] tree the game itself evaluates for
+ * that invite (confirmed against NetscriptDefinitions.d.ts's own worked
+ * example for "The Syndicate"). So nothing here hardcodes a threshold
+ * (money amount, rep floor, stat level) - it reads the live tree and
+ * reacts, the same "derive from live game data, don't duplicate a table"
+ * taste already used by pickWorkType (faction_daemon.ts) and
+ * hacknet_daemon.ts's HashUpgradeName derivation. The one type-only
+ * import below (`PlayerRequirement`) is erased at compile time, so it's
+ * no different from faction_daemon.ts's existing type-level use of `NS`
+ * for FactionNameType/FactionWorkTypeType in an otherwise `ns`-free file.
+ *
+ * getFactionInviteRequirements's own doc example also revealed the real
+ * shape: each combat stat arrives as its OWN top-level `skills` entry
+ * (`{type:"skills", skills:{strength:200}}`), not one entry with all four
+ * - see findBlockingRequirement's "largest gap" comment below for why
+ * that matters.
+ */
+export const CITY_FACTION_NAMES = ["Sector-12", "Aevum", "Volhaven", "Chongqing", "New Tokyo", "Ishima"];
+
+export const COMPANY_FACTION_NAMES = [
+  "ECorp",
+  "MegaCorp",
+  "Bachman & Associates",
+  "Blade Industries",
+  "NWO",
+  "Clarke Incorporated",
+  "OmniTek Incorporated",
+  "Four Sigma",
+  "KuaiGong International",
+  "Fulcrum Secret Technologies",
+];
+
+// The one faction/employer name mismatch (confirmed via
+// NetscriptDefinitions.d.ts's CompanyName/FactionName enums) - every
+// other company-affiliated faction shares an identical string with its
+// employer, so this is the only entry needed.
+export const COMPANY_FACTION_EMPLOYER: Record<string, string> = {
+  "Fulcrum Secret Technologies": "Fulcrum Technologies",
+};
+
+export const CRIMINAL_FACTION_NAMES = [
+  "Slum Snakes",
+  "Tetrads",
+  "Silhouette",
+  "The Syndicate",
+  "The Dark Army",
+  "Speakers for the Dead",
+];
+
+export type CombatStat = "strength" | "defense" | "dexterity" | "agility";
+export const COMBAT_STATS: CombatStat[] = ["strength", "defense", "dexterity", "agility"];
+
+export type EligibilitySnapshot = {
+  money: number;
+  skills: Record<"hacking" | CombatStat | "charisma" | "intelligence", number>;
+  karma: number;
+  numPeopleKilled: number;
+  city: string;
+  // ns.getPlayer().jobs is a Partial<Record<CompanyName, JobName>> -
+  // Partial here for the same reason (no need to force every company key
+  // to exist just to check membership).
+  jobs: Partial<Record<string, string>>;
+  // Populated per-candidate by the daemon (only for whichever company is
+  // actually being evaluated that tick), not eagerly for all ten.
+  companyReps: Record<string, number>;
+};
+
+export type EligibilityAction =
+  | { kind: "none" }
+  | { kind: "travel"; city: string }
+  | { kind: "applyToCompany"; company: string; field: string }
+  | { kind: "workForCompany"; company: string }
+  | { kind: "quitJob"; company: string }
+  | { kind: "gymWorkout"; stat: CombatStat }
+  // `crime` is left "" here - picking an actual crime needs live
+  // ns.singularity.getCrimeStats/getCrimeChance data this pure function
+  // has no access to; faction_daemon.ts's pursueCriminalFactions resolves
+  // it (via decideCrimeForKills below) before this action is ever acted on.
+  | { kind: "commitCrime"; crime: string };
+
+function isCombatStat(stat: string): stat is CombatStat {
+  return (COMBAT_STATS as readonly string[]).includes(stat);
+}
+
+/**
+ * Recursively evaluates one PlayerRequirement against a snapshot. This
+ * only ever informs *which action to try next* - it never gates an actual
+ * join (checkFactionInvitations() stays the sole join authority,
+ * unchanged by any of this).
+ *
+ * Unmodeled leaf types (jobTitle, location, file, numAugmentations,
+ * hacknet totals, bitNodeN, sourceFile, bladeburnerRank,
+ * numInfiltrations) return `true` - an optimistic default. Known accepted
+ * limitation: a someCondition mixing an unmodeled leaf with an actionable
+ * one could report "satisfied" via the unmodeled leaf and skip a real
+ * actionable alternative branch. No in-scope faction is known to hit
+ * this.
+ */
+export function evaluateRequirement(req: PlayerRequirement, snapshot: EligibilitySnapshot): boolean {
+  switch (req.type) {
+    case "money":
+      return snapshot.money >= req.money;
+    case "skills":
+      return Object.entries(req.skills).every(
+        ([stat, level]) => (snapshot.skills[stat as keyof EligibilitySnapshot["skills"]] ?? 0) >= (level ?? 0)
+      );
+    case "karma":
+      // Doc: "Player must have less than this much karma" - karma only
+      // ever moves negative, so this is a ceiling, not a floor.
+      return snapshot.karma <= req.karma;
+    case "numPeopleKilled":
+      return snapshot.numPeopleKilled >= req.numPeopleKilled;
+    case "employedBy":
+      return snapshot.jobs[req.company] !== undefined;
+    case "companyReputation":
+      return (snapshot.companyReps[req.company] ?? 0) >= req.reputation;
+    case "city":
+      return snapshot.city === req.city;
+    case "not":
+      return !evaluateRequirement(req.condition, snapshot);
+    case "someCondition":
+      return req.conditions.some((condition) => evaluateRequirement(condition, snapshot));
+    case "everyCondition":
+      return req.conditions.every((condition) => evaluateRequirement(condition, snapshot));
+    default:
+      return true;
+  }
+}
+
+/** Whether this function knows how to turn an unsatisfied `req` into a concrete EligibilityAction at all. */
+function isActionableRequirement(req: PlayerRequirement): boolean {
+  switch (req.type) {
+    case "city":
+    case "employedBy":
+    case "companyReputation":
+    case "numPeopleKilled":
+      return true;
+    case "skills":
+      return Object.keys(req.skills).some(isCombatStat);
+    case "not":
+      return req.condition.type === "employedBy";
+    default:
+      return false;
+  }
+}
+
+/** Every unsatisfied combat-stat gap `req` describes (almost always exactly one, per getFactionInviteRequirements's real per-stat-entry shape - see module doc). */
+function combatSkillGaps(req: PlayerRequirement, snapshot: EligibilitySnapshot): { stat: CombatStat; gap: number }[] {
+  if (req.type !== "skills") return [];
+  return Object.entries(req.skills)
+    .filter(([stat]) => isCombatStat(stat))
+    .map(([stat, level]) => ({ stat: stat as CombatStat, gap: (level ?? 0) - snapshot.skills[stat as CombatStat] }))
+    .filter((entry) => entry.gap > 0);
+}
+
+/**
+ * Flattens the implicitly-ANDed top-level array (and nested
+ * everyCondition) into every unsatisfied, actionable leaf found, left to
+ * right. For someCondition: skipped entirely if already satisfied via any
+ * branch; otherwise only its first actionable-and-unsatisfied branch is
+ * taken (no lookahead across alternative branches - matches this
+ * codebase's "no lookahead" house style elsewhere, e.g.
+ * decideAugmentationPurchase's per-tick re-derivation).
+ */
+function collectUnsatisfiedActionable(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): PlayerRequirement[] {
+  const found: PlayerRequirement[] = [];
+  for (const req of requirements) {
+    if (req.type === "everyCondition") {
+      found.push(...collectUnsatisfiedActionable(req.conditions, snapshot));
+      continue;
+    }
+    if (req.type === "someCondition") {
+      if (evaluateRequirement(req, snapshot)) continue;
+      const branch = req.conditions.find((c) => isActionableRequirement(c) && !evaluateRequirement(c, snapshot));
+      if (branch) found.push(branch);
+      continue;
+    }
+    if (!isActionableRequirement(req) || evaluateRequirement(req, snapshot)) continue;
+    found.push(req);
+  }
+  return found;
+}
+
+/**
+ * The single requirement to act on next for one faction's invite, or
+ * undefined if nothing actionable is blocking (either fully satisfied, or
+ * blocked only by something this feature can't act on, e.g. still-
+ * accumulating money or Silhouette's executive jobTitle). Non-skill
+ * actionable requirements are returned in original left-to-right scan
+ * order - e.g. an unresolved `not(employedBy)` always wins over combat
+ * training, even if a later skills entry has a larger gap, since it's an
+ * earlier, unrelated, and typically cheaper-to-clear blocker (quitJob is
+ * instant; gym training is not).
+ *
+ * Combat-stat requirements only get special handling once the scan has
+ * actually reached them - i.e. `unsatisfied[0]` itself is a `skills`
+ * entry, meaning every earlier blocker is already satisfied or
+ * non-actionable. At that point, since all 4 stats must clear an AND and
+ * each arrives as its own separate `skills` entry (see module doc), the
+ * slowest stat is the actual bottleneck - so among every unsatisfied
+ * combat-stat entry found anywhere in the list, this returns whichever
+ * has the LARGEST remaining gap, not the first-found or smallest. This
+ * is deliberately the mirror image of decideWorkTarget's "smallest gap
+ * wins" - there only one thing needs to finish; here the *last* one to
+ * finish is what determines when the whole requirement clears (same
+ * "obvious first guess is wrong" style as decideAugmentationPurchase's
+ * rearrangement-inequality doc).
+ */
+export function findBlockingRequirement(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): PlayerRequirement | undefined {
+  const unsatisfied = collectUnsatisfiedActionable(requirements, snapshot);
+  if (unsatisfied.length === 0) return undefined;
+
+  if (unsatisfied[0].type === "skills") {
+    const skillGaps = unsatisfied.flatMap((req) => combatSkillGaps(req, snapshot).map((gap) => ({ req, ...gap })));
+    if (skillGaps.length > 0) {
+      return skillGaps.reduce((worst, entry) => (entry.gap > worst.gap ? entry : worst)).req;
+    }
+  }
+
+  return unsatisfied[0];
+}
+
+/**
+ * Pure mapping from one blocking requirement to one concrete action.
+ * `commitCrime`'s crime name is deliberately left "" here - see
+ * EligibilityAction's doc comment above.
+ */
+export function requirementToAction(req: PlayerRequirement, companyJobField: string, snapshot: EligibilitySnapshot): EligibilityAction {
+  switch (req.type) {
+    case "city":
+      return { kind: "travel", city: req.city };
+    case "employedBy":
+      return { kind: "applyToCompany", company: req.company, field: companyJobField };
+    case "companyReputation":
+      return { kind: "workForCompany", company: req.company };
+    case "not":
+      return req.condition.type === "employedBy" ? { kind: "quitJob", company: req.condition.company } : { kind: "none" };
+    case "numPeopleKilled":
+      return { kind: "commitCrime", crime: "" };
+    case "skills": {
+      const gaps = combatSkillGaps(req, snapshot);
+      if (gaps.length === 0) return { kind: "none" };
+      const worst = gaps.reduce((a, b) => (b.gap > a.gap ? b : a));
+      return { kind: "gymWorkout", stat: worst.stat };
+    }
+    default:
+      return { kind: "none" };
+  }
+}
+
+/**
+ * Picks the crime maximizing `kills` among those with `successChance >=
+ * minSuccessChance` - data-driven over whatever getCrimeStats/
+ * getCrimeChance report for each live CrimeType, never a hardcoded
+ * "Homicide" string (same "derive, don't hardcode" reasoning as
+ * pickWorkType). `minSuccessChance` is a safety floor so the daemon never
+ * grinds a crime with a poor success chance indefinitely.
+ */
+export function decideCrimeForKills(
+  candidates: { crime: string; kills: number; successChance: number }[],
+  minSuccessChance: number
+): string | undefined {
+  const eligible = candidates.filter((c) => c.kills > 0 && c.successChance >= minSuccessChance);
+  if (eligible.length === 0) return undefined;
+  return eligible.reduce((best, c) => (c.kills > best.kills ? c : best)).crime;
+}
+
+/** Trivial mirror of gang_decisions.ts's decideStandDown - bounds crime-for-kills grinding via /var/faction_state.txt's crimeAttempts. */
+export function decideEligibilityStandDown(attempts: number, maxAttempts: number): boolean {
+  return attempts >= maxAttempts;
+}
+
+/** Once any one city faction is joined, the whole category stops (see faction_daemon.ts's pursueCityFactions doc for why). */
+export function hasAnyCityFaction(joinedFactions: string[]): boolean {
+  return CITY_FACTION_NAMES.some((faction) => joinedFactions.includes(faction));
 }

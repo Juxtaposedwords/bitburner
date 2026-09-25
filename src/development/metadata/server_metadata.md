@@ -469,6 +469,114 @@ being a second, syncable-out-of-date view of the same fleet).
   `ns.cloud.*` references), no dependency on a rooted network or ranked
   target.
 
+## Stock market manager: `stock_daemon.ts` (`ns.stock`)
+
+The third `reserveMoney`/`maxSpendFraction`-style growth daemon (after Hacknet and
+purchased-server), and the first daemon in this codebase with genuine market risk — a wrong
+forecast call loses money, unlike "wasted an upgrade slot." Long-only v1: buys a long position
+when a stock's live forecast clears a threshold, sells to exit once it drops back down. No
+shorting yet (see scope cuts below).
+
+**No capability gate, unlike `singularityAvailable`/`gangAvailable`.** `ns.stock` has normal fixed
+RAM costs (confirmed by reading every `ns.stock.*` doc comment in `NetscriptDefinitions.d.ts` —
+no Source-File multiplier), so this doesn't need `program_shopper.ts`/`backdoor_daemon.ts`/
+`faction_daemon.ts`'s single-file isolation invariant. And unlike Source-File 2/4 gating gangs/
+singularity, there's no "stock market disabled" `bitNodeOptions` flag at all — only
+`disable4SData`, which this daemon handles live at runtime (see below), not at boot time. So
+`boot.ts` launches it unconditionally, same group as `hacknet_daemon.js`/
+`purchased_server_daemon.js`.
+
+**Buying API access (`ensureAccess`, runs every tick before any trading logic) is deliberately
+narrower than "buy everything the Stock Market offers."** Only two purchases ever happen:
+`ns.stock.purchaseTixApi()` (required for `buyStock`/`sellStock` from a script at all) and
+`ns.stock.purchase4SMarketDataTixApi()` (required for `getForecast`/`getVolatility` to return real
+values from a script). **A WSE account and the plain 4S Market Data purchase are deliberately never
+bought** — confirmed straight from their own doc comments: `purchaseTixApi()`'s doc says *"you can
+buy TIX API access without a WSE account"*, and a WSE account itself is only needed *"to perform
+actions via the Stock Market UI"*; `purchase4SMarketData()`'s doc says it *"only unlocks access to
+4S Market Data in the Stock Market UI"* — the scriptable variant is `purchase4SMarketDataTixApi()`
+specifically. A script never touches the UI, so buying either UI-only feature would be pure wasted
+money with zero functional benefit. Each purchase call is check-before-buy (only logs on the tick
+it actually transitions), same discipline `manageTerritoryEngagement` already uses for territory
+warfare engagement.
+
+**Trading defaults on** (`config.enabled`, the only switch — no separate `autoTrade` flag) once
+that access exists. This groups stock-trade risk with Hacknet/purchased-server/gang-equipment
+spending (all default on, ROI risk accepted as a normal cost of automation) rather than with
+`installAugmentations`/committing crimes (which default off, since those are hard-to-reverse in a
+way a bad trade — always sellable back, just at a loss — is not).
+
+**The "not ready" gate is exactly `ns.stock.has4SDataTixApi()`.** Before that's true (still saving
+up for it, or `disable4SData` set for this BitNode), `getForecast`/`getVolatility` must never be
+trusted, so `tick()` idles-and-logs before ever calling either — the same shape `gang_daemon.ts`
+already uses for its `Formulas.exe` gate. This also correctly handles a BitNode with
+`disable4SData` permanently set: the daemon just idles forever there instead of assuming eventual
+success.
+
+- **`stock_decisions.ts`** — pure, `ns`-free (mirrors `hacknet_decisions.ts`). Exits and new buys
+  deliberately have different shapes:
+  - **`decideStocksToSell`** evaluates **every** held position each tick and returns every one
+    whose forecast has dropped to `sellThreshold` or below — unbounded, not capped to one per
+    tick, mirroring `gang_daemon.ts`'s `assignTasks`/`assignTraining` acting on the whole member
+    roster every tick rather than one member at a time: exiting a no-longer-favorable position is
+    risk reduction, not a new commitment, so there's no reason to throttle it the way new spend is
+    throttled below. A symbol missing from the forecast map is always held, never sold — caught
+    live by this file's own test suite that simply defaulting a missing forecast to 0.5 (neutral)
+    and running it through the same `<= sellThreshold` check doesn't work, since 0.5 IS this
+    daemon's own default `sellThreshold`, so that fallback would still trigger a sell right at the
+    boundary; missing data is its own explicit branch instead.
+  - **`decideStockToBuy`** picks **at most one** symbol to buy per tick — the highest-forecast
+    candidate among those both affordable and still under their own position cap — mirroring
+    `decideEquipmentPurchase`/`decideAugmentationPurchase`'s "one purchase decision per tick,
+    re-derive fresh next tick, no queue" house style: unlike an exit, opening a new long is a new
+    commitment, so it gets the same pacing every other spending daemon's buy side already has.
+    Every candidate's own affordable-share count is computed first (respecting its own
+    `maxPositionFraction` cap via `existingCostBasis`), and only *then* is the best-scoring one
+    among those with a nonzero result picked — not "pick the globally-best-forecast candidate
+    first, then check if it's capped," which would get stuck reporting the same maxed-out winner
+    forever even while budget remained for a second-best, uncapped candidate (caught by this
+    file's own test suite). `bestCandidate` in the returned `BuyEvaluation` still reports the
+    globally-highest forecast regardless, for diagnosability — same contract
+    `InvestmentEvaluation` already has. `affordableShares` is an injected closure (mirrors
+    `purchased_server_decisions.ts`'s cost-closure pattern) so this module stays `ns`-free — the
+    real closure (`stock_daemon.ts`) binary-searches `ns.stock.getPurchaseCost`/`getMaxShares` for
+    the largest affordable share count, since price isn't linear in share count (spread +
+    large-transaction slippage, per its own doc comment) and `getPurchaseCost` already folds in
+    commission, so no separate commission math is needed anywhere in this daemon.
+- **Thresholds**: `buyThreshold = 0.60` (comfortably past the 0.5 coin-flip line
+  `getForecast` returns), `sellThreshold = 0.50` (exit the instant true edge disappears, don't
+  wait for active bearishness). The gap between the two is a deliberate hysteresis band: a stock
+  oscillating between 0.50 and 0.60 is never newly bought but, if already held, isn't sold either
+  until it actually drops to 0.50 — damping commission-costly buy/sell thrashing right at the
+  boundary. `maxVolatility = 0.05` is a binary accept/reject filter applied only to *new* buys,
+  never to exits — an already-held position is never force-sold purely because its volatility
+  rose, only its forecast decides that — and isn't used for position sizing (no
+  inverse-volatility scaling), a deliberate v1 scope cut.
+- **`maxPositionFraction` (default 0.25)** caps how much of total money can sit in any single
+  symbol. Worth building in, not over-engineering: since a symbol's forecast typically persists
+  for many ticks, the buy side would otherwise deterministically re-pick the same "most bullish"
+  winner every tick until the whole portfolio concentrated into one symbol — real, avoidable
+  concentration risk for a one-line fix. Still intentionally simple — not Kelly, not
+  correlation-aware — same "simplest reasonable v1, not ROI-optimal" tradeoff already accepted for
+  `decideEquipmentPurchase`.
+- **`stock_daemon.ts`** — plain 5s-tick polling loop (same cadence as every sibling spending
+  daemon; syncing to `ns.stock.nextUpdate()`'s ~6000ms game cycle instead was considered and
+  rejected — decisions are re-derived fresh every tick regardless, so a stale price is harmless,
+  and a daemon-specific rhythm would only complicate cross-daemon log correlation for no benefit).
+  Config at `/etc/stock.txt` via `loadJsonConfig`, same hand-editable pattern as every other
+  daemon. Reads money over `PlayerService` (no local `ns.getPlayer()` cost) — same reasoning and
+  the same "no cross-daemon spend coordination exists or is needed" fact already true of every
+  other spending daemon here: each computes its own budget pre-check with zero awareness of the
+  others, and that's safe in practice only because the underlying engine call
+  (`ns.stock.buyStock`/`sellStock`, same as `ns.hacknet.purchaseNode`/`ns.cloud.purchaseServer`/
+  `ns.gang.purchaseEquipment`/`ns.singularity.purchaseAugmentation`) independently re-checks live
+  money at the moment it executes and simply returns `0`/no-ops if unaffordable, never throws.
+- **Scope cuts**: shorting (`buyShort`/`sellShort`) — `StockPosition`'s `position: "L"` tag exists
+  specifically so this is a natural future extension, not a rewrite; limit/stop orders
+  (`placeOrder`/`cancelOrder`/`getOrders`); volatility-based position sizing; Kelly/portfolio
+  optimization; the UI-only WSE account/plain 4S Market Data purchases (see above — not an
+  oversight, deliberately never bought).
+
 ## Backdoor + Faction managers: the first steps toward actually finishing a BitNode
 
 Everything above grows money and hacking level forever but never moves
@@ -581,6 +689,132 @@ second caller.
   final step has no automation at all, by design, until there's a
   concrete reason to build it (i.e. this report showing everything else
   is actually ready).
+
+### Active faction eligibility: city, company, and criminal factions
+
+Everything above only ever reacts to `checkFactionInvitations()` — it never does anything to
+become eligible for a faction we're not yet invited to. Added at the user's request ("identify
+factions we can and try to install all non-NeuroFlux-Governor augmentations... doing the steps to
+travel to places or meeting other criteria to join factions as needed"), scoped to three chosen
+categories: **city factions**, **company factions**, **criminal/gang factions**. Hacking factions
+stay fully covered by `backdoor_daemon.ts` above; Netburners/TianDiHui need no new work either
+(passively satisfied by `hacknet_daemon.ts`'s growth, or a free win of the same generic `city`
+machinery below). Illuminati/Daedalus/The Covenant/Bladeburners/Church of the Machine
+God/Shadows of Anarchy stay out of scope — huge stat/money/aug thresholds already tracked by
+`tools/bitnode_status_report.ts`, or entirely separate subsystems (an infiltration minigame,
+Source-File gates) with no clean automation path.
+
+**Key discovery this is all built on**: `ns.singularity.getFactionInviteRequirements(faction)`
+returns the exact, structured, live `PlayerRequirement[]` tree the game itself evaluates for that
+invite (confirmed against `NetscriptDefinitions.d.ts`'s own worked example for "The Syndicate").
+So none of this hardcodes a threshold (money amount, rep floor, stat level) — it reads the live
+tree and reacts, the same "derive from live game data, don't duplicate a table" taste already
+used by `pickWorkType` above and `hacknet_daemon.ts`'s `HashUpgradeName` derivation. It also
+confirmed company factions need only `employedBy` + `companyReputation` — no job-title/promotion
+chase needed at all. The one surprising API detail: each combat stat arrives as its **own**
+top-level `skills` entry (`{type:"skills", skills:{strength:200}}`), not one entry listing all
+four — this matters for the "largest gap wins" logic below.
+
+Extends `faction_daemon.ts`/`faction_decisions.ts` in place rather than adding new daemon files:
+`workForFaction`/`workForCompany`/`gymWorkout`/`commitCrime` all fight for the single work slot
+(confirmed via `getCurrentWork()`'s discriminated `Task` union and each function's own doc, which
+says calling it cancels whatever's in progress), so arbitration needs one process; and RAM
+isolation is about not leaking `ns.singularity`'s Source-File-4-scaled cost into
+`supervisor.ts`/`scheduler_daemon.ts`, not about minimizing one file's size — `faction_daemon.ts`
+already pays that tax, so referencing `travelToCity`/`applyToCompany`/`workForCompany`/
+`getCompanyRep`/`quitJob`/`gymWorkout`/`commitCrime`/`getCrimeChance`/`getCrimeStats`/
+`getFactionInviteRequirements` there creates no *new* leak. (Unmeasured tradeoff: this does grow
+`faction_daemon.js`'s own RAM cost meaningfully, amplified at low Source-File 4 levels — if that
+later proves too large to coexist with the other daemons on a RAM-constrained `home`, the fallback
+is splitting only the crime-related piece, the rarest-firing and priciest, into its own gated file
+with a small ownership flag; not built preemptively.)
+
+- **`faction_decisions.ts`**'s requirement→action engine (all pure, `ns`-free save one type-only
+  `PlayerRequirement` import erased at compile time — no different from this file's existing
+  type-level use of `NS` for `FactionNameType`/`FactionWorkTypeType`): `evaluateRequirement`
+  recursively evaluates one `PlayerRequirement` (money/skills/karma/numPeopleKilled/employedBy/
+  companyReputation/city/not/someCondition/everyCondition modeled; anything else — `jobTitle`,
+  `location`, `file`, `numAugmentations`, hacknet totals, `bitNodeN`, `sourceFile`,
+  `bladeburnerRank`, `numInfiltrations` — returns `true`, an optimistic default, since this only
+  ever picks the *next action*, never gates an actual join). `findBlockingRequirement` walks the
+  implicitly-ANDed top-level array (plus nested `everyCondition`/`someCondition`) left to right for
+  the first unsatisfied, actionable leaf — **except** once the scan reaches a `skills` entry with
+  no earlier non-skill blocker in the way, at which point it compares every unsatisfied combat-stat
+  entry found anywhere in the list and returns whichever has the **largest** remaining gap, not the
+  first-found or smallest. This is the mirror image of `decideWorkTarget`'s "smallest gap wins" —
+  there only one thing needs to finish; here all four combat stats must clear an AND, so the
+  slowest stat is the actual bottleneck (same "obvious first guess is wrong" style as
+  `decideAugmentationPurchase`'s rearrangement-inequality doc above). Caught live in this file's
+  own test suite: comparing skill gaps *before* checking whether an earlier, unrelated blocker like
+  `not(employedBy)` was still open let combat training hijack priority from a one-call `quitJob`
+  fix — fixed by only ever entering the "largest gap" comparison once `unsatisfied[0]` is itself
+  already a `skills` entry. `requirementToAction` maps one blocking requirement to a concrete
+  `EligibilityAction` (`travel`/`applyToCompany`/`workForCompany`/`quitJob`/`gymWorkout`/
+  `commitCrime`) — `commitCrime`'s crime name is deliberately left `""`, since picking one needs
+  live `getCrimeStats`/`getCrimeChance` data this pure function has no access to;
+  `decideCrimeForKills` (data-driven over every live `CrimeType`, never a hardcoded `"Homicide"`
+  string) and `faction_daemon.ts`'s `pickCrimeForKills` resolve it. `decideEligibilityStandDown`
+  mirrors `gang_decisions.ts`'s `decideStandDown` exactly.
+- **City factions** (`CITY_FACTION_NAMES`): `pursueCityFactions` only ever produces a `travel`
+  action (invites gate on `city` + `money`, and money isn't actionable) and stops the whole
+  category dead once **any** city faction is joined (`hasAnyCityFaction`) — city factions are
+  mutually exclusive within a BitNode run (each lists some of the others as `enemies`, permanently
+  banned on join). Rather than model that graph (confirmed asymmetric via Bitburner's
+  `FactionInfo.tsx` — a second source of truth that could drift), this just stops: correct
+  regardless of the exact graph, since `checkFactionInvitations()` will never surface an enemy's
+  invite again once we're in one of its enemies, so continuing to chase one after that point is
+  pure waste. `cityFactionPriority` (default: Sector-12 first) controls which one gets pursued.
+  `TianDiHui` gets no dedicated pursuit logic — it shares this same generic `city`-requirement
+  machinery, so it's a free win if the player ever lands in Chongqing/New Tokyo/Ishima for any
+  other reason, not something actively chased.
+- **Company factions** (`COMPANY_FACTION_NAMES`): `pursueCompanyFactions` has no short-circuit —
+  companies stack normally. `companyReps` is populated live per-candidate (only for whichever
+  employer is actually being evaluated, not eagerly for all ten), since Fulcrum Secret
+  Technologies' employer (`Fulcrum Technologies`) differs from its faction name — the one mismatch,
+  resolved via `COMPANY_FACTION_EMPLOYER`. `companyJobField` is a single config string, not
+  ROI-optimized by salary/rep-gain-rate — same "simplest reasonable v1" tradeoff
+  `decideEquipmentPurchase` already accepts for gang equipment.
+- **Criminal/gang factions** (`CRIMINAL_FACTION_NAMES`): the karma requirement (-9 to -90 across
+  the six) is a non-issue in practice for anyone already running a gang — `ns.gang.createGang()`
+  requires karma far more negative than any of these six need, so it's already satisfied with zero
+  new work; `requirementToAction` never even produces an action for a bare unsatisfied `karma`
+  leaf, only for `numPeopleKilled`. `pursueCriminalFactions` walks `criminalFactionPriority` once:
+  safe actions (`gymWorkout`/`quitJob`/`travel`) from **any** candidate faction are returned
+  immediately, while a `commitCrime` need is deferred (only the first one found) so every safe
+  option across the whole category is tried first — risk-ascending, matching the work-slot policy
+  below. The deferred crime only actually fires if `enableCrimeForKills` is on (default **false** —
+  the one genuinely irreversible, game-telegraphed-as-serious action in this whole feature) and
+  `/var/faction_state.txt`'s `crimeAttempts` circuit breaker (mirrors `gang_state.txt`'s
+  `casualties` exactly) hasn't tripped `maxCrimeAttempts`; tripping logs once, with exactly how to
+  resume, same as `decideStandDown`'s gang-side counterpart. Silhouette's `jobTitle` (executive)
+  requirement is left unmodeled/non-actionable — it simply never produces an action and joins
+  passively if the player manually reaches a C-level title, exactly as before this feature existed;
+  kept in the default `criminalFactionPriority` list anyway (a harmless no-op) rather than
+  special-cased out, since removing it would require a reader to already know why.
+- **Work-slot priority policy** (`tick()`): highest to lowest, one action executed per tick — (1)
+  `decideWorkTarget` (existing, unchanged) always wins if it returns a target; (2) city travel runs
+  *unconditionally* alongside whichever of (1) or below wins, since `travelToCity` never touches
+  the work slot; (3) company pursuit, only tried when (1) found nothing; (4) criminal pursuit's
+  safe branch, only when (1) and (3) found nothing; (5) criminal pursuit's risky `commitCrime`
+  branch, only when (1)/(3)/(4) found nothing and `enableCrimeForKills` is on. This doesn't make
+  the feature dead code: with `autoPurchaseAugmentations` at its own default `false`, reputation
+  keeps accumulating past every augmentation's `repReq` with nothing spent on it, so
+  `decideWorkTarget` legitimately returns `undefined` once every joined faction's augmentations are
+  rep-satisfied — a common steady state in exactly this "join + grind, don't buy yet" mode, not a
+  rare edge case — so the work slot genuinely sits idle in the default posture, and this policy
+  uses that idle time productively without ever preempting active progress toward a purchase. The
+  3→4→5 order is risk-ascending: company work is reversible (`quitJob`), gym training is fully
+  safe, crime is the one action with a real downside.
+- **Config** (`/etc/faction.txt`): `pursueCityFactions`/`pursueCompanyFactions`/
+  `pursueCriminalFactions`/`enableCrimeForKills` all default to **false** — with every one left
+  off, `faction_daemon.ts` behaves exactly as it did before this feature (strictly additive, opt-in
+  by design, same posture as `autoPurchaseAugmentations`/`autoInstall`). `enableJobQuitForFactions`
+  was considered but dropped from the actual config — `quitJob` only ever fires from a
+  `not(employedBy)` blocker under `pursueCriminalFactions`, already its own top-level opt-in gate,
+  so a second flag guarding the same action would be redundant.
+- Both `faction_decisions.ts`'s new pure functions and this whole engine leave the counts above
+  unchanged — no new `ns.singularity`-touching *file* was added (see the RAM tradeoff note above
+  for the one scenario that could still add a sixth).
 
 ## Gang manager: `gang_daemon.ts`
 

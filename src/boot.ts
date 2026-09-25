@@ -11,6 +11,7 @@ const GANG_SCRIPT = "development/metadata/gang_daemon.js";
 const SCHEDULER_SCRIPT = "development/metadata/scheduler_daemon.js";
 const HACKNET_SCRIPT = "development/metadata/hacknet_daemon.js";
 const PURCHASED_SERVER_SCRIPT = "development/metadata/purchased_server_daemon.js";
+const STOCK_SCRIPT = "development/metadata/stock_daemon.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -108,12 +109,17 @@ export async function main(ns: NS): Promise<void> {
 
   // Last: everything it depends on (a rooted network, a ranked target) is
   // already up by this point, and it's no longer competing with anything
-  // else for home's RAM. hacknet_daemon.js/purchased_server_daemon.js have
-  // no such dependency (neither needs a rooted network or a target to
-  // start growing its fleet), but their RAM cost is comparable to the
-  // scheduler's, so they get the same low-priority placement rather than
-  // competing with bootstrap-critical one-shots above.
+  // else for home's RAM. hacknet_daemon.js/purchased_server_daemon.js/
+  // stock_daemon.js have no such dependency (none needs a rooted network
+  // or a target to start growing its fleet/portfolio), but their RAM cost
+  // is comparable to the scheduler's, so they get the same low-priority
+  // placement rather than competing with bootstrap-critical one-shots
+  // above. stock_daemon.js also needs no capability gate the way
+  // singularityAvailable/gangAvailable-gated daemons above do - the stock
+  // market itself has no BitNode-disable flag (only disable4SData, which
+  // it handles live at runtime, not here).
   launchIfNotRunning(ns, SCHEDULER_SCRIPT);
   launchIfNotRunning(ns, HACKNET_SCRIPT);
   launchIfNotRunning(ns, PURCHASED_SERVER_SCRIPT);
+  launchIfNotRunning(ns, STOCK_SCRIPT);
 }

@@ -177,6 +177,18 @@ async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.Sc
 
     const script = action === "weaken" ? WEAKEN_WORKER : GROW_WORKER;
     const scriptRam = ns.getScriptRam(script);
+    // getScriptRam returns 0 if the file doesn't exist (on whatever host
+    // the calling script itself runs on, here always home, since no host
+    // arg is passed) - dividing free RAM by that gives Infinity threads,
+    // which ns.exec then rejects outright ("threads must be a positive
+    // integer, was Infinity"), crashing the whole daemon. Seen live right
+    // after a restart, presumably a transient file-sync race. Treat it
+    // the same as "no capacity yet" - wait and retry, rather than crash.
+    if (!(scriptRam > 0)) {
+      await log.warn(`[Scheduler] ${script} not found on home (getScriptRam returned ${scriptRam}); waiting for it to sync.`);
+      await ns.asleep(BATCH_CHECK_INTERVAL_MS);
+      continue;
+    }
 
     let totalThreads = 0;
     const hostsUsed: string[] = [];
@@ -240,6 +252,16 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
   const hackRam = ns.getScriptRam(HACK_WORKER);
   const growRam = ns.getScriptRam(GROW_WORKER);
   const weakenRam = ns.getScriptRam(WEAKEN_WORKER);
+  // Same "0 means missing file" gap as prep() above - here it wouldn't
+  // crash (ramPerThread=0 just makes allocateAcrossHosts treat every
+  // host as having room, and ns.exec silently no-ops with pid 0 for a
+  // missing script), but batches would silently never actually fire.
+  if (!(hackRam > 0) || !(growRam > 0) || !(weakenRam > 0)) {
+    await log.warn(
+      `[Scheduler] One or more worker scripts missing on home (hackRam=${hackRam} growRam=${growRam} weakenRam=${weakenRam}); skipping tick.`
+    );
+    return;
+  }
 
   const capacities = await getWorkerCapacities(ns, config);
   const requests = [
