@@ -10,6 +10,7 @@ import {
   decideStandDown,
   decideTerritoryReadiness,
   decideTerritoryWarfareAssignment,
+  decideTrainingTask,
   detectCasualties,
   EquipmentOption,
   selectBestAscensionCandidate,
@@ -69,6 +70,14 @@ export type GangConfig = {
   minWantedPenalty: number;
   wantedReductionFraction: number;
   minAscensionGainMultiplier: number;
+  // Once a member's average trained-stat gain is within this fraction of
+  // minAscensionGainMultiplier (e.g. 0.95 * 1.1 = 1.045), they're pulled
+  // into a dedicated training task (0 money/respect/wanted, 100% stat
+  // exp - see gang_decisions.ts's decideTrainingTask doc) instead of
+  // their normal money/wanted-control task, to finish crossing the
+  // ascension threshold faster. Reactive, not a standing reservation -
+  // members far from ascending keep earning normally.
+  trainingReadyMargin: number;
   // "CONSOLIDATE" (default) never touches Territory Warfare at all -
   // zero risk, today's behavior. "GROWING" trains power and, once ready,
   // engages real clashes - see the module doc above.
@@ -90,6 +99,7 @@ export const DEFAULT_CONFIG: GangConfig = {
   minWantedPenalty: 0.9,
   wantedReductionFraction: 0.2,
   minAscensionGainMultiplier: 1.1,
+  trainingReadyMargin: 0.95,
   posture: "CONSOLIDATE",
   territoryWarfareMembers: 2,
   minClashWinChance: 0.65,
@@ -160,6 +170,33 @@ function assignTasks(ns: NS, gang: GangGenInfo, config: GangConfig, memberNames:
 
     if (chosen && chosen !== member.task) ns.gang.setMemberTask(name, chosen);
   });
+}
+
+/**
+ * Carves off whichever of `memberNames` are close enough to ascending to
+ * benefit from a dedicated training task (see decideTrainingTask's doc -
+ * 0 money/respect/wanted, 100% stat exp) - returns the rest, for
+ * assignTasks to run its normal money/wanted-control logic over. Mirrors
+ * assignTerritoryWarfare's carve-then-return-remainder shape.
+ */
+function assignTraining(ns: NS, gang: GangGenInfo, config: GangConfig, memberNames: string[]): string[] {
+  const remaining: string[] = [];
+  for (const name of memberNames) {
+    const trainingTask = decideTrainingTask(
+      ns.gang.getAscensionResult(name),
+      config.minAscensionGainMultiplier,
+      config.trainingReadyMargin,
+      gang.isHacking
+    );
+    if (!trainingTask) {
+      remaining.push(name);
+      continue;
+    }
+
+    const member = ns.gang.getMemberInformation(name);
+    if (member.task !== trainingTask) ns.gang.setMemberTask(name, trainingTask);
+  }
+  return remaining;
 }
 
 /** Carves `memberNames` onto the "Territory Warfare" task - training power risk-free (see module doc); a no-op for anyone already assigned there. */
@@ -301,22 +338,24 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
   }
 
   const posture = parsePosture(config.posture);
+  const gang = ns.gang.getGangInformation();
   const territoryWarfareCount = decideTerritoryWarfareAssignment(posture, standDown, memberNames.length, config.territoryWarfareMembers);
   const territoryMembers = memberNames.slice(0, territoryWarfareCount);
   const remainingMembers = memberNames.slice(territoryWarfareCount);
 
   assignTerritoryWarfare(ns, territoryMembers);
-  assignTasks(ns, ns.gang.getGangInformation(), config, remainingMembers);
+  const trainableRemaining = assignTraining(ns, gang, config, remainingMembers);
+  assignTasks(ns, gang, config, trainableRemaining);
   await purchaseEquipmentIfAffordable(ns, log, config, memberNames);
   await ascendIfWorthwhile(ns, log, config, memberNames);
 
-  const gang = ns.gang.getGangInformation();
   await manageTerritoryEngagement(ns, log, config, gang, territoryWarfareCount, standDown);
 
   await log.debug(
     `[Gang] tick: members=${memberNames.length} respect=${gang.respect.toFixed(0)} wantedPenalty=${gang.wantedPenalty.toFixed(3)} ` +
       `territory=${(gang.territory * 100).toFixed(1)}% posture=${config.posture} territoryWarfare=${territoryWarfareCount} ` +
-      `power=${gang.power.toFixed(2)} engaged=${gang.territoryWarfareEngaged} casualties=${state.casualties} standDown=${standDown}`
+      `training=${remainingMembers.length - trainableRemaining.length} power=${gang.power.toFixed(2)} engaged=${gang.territoryWarfareEngaged} ` +
+      `casualties=${state.casualties} standDown=${standDown}`
   );
 }
 

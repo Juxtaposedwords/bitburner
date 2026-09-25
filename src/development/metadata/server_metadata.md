@@ -566,6 +566,21 @@ second caller.
   live decision, never a separately-derived guess. Same reasoning for the
   gang section: reuses `gang_daemon.ts`'s exported config/state readers
   and `gang_decisions.ts`'s `decideStandDown`.
+- **`tools/bitnode_status_report.ts`** — a fifth `ns.singularity`-touching
+  file, same one-shot shape as `check_cloud.ts`/`augmentation_report.ts`.
+  Answers "how far from actually finishing the BitNode," not just "are we
+  growing": Daedalus's real invite requirements (confirmed in Bitburner's
+  own `FactionInfo.tsx` — 30 installed augmentations via
+  `BitNodeMultipliers.DaedalusAugsRequirement`'s default, not confirmed
+  whether BN9 overrides it; $100B; hacking level 2500 or every combat
+  stat at 1500), whether The Red Pill is owned vs. actually *installed*
+  (only installed reveals `w0r1d_d43m0n` — confirmed in `ServerHelpers.ts`,
+  it's excluded from the network entirely otherwise), and once visible,
+  its root status and required hacking skill. Explicitly notes that
+  nothing here calls `ns.singularity.destroyW0r1dD43m0n()` yet — that
+  final step has no automation at all, by design, until there's a
+  concrete reason to build it (i.e. this report showing everything else
+  is actually ready).
 
 ## Gang manager: `gang_daemon.ts`
 
@@ -641,6 +656,17 @@ Hacknet) — without `Formulas.exe`, `gang_daemon.ts` just idles.
   Recruiting has no decision function at all (trivial: recruit whenever
   `canRecruitMember()` allows it), same reasoning `rooter.ts`'s `root()`
   isn't wrapped in one either.
+  **`decideTrainingTask`** pulls a member into `"Train Combat"`/`"Train
+  Hacking"` (confirmed against Bitburner's own `tasks.ts`: these produce
+  zero money/respect/wanted, so 100% of their output is stat exp, unlike
+  every money/wanted-control task which dilutes exp across whatever its
+  formulas need) once their `averageMultiplier` is within
+  `config.trainingReadyMargin` of `minAscensionGainMultiplier` (e.g.
+  `0.95 * 1.1 = 1.045`) — reactive, not a standing reservation, so only
+  members already close to ascending forgo income, not the whole roster
+  indefinitely. `assignTraining` carves these off in `gang_daemon.ts`
+  before `assignTasks` ever sees them, same shape as
+  `assignTerritoryWarfare`'s carve-then-return-remainder.
 - **`gang_daemon.ts`** — plain 5s-tick polling loop (same cadence as
   Hacknet/purchased-server). Config at `/etc/gang.txt` via
   `loadJsonConfig`. Reads money over `PlayerService` (no local

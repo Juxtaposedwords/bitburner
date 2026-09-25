@@ -8,6 +8,7 @@ import {
   decideStandDown,
   decideTerritoryReadiness,
   decideTerritoryWarfareAssignment,
+  decideTrainingTask,
   detectCasualties,
   EquipmentOption,
   selectBestAscensionCandidate,
@@ -129,6 +130,43 @@ describe("decideAscension", () => {
   it("ascends right at the threshold (inclusive)", () => {
     // Integer values avoid floating-point rounding at the boundary check.
     expect(decideAscension(ascension({ hack: 2, str: 2, def: 2, dex: 2, agi: 2, cha: 2 }), 2)).toBe(true);
+  });
+});
+
+describe("decideTrainingTask", () => {
+  const ascension = (overrides: Partial<AscensionResult> = {}): AscensionResult => ({
+    hack: 1,
+    str: 1,
+    def: 1,
+    dex: 1,
+    agi: 1,
+    cha: 1,
+    ...overrides,
+  });
+
+  it("returns undefined when not close enough to the threshold yet", () => {
+    // 1.05 average, threshold 1.1, readyMargin 0.95 -> ready point is 1.045 - still short.
+    const allSix = (v: number) => ascension({ hack: v, str: v, def: v, dex: v, agi: v, cha: v });
+    expect(decideTrainingTask(allSix(1.04), 1.1, 0.95, false)).toBeUndefined();
+  });
+
+  it("returns Train Combat for a combat gang once within the ready margin", () => {
+    const allSix = (v: number) => ascension({ hack: v, str: v, def: v, dex: v, agi: v, cha: v });
+    expect(decideTrainingTask(allSix(1.05), 1.1, 0.95, false)).toBe("Train Combat");
+  });
+
+  it("returns Train Hacking for a hacking gang once within the ready margin", () => {
+    const allSix = (v: number) => ascension({ hack: v, str: v, def: v, dex: v, agi: v, cha: v });
+    expect(decideTrainingTask(allSix(1.05), 1.1, 0.95, true)).toBe("Train Hacking");
+  });
+
+  it("returns a task once already past the threshold, not just approaching it", () => {
+    const allSix = (v: number) => ascension({ hack: v, str: v, def: v, dex: v, agi: v, cha: v });
+    expect(decideTrainingTask(allSix(1.2), 1.1, 0.95, false)).toBe("Train Combat");
+  });
+
+  it("returns undefined when no ascension is possible (undefined result)", () => {
+    expect(decideTrainingTask(undefined, 1.1, 0.95, false)).toBeUndefined();
   });
 });
 

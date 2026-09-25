@@ -114,6 +114,37 @@ export function averageMultiplier(result: AscensionResult): number {
   return trained.reduce((sum, factor) => sum + factor, 0) / trained.length;
 }
 
+/**
+ * "Train Combat"/"Train Hacking" (see NetscriptDefinitions.d.ts's gang
+ * task list, confirmed against Bitburner's own tasks.ts) produce zero
+ * money/respect/wanted - every other task dilutes stat exp gain across
+ * whatever its money/respect/wanted formulas need, so 100% of a training
+ * tick's output goes straight into stat exp instead. Reactive, not a
+ * standing reservation: only pulls a member into training once their
+ * average trained-stat gain is already within `readyMargin` of
+ * minGainMultiplier (e.g. 0.95 * 1.1 = 1.045) - close enough that a
+ * training tick or two finishes the job - rather than committing
+ * ongoing foregone income for a member who's still far from ascending.
+ * isHackingGang picks the one training task that matches what the
+ * gang's own tasks actually use (GangGenInfo.isHacking) - same
+ * "don't hardcode which stat matters" spirit as decideMemberTask
+ * scoring off live formulas rather than task names, though this one
+ * unavoidably needs the real task name since ns.gang.setMemberTask
+ * takes one and there's no formula-scored way to request "whichever
+ * task trains fastest."
+ */
+export function decideTrainingTask(
+  ascensionResult: AscensionResult | undefined,
+  minGainMultiplier: number,
+  readyMargin: number,
+  isHackingGang: boolean
+): string | undefined {
+  if (!ascensionResult) return undefined;
+  if (averageMultiplier(ascensionResult) < minGainMultiplier * readyMargin) return undefined;
+
+  return isHackingGang ? "Train Hacking" : "Train Combat";
+}
+
 export type AscensionCandidate = { member: string; result: AscensionResult | undefined };
 
 /**

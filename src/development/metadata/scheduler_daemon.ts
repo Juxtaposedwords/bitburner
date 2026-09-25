@@ -30,12 +30,18 @@ const BATCH_CHECK_INTERVAL_MS = 1000;
 
 const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
   approach: scheduler_pb.Approach.HACK,
-  // Lower than the "textbook" 0.1 - at current fleet size (~660GB free)
-  // a 0.1 batch against a juicy target needs over 1TB total and skips
-  // almost every tick. 0.02 trades a smaller cut per batch for actually
-  // firing regularly; raise this back up as the fleet grows (see
-  // server_metadata.md).
-  hackFraction: 0.02,
+  // Raised from 0.02 now that the fleet has grown substantially since
+  // that value was set (crawler/rooter keep finding more servers as
+  // hacking level climbs) - bigger batches mean more threads, and
+  // grow()/weaken() grant the exact same hacking exp per thread as
+  // hack() (confirmed in Bitburner's own NetscriptFunctions.ts), so this
+  // directly speeds up hacking level growth toward Daedalus's 2500
+  // requirement without sacrificing money throughput. Still well under
+  // the "textbook" 0.1 that needed over 1TB total RAM and skipped almost
+  // every tick back when the fleet was smaller (see server_metadata.md);
+  // watch scheduler_daemon.txt's fire rate and raise further if batches
+  // are still landing reliably.
+  hackFraction: 0.05,
   spacingMs: 200,
   homeFallbackHackingLevel: 50,
   homeReservedRamGb: 5,
