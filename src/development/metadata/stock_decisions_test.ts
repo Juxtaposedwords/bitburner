@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BuyCandidate, decideStocksToSell, decideStockToBuy, StockPosition } from "development/metadata/stock_decisions";
+import { BuyCandidate, BuyLimits, decideStocksToSell, decideStockToBuy, StockPosition } from "development/metadata/stock_decisions";
 
 const position = (overrides: Partial<StockPosition> = {}): StockPosition => ({
   sym: "ECP",
@@ -15,6 +15,18 @@ const candidate = (overrides: Partial<BuyCandidate> = {}): BuyCandidate => ({
   existingCostBasis: 0,
   ...overrides,
 });
+
+// No throttles unless a test sets one - isolates whichever cap it's testing.
+const limits = (overrides: Partial<BuyLimits> = {}): BuyLimits => ({
+  reserveMoney: 0,
+  maxSpendFraction: 1,
+  maxPositionFraction: 1,
+  maxInvestedFraction: 1,
+  ...overrides,
+});
+
+// Linear stand-in for the daemon's binary search: $1 per share.
+const linear = (_sym: string, budget: number) => ({ shares: Math.floor(budget), cost: Math.floor(budget) });
 
 describe("decideStocksToSell", () => {
   it("sells a position whose forecast has dropped to sellThreshold", () => {
@@ -65,72 +77,81 @@ describe("decideStocksToSell", () => {
 });
 
 describe("decideStockToBuy", () => {
-  it("picks the highest-forecast candidate among several", () => {
-    const candidates = [candidate({ sym: "Cheap", forecast: 0.61 }), candidate({ sym: "Best", forecast: 0.9 })];
-    const affordableShares = () => 10;
+  it("fills the highest-forecast candidate first", () => {
+    const candidates = [candidate({ sym: "Low", forecast: 0.61 }), candidate({ sym: "High", forecast: 0.9 })];
 
-    const { decision } = decideStockToBuy(candidates, 100_000, 0, 1, 1, affordableShares);
+    const { decisions } = decideStockToBuy(candidates, 1000, 0, limits({ maxPositionFraction: 0.25 }), linear);
 
-    expect(decision).toEqual({ sym: "Best", shares: 10 });
+    expect(decisions[0]).toEqual({ sym: "High", shares: 250 });
   });
 
-  it("computes budget as the tighter of reserveMoney and maxSpendFraction, same pairing as decideNodeInvestment", () => {
+  it("spreads the budget across several candidates once the top one hits its position cap - the live MGCP-only bug", () => {
+    const candidates = [candidate({ sym: "A", forecast: 0.9 }), candidate({ sym: "B", forecast: 0.8 }), candidate({ sym: "C", forecast: 0.7 })];
+
+    // Net worth 1000, 25% per symbol -> 250 each; budget 600 covers A, B, and part of C.
+    const { decisions } = decideStockToBuy(candidates, 1000, 0, limits({ maxPositionFraction: 0.25, maxSpendFraction: 0.6 }), linear);
+
+    expect(decisions).toEqual([
+      { sym: "A", shares: 250 },
+      { sym: "B", shares: 250 },
+      { sym: "C", shares: 100 },
+    ]);
+  });
+
+  it("measures the position cap against net worth (cash + invested), not cash alone", () => {
+    // Cash 100, already invested 900 in other symbols -> net worth 1000, cap 250.
+    // A cash-only cap would allow just 25.
+    const { decisions } = decideStockToBuy([candidate({ sym: "New" })], 100, 900, limits({ maxPositionFraction: 0.25 }), linear);
+
+    expect(decisions).toEqual([{ sym: "New", shares: 100 }]); // bounded by cash (100), not the cap
+  });
+
+  it("skips a candidate already at its position cap and moves on to the next", () => {
+    const capped = candidate({ sym: "Capped", forecast: 0.95, existingCostBasis: 250 });
+    const next = candidate({ sym: "Next", forecast: 0.8 });
+
+    // Net worth = 750 cash + 250 invested = 1000; Capped already holds its 250.
+    const { decisions, bestCandidate } = decideStockToBuy([capped, next], 750, 250, limits({ maxPositionFraction: 0.25 }), linear);
+
+    expect(bestCandidate).toEqual({ sym: "Capped", forecast: 0.95 }); // still reported for diagnosability
+    expect(decisions).toEqual([{ sym: "Next", shares: 250 }]);
+  });
+
+  it("maxInvestedFraction caps total stock exposure, keeping the rest in cash", () => {
+    // Net worth 1000, 50% max invested, 400 already in -> only 100 more allowed.
+    const { budget, decisions } = decideStockToBuy([candidate()], 600, 400, limits({ maxInvestedFraction: 0.5 }), linear);
+
+    expect(budget).toBe(100);
+    expect(decisions).toEqual([{ sym: "ECP", shares: 100 }]);
+  });
+
+  it("computes the spend budget as the tighter of reserveMoney and maxSpendFraction, same pairing as decideNodeInvestment", () => {
     // money=1000, reserve=800 -> only 200 spendable, vs fraction 0.5 -> 500. Reserve wins.
-    const { budget } = decideStockToBuy([], 1000, 800, 0.5, 1, () => 0);
+    const { budget } = decideStockToBuy([], 1000, 0, limits({ reserveMoney: 800, maxSpendFraction: 0.5 }), linear);
 
     expect(budget).toBe(200);
   });
 
-  it("passes each candidate's own position-capped budget to affordableShares", () => {
-    const seenBudgets: number[] = [];
-    const affordableShares = (_sym: string, budgetForSymbol: number) => {
-      seenBudgets.push(budgetForSymbol);
-      return budgetForSymbol > 0 ? 1 : 0;
-    };
+  it("deducts each purchase's real cost from the remaining budget", () => {
+    // Non-linear stand-in: every buy costs exactly 150 regardless of budget.
+    const flat = (_sym: string, budget: number) => (budget >= 150 ? { shares: 1, cost: 150 } : { shares: 0, cost: 0 });
+    const candidates = [candidate({ sym: "A", forecast: 0.9 }), candidate({ sym: "B", forecast: 0.8 }), candidate({ sym: "C", forecast: 0.7 })];
 
-    // money=1000, maxPositionFraction=0.25 -> position cap is 250 - tighter
-    // than the general budget (maxSpendFraction=1 -> 1000).
-    decideStockToBuy([candidate({ existingCostBasis: 0 })], 1000, 0, 1, 0.25, affordableShares);
+    const { decisions } = decideStockToBuy(candidates, 300, 0, limits(), flat);
 
-    expect(seenBudgets).toEqual([250]);
+    expect(decisions.map((d) => d.sym)).toEqual(["A", "B"]);
   });
 
-  it("a candidate already at its position cap gets zero symbol budget, even with general budget remaining", () => {
-    const seenBudgets: number[] = [];
-    const affordableShares = (_sym: string, budgetForSymbol: number) => {
-      seenBudgets.push(budgetForSymbol);
-      return 0;
-    };
+  it("returns no decisions when nothing is affordable", () => {
+    const { decisions } = decideStockToBuy([candidate()], 100_000, 0, limits(), () => ({ shares: 0, cost: 0 }));
 
-    // Position cap = 0.25*1000 - existingCostBasis(300) = -50 -> clamped to 0.
-    decideStockToBuy([candidate({ existingCostBasis: 300 })], 1000, 0, 1, 0.25, affordableShares);
-
-    expect(seenBudgets).toEqual([0]);
+    expect(decisions).toEqual([]);
   });
 
-  it("does not get stuck on a capped-out best candidate - picks the next-best affordable one instead", () => {
-    const maxed = candidate({ sym: "Maxed", forecast: 0.95, existingCostBasis: 1_000_000 });
-    const runnerUp = candidate({ sym: "RunnerUp", forecast: 0.8, existingCostBasis: 0 });
-    const affordableShares = (sym: string, budgetForSymbol: number) => (sym === "Maxed" ? 0 : budgetForSymbol > 0 ? 5 : 0);
+  it("returns no decisions, candidateCount 0, and no bestCandidate for an empty candidate list", () => {
+    const { decisions, candidateCount, bestCandidate } = decideStockToBuy([], 100_000, 0, limits(), linear);
 
-    const { decision, bestCandidate } = decideStockToBuy([maxed, runnerUp], 100_000, 0, 1, 0.25, affordableShares);
-
-    // bestCandidate still reports the globally-highest forecast for
-    // diagnosability, even though it wasn't the one actually bought.
-    expect(bestCandidate).toEqual({ sym: "Maxed", forecast: 0.95 });
-    expect(decision).toEqual({ sym: "RunnerUp", shares: 5 });
-  });
-
-  it("returns no decision when nothing is affordable", () => {
-    const { decision } = decideStockToBuy([candidate()], 100_000, 0, 1, 1, () => 0);
-
-    expect(decision).toBeUndefined();
-  });
-
-  it("returns undefined decision and candidateCount 0 for an empty candidate list", () => {
-    const { decision, candidateCount, bestCandidate } = decideStockToBuy([], 100_000, 0, 1, 1, () => 10);
-
-    expect(decision).toBeUndefined();
+    expect(decisions).toEqual([]);
     expect(candidateCount).toBe(0);
     expect(bestCandidate).toBeUndefined();
   });
@@ -140,9 +161,8 @@ describe("decideStockToBuy", () => {
       [candidate({ sym: "ECP", forecast: 0.72 })],
       100_000,
       0,
-      1,
-      1,
-      () => 0
+      limits(),
+      () => ({ shares: 0, cost: 0 })
     );
 
     expect(budget).toBe(100_000);

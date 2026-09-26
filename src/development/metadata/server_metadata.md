@@ -289,7 +289,16 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   `supervisor.ts`, so it can't ride on `SupervisorServicePort` the way a
   same-process service can. `Approach.GROW_STATS`/`CRIME` are defined as
   extension points (the schema for a future "what is home's effort going
-  toward" mode switch) but not implemented — only `HACK` does anything.
+  toward" mode switch) but not implemented — `HACK` and `STOCK_TARGETING`
+  (see "Stock-targeting mode" below) are the two that do anything.
+  **Persisted to `/etc/scheduler.txt`** via `loadJsonConfig`: the daemon
+  re-reads it every tick (hand-edits take effect within ~1s, same as every
+  other daemon's config), and `PatchSchedulerConfig` writes the merged
+  config back through an injected `onConfigChanged` callback (keeps the
+  handlers `ns`-free and testable). It used to be in-memory only, so any
+  restart silently reverted e.g. `STOCK_TARGETING` back to `HACK`.
+  `approach` is stored as its numeric enum value — use
+  `tools/set_scheduler_approach.js` for the readable way to change it.
 
 ## Program purchasing: `ns.singularity`, gated by Source-File 4
 
@@ -340,11 +349,9 @@ would be pure overhead. Instead it rides on
 `development/libraries/config.ts`'s `loadJsonConfig` — the same helper
 `supervisor.ts`/`player.ts` already use for their own `/etc/*.txt` files —
 called fresh on *every* tick rather than once at startup, so hand-editing
-`/etc/hacknet.txt` takes effect within one tick. This is actually a step
-up from `SchedulerConfig`'s RPC-only approach: that config isn't
-persisted across a `scheduler_daemon.js` restart today (pure in-memory,
-patched only via `PatchSchedulerConfig`), while a file-based config
-survives one for free.
+`/etc/hacknet.txt` takes effect within one tick, and survives a restart
+for free (`SchedulerConfig` later adopted the same file-backed approach,
+see above).
 
 - **`hacknet_decisions.ts`** — pure, `ns`-free (mirrors `hwgw.ts`'s
   style): `decideNodeInvestment` picks the single best affordable action
@@ -498,7 +505,11 @@ actions via the Stock Market UI"*; `purchase4SMarketData()`'s doc says it *"only
 specifically. A script never touches the UI, so buying either UI-only feature would be pure wasted
 money with zero functional benefit. Each purchase call is check-before-buy (only logs on the tick
 it actually transitions), same discipline `manageTerritoryEngagement` already uses for territory
-warfare engagement.
+warfare engagement. `purchase4SMarketDataTixApi()` is additionally gated on `hasTixApiAccess()`
+being true first — caught live: unlike every other purchase call touched in this codebase (which
+return falsy on an unmet precondition), this one **throws** a runtime error ("You don't have TIX
+API Access!") if TIX API access isn't already owned, and `purchaseTixApi()` failing that same tick
+(still saving up) used to fall straight through into this call and crash the whole daemon.
 
 **Trading defaults on** (`config.enabled`, the only switch — no separate `autoTrade` flag) once
 that access exists. This groups stock-trade risk with Hacknet/purchased-server/gang-equipment
@@ -525,24 +536,22 @@ success.
     and running it through the same `<= sellThreshold` check doesn't work, since 0.5 IS this
     daemon's own default `sellThreshold`, so that fallback would still trigger a sell right at the
     boundary; missing data is its own explicit branch instead.
-  - **`decideStockToBuy`** picks **at most one** symbol to buy per tick — the highest-forecast
-    candidate among those both affordable and still under their own position cap — mirroring
-    `decideEquipmentPurchase`/`decideAugmentationPurchase`'s "one purchase decision per tick,
-    re-derive fresh next tick, no queue" house style: unlike an exit, opening a new long is a new
-    commitment, so it gets the same pacing every other spending daemon's buy side already has.
-    Every candidate's own affordable-share count is computed first (respecting its own
-    `maxPositionFraction` cap via `existingCostBasis`), and only *then* is the best-scoring one
-    among those with a nonzero result picked — not "pick the globally-best-forecast candidate
-    first, then check if it's capped," which would get stuck reporting the same maxed-out winner
-    forever even while budget remained for a second-best, uncapped candidate (caught by this
-    file's own test suite). `bestCandidate` in the returned `BuyEvaluation` still reports the
-    globally-highest forecast regardless, for diagnosability — same contract
-    `InvestmentEvaluation` already has. `affordableShares` is an injected closure (mirrors
-    `purchased_server_decisions.ts`'s cost-closure pattern) so this module stays `ns`-free — the
-    real closure (`stock_daemon.ts`) binary-searches `ns.stock.getPurchaseCost`/`getMaxShares` for
-    the largest affordable share count, since price isn't linear in share count (spread +
-    large-transaction slippage, per its own doc comment) and `getPurchaseCost` already folds in
-    commission, so no separate commission math is needed anywhere in this daemon.
+  - **`decideStockToBuy`** makes one *allocation* decision per tick: it walks candidates in
+    forecast order and gives each up to its own per-symbol room until the tick's budget is spent —
+    the same shape as `hwgw.ts`'s `allocateAcrossHosts`, not a single winner. The first version
+    bought only one symbol per tick with each position capped at a fraction of *cash*, and that
+    failed live: gang income refilled cash every tick, so the top stock's cap room grew every tick
+    too, it won every single tick, and every buy went to MGCP while four other qualifying stocks
+    sat untouched and most of each tick's ~$2B budget went unspent. Both caps are now measured
+    against **net worth** (cash + invested cost basis). The tick's budget is the tighter of the
+    usual `reserveMoney`/`maxSpendFraction` spend budget and the remaining total-exposure room
+    under `maxInvestedFraction`. `bestCandidate` in the returned `BuyEvaluation` still reports the
+    globally-highest forecast regardless, for diagnosability. `affordable` is an injected closure
+    (mirrors `purchased_server_decisions.ts`'s cost-closure pattern) returning `{shares, cost}`, so
+    this module stays `ns`-free — the real closure (`stock_daemon.ts`) binary-searches
+    `ns.stock.getPurchaseCost` up to `getMaxShares` minus shares already held (that ceiling is
+    combined across positions), since price isn't linear in share count (spread +
+    large-transaction slippage) and `getPurchaseCost` already folds in commission.
 - **Thresholds**: `buyThreshold = 0.60` (comfortably past the 0.5 coin-flip line
   `getForecast` returns), `sellThreshold = 0.50` (exit the instant true edge disappears, don't
   wait for active bearishness). The gap between the two is a deliberate hysteresis band: a stock
@@ -552,13 +561,16 @@ success.
   never to exits — an already-held position is never force-sold purely because its volatility
   rose, only its forecast decides that — and isn't used for position sizing (no
   inverse-volatility scaling), a deliberate v1 scope cut.
-- **`maxPositionFraction` (default 0.25)** caps how much of total money can sit in any single
-  symbol. Worth building in, not over-engineering: since a symbol's forecast typically persists
-  for many ticks, the buy side would otherwise deterministically re-pick the same "most bullish"
-  winner every tick until the whole portfolio concentrated into one symbol — real, avoidable
-  concentration risk for a one-line fix. Still intentionally simple — not Kelly, not
+- **`maxPositionFraction` (default 0.25)** caps any single symbol at that fraction of net worth;
+  **`maxInvestedFraction` (default 0.5)** caps total stock exposure at that fraction of net worth,
+  keeping the rest in cash — stocks are liquid, but faction augmentation purchases and Daedalus's
+  $100B money requirement only count cash on hand. Still intentionally simple — not Kelly, not
   correlation-aware — same "simplest reasonable v1, not ROI-optimal" tradeoff already accepted for
   `decideEquipmentPurchase`.
+- **4S cost is BitNode-scaled**: `purchase4SMarketDataTixApi()` costs `$25B ×
+  FourSigmaMarketDataApiCost`, which BN9 sets to 4 — **$100B** here, not the flat $25B constant.
+  The "not ready" log line shows `hasTixApiAccess`/`has4SDataTixApi`/`money` explicitly because
+  a bare "not available" couldn't distinguish saving up from being stuck.
 - **`stock_daemon.ts`** — plain 5s-tick polling loop (same cadence as every sibling spending
   daemon; syncing to `ns.stock.nextUpdate()`'s ~6000ms game cycle instead was considered and
   rejected — decisions are re-derived fresh every tick regardless, so a stale price is harmless,
@@ -576,6 +588,112 @@ success.
   (`placeOrder`/`cancelOrder`/`getOrders`); volatility-based position sizing; Kelly/portfolio
   optimization; the UI-only WSE account/plain 4S Market Data purchases (see above — not an
   oversight, deliberately never bought).
+
+### `tools/stock_server_report.ts`: which known servers are actually stock-linked
+
+A one-shot diagnostic, same shape as `check_cloud.ts`/`augmentation_report.ts`. Confirmed via
+Bitburner's own source (`StockMarket/PlayerInfluencing.ts`, see the next section) that `hack()`/
+`grow()` can only ever move a stock's forecast on a server whose `organization` matches a real
+stock — most NPC servers (`n00dles`, `foodnstuff`, etc.) have no stock at all. Rather than
+hardcode the hostname/company/symbol mapping from Bitburner's source, this derives it entirely
+from live data (same "derive from live game data" taste as `pickWorkType`/`hacknet_daemon.ts`'s
+`HashUpgradeName`): `SupervisorService.ListServers()`'s already-crawled `organization` field
+(populated by `crawl_servers.ts`, confirmed in `server_metadata.proto`) cross-referenced against
+`ns.stock.getOrganization(sym)` for every live symbol. No `ns.getServer()` call needed, no new
+plumbing — `organization` was already flowing end-to-end, just never consumed by anything until now.
+
+## Stock-targeting mode: `Approach.STOCK_TARGETING` (`scheduler_daemon.ts`) + `stock_target_daemon.ts`
+
+**Confirmed game mechanic this whole feature is built on** (Bitburner's own source,
+`StockMarket/PlayerInfluencing.ts`, `influenceStockThroughServerHack`/`...Grow`): only `hack()`/
+`grow()` can nudge a stock's forecast — `weaken()` never does (no such function exists for it).
+Each call has a *chance* (not a guarantee) of a nudge, equal to `moneyMoved / server.moneyMax` —
+scales with what fraction of the server's absolute max money that one call moved, not thread
+count directly. It only ever applies on a server whose `organization` matches a real stock
+(`orgName !== "" && StockMarket[orgName] instanceof Stock`), and only when the call passes
+`{stock: true}` — which our worker scripts never did before this feature, so the mechanic was
+completely dormant even on any stock-linked server we might already have been attacking.
+
+**Step 1: `stock: true` is now always passed, unconditionally, no config flag.**
+`hack_worker.ts`/`grow_worker.ts` read a third `ns.args` entry and add `stock: true` to the
+options object; `scheduler_daemon.ts`'s `fireOn` (in `fireBatchIfRoom`) and `prep()` both pass it
+as the extra `ns.exec` positional arg on every launch, including weaken (harmless —
+`weaken_worker.ts` itself needs no change at all, an extra arg it never reads is simply ignored).
+This is unconditional and permanent, not gated behind any new `SchedulerConfig` field: the game's
+own influence functions immediately no-op on a server with no matching stock, so there is zero
+cost to always passing it, and it's the prerequisite for anything below to matter at all — even
+plain `Approach.HACK` benefits for free if its current income-ranked target happens to be
+stock-linked.
+
+**Step 2: `Approach.STOCK_TARGETING`, a new value in `scheduler.proto`'s already-extensible enum**
+(the enum's own doc comment already frames `GROW_STATS`/`CRIME` as placeholders "defined now so
+the schema doesn't need another breaking change later" — this is exactly that kind of addition).
+`fireBatchIfRoom` runs identically under `HACK` and `STOCK_TARGETING` — they only disagree about
+which target `resolveTarget()` picks; neither the batch math nor the hack/grow thread ratio is
+biased toward manipulation. **Deliberately not doing that**: our own HWGW batches already move a
+real fraction of `moneyMax` every cycle by design (that's the whole point of the hack/grow
+phases), so once `stock: true` is flowing, no thread-ratio bias is needed for a real effect —
+trading real hacking income for a slower, second-order, probabilistic forecast nudge would be a
+bad trade under this codebase's "simplest reasonable v1" ethos.
+
+**Step 3: `stock_target_daemon.ts` — a new, small, always-on daemon, deliberately kept separate
+from `scheduler_daemon.ts` itself.** `scheduler_daemon.ts` is already the single most
+RAM-expensive script in this codebase (~8.6 GB, launched last specifically to avoid starving
+bootstrap-critical scripts) — `ns.stock.*` has normal fixed RAM costs (no isolation
+*requirement* the way `ns.singularity` has), but growing an already-maxed-out script for a niche
+mode is still worth avoiding, so the stock-aware ranking lives in its own tiny process instead,
+the same RAM-isolation reasoning `target_selector.ts` already exists for its own money/security
+ranking. Every 5s (not change-triggered like `target_selector.ts`, which only recomputes on a
+hacking-level change or a rooter completion — "which stock we hold long" changes on the timescale
+of `stock_daemon.ts`'s own 5s tick, so a change-triggered design would go stale almost
+immediately):
+- Builds an `organization -> cost basis` map (`gatherLongPositionCostBasisByOrganization`) from
+  `ns.stock.getSymbols()`/`getPosition`/`getOrganization` — long-only, matching `stock_daemon.ts`'s
+  own v1 scope; short positions are never considered.
+- Queries `SupervisorService.ListServers({ eligibleOnly: true })` — rooted, has money, and within
+  hacking level, the same filter `target_selector.ts` uses. Without it, a held-long stock whose
+  server is above our hacking level (e.g. `megacorp` at hacking level 858) would pin the whole
+  fleet onto a target every batch tick skips (`hackAnalyzeThreads` returns -1) — caught before
+  first use, when the first live long position turned out to be MGCP.
+- `computeStockTargetWeights` (pure, unit-tested) ranks every such server whose `organization` is
+  in that map by cost basis descending — defend the biggest position first. Simple and not
+  ROI-optimal (ignores current forecast, volatility, proximity to `sellThreshold`) — same
+  "simplest reasonable v1" tradeoff `target_selector.ts`'s own `maxMoney/minSecurityLevel`
+  placeholder heuristic already accepts.
+- Writes to `/var/stock_target_selector/weights.txt`, reusing `target_selector.ts`'s own exported
+  `WeightsFile`/`WeightedServer` types verbatim — zero new parsing code, `scheduler_daemon.ts`
+  reads it with the exact same `readWeightsFile` helper it already uses for the normal ranking.
+  The written `hackingLevel` field is always `0` and meaningless here (that field only means
+  something to `target_selector.ts`'s own staleness check) — nothing reading this file ever looks
+  at it, only `weights[0]?.hostname`.
+
+No capability gate needed (same reasoning as `stock_daemon.ts`) — `boot.ts` launches it
+unconditionally, same low-priority group as `hacknet_daemon.js`/`purchased_server_daemon.js`/
+`stock_daemon.js`.
+
+**`resolveTarget` gets a second tier, with automatic fallback:**
+`config.targetOverride` keeps its absolute, unconditional priority over everything (unchanged).
+Under `Approach.STOCK_TARGETING`, `resolveTarget` next tries `stock_target_daemon.ts`'s weights
+file; if nothing qualifies there (no stock-linked long position exists right now), it falls
+through to the exact same money/security ranking `Approach.HACK` uses directly — nothing to
+defend shouldn't mean the whole scheduler idles over an empty portfolio. **The honest tradeoff
+this doesn't remove**: `scheduler_daemon.ts` only ever runs one target at a time (confirmed), so
+while `STOCK_TARGETING` is active *and* a qualifying position exists, the scheduler's entire
+attack capacity goes to defending that position instead of the highest-money/security target —
+real, deliberate income-vs-stock-support tradeoff for as long as both conditions hold. The
+fallback only softens the "nothing to defend" case, not this one.
+
+**Switching modes**: `tools/set_scheduler_approach.ts` (usage:
+`run tools/set_scheduler_approach.js STOCK_TARGETING` or `... HACK`) calls `PatchSchedulerConfig`,
+which writes through to `/etc/scheduler.txt` — picked up within `scheduler_daemon.js`'s next
+1000ms tick, and survives restarts. (`/etc/scheduler.txt` stores `approach` as a bare enum
+number, so the tool is the readable way to change it.)
+
+**Scope cuts**: no automatic cross-daemon triggering — `stock_daemon.ts` can't (yet) tell the
+scheduler "please support symbol X"; switching `Approach.STOCK_TARGETING` on/off is a
+manual/scripted human decision via the tool above, not automatic. A future iteration could have
+`stock_daemon.ts` itself flip it when a position gets large or risky, but that's real
+cross-daemon coordination logic not justified until the manual version proves worthwhile.
 
 ## Backdoor + Faction managers: the first steps toward actually finishing a BitNode
 

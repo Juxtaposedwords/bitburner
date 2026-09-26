@@ -28,13 +28,15 @@ export type StockConfig = {
   enabled: boolean;
   reserveMoney: number;
   maxSpendFraction: number;
-  // Caps how much of total money can sit in any single symbol - without
-  // this, since a symbol's forecast typically persists for many ticks,
-  // the buy side would deterministically re-pick the same "most bullish"
-  // winner every tick until the whole portfolio concentrated into one
-  // symbol. Simple and cheap, not Kelly/correlation-aware - same
-  // "simplest reasonable v1" tradeoff decideEquipmentPurchase accepts.
+  // Per-symbol cap as a fraction of net worth (cash + invested cost basis)
+  // - see decideStockToBuy's doc for why net worth, not cash. Simple and
+  // cheap, not Kelly/correlation-aware - same "simplest reasonable v1"
+  // tradeoff decideEquipmentPurchase accepts.
   maxPositionFraction: number;
+  // Total stock exposure cap as a fraction of net worth - keeps the rest
+  // in cash for faction augmentation purchases and Daedalus's
+  // cash-on-hand money requirement, neither of which counts stock.
+  maxInvestedFraction: number;
   // Comfortably past the 0.5 coin-flip line ns.stock.getForecast returns.
   buyThreshold: number;
   // Exit the instant true edge disappears - deliberately not symmetric
@@ -55,6 +57,7 @@ export const DEFAULT_CONFIG: StockConfig = {
   reserveMoney: 0,
   maxSpendFraction: 0.5,
   maxPositionFraction: 0.25,
+  maxInvestedFraction: 0.5,
   buyThreshold: 0.6,
   sellThreshold: 0.5,
   maxVolatility: 0.05,
@@ -70,6 +73,17 @@ const TICK_INTERVAL_MS = 5000;
  * actually transitions, same discipline scheduler_daemon.ts's
  * manageTerritoryEngagement already uses.
  *
+ * purchase4SMarketDataTixApi() is gated on hasTixApiAccess() being true
+ * FIRST, not just attempted whenever has4SDataTixApi() is false - unlike
+ * every other purchase call in this codebase (which return falsy on an
+ * unmet precondition, e.g. unaffordable), this one throws a runtime
+ * error instead if TIX API access isn't already owned ("You don't have
+ * TIX API Access!"), confirmed live: purchaseTixApi() failing this same
+ * tick (still saving up) used to fall through into this call anyway and
+ * crash the whole daemon. Checked fresh (not the pre-purchase-attempt
+ * value) so it also succeeds within the same tick TIX API access is
+ * first bought.
+ *
  * Deliberately never buys a WSE account (purchaseWseAccount) or the plain
  * 4S Market Data (purchase4SMarketData) - both are UI-only per their own
  * doc comments ("you can buy TIX API access without a WSE account"; the
@@ -81,7 +95,7 @@ async function ensureAccess(ns: NS, log: Logger): Promise<boolean> {
   if (!ns.stock.hasTixApiAccess() && ns.stock.purchaseTixApi()) {
     await log.info("[Stock] Purchased TIX API access.");
   }
-  if (!ns.stock.has4SDataTixApi() && ns.stock.purchase4SMarketDataTixApi()) {
+  if (ns.stock.hasTixApiAccess() && !ns.stock.has4SDataTixApi() && ns.stock.purchase4SMarketDataTixApi()) {
     await log.info("[Stock] Purchased 4S Market Data (TIX API).");
   }
   return ns.stock.has4SDataTixApi();
@@ -124,27 +138,35 @@ async function executeSells(ns: NS, log: Logger, sells: { sym: string; shares: n
   }
 }
 
-async function executeBuy(ns: NS, log: Logger, decision?: { sym: string; shares: number }): Promise<void> {
-  if (!decision) return;
-  const price = ns.stock.buyStock(decision.sym, decision.shares);
-  if (price > 0) await log.info(`[Stock] Bought ${decision.shares} shares of ${decision.sym} @ $${price.toFixed(2)}.`);
+async function executeBuys(ns: NS, log: Logger, decisions: { sym: string; shares: number }[]): Promise<void> {
+  for (const decision of decisions) {
+    const price = ns.stock.buyStock(decision.sym, decision.shares);
+    if (price > 0) await log.info(`[Stock] Bought ${decision.shares} shares of ${decision.sym} @ $${price.toFixed(2)}.`);
+  }
 }
 
 async function tick(ns: NS, log: Logger, config: StockConfig): Promise<void> {
+  const playerRes = await player_metadata_pb
+    .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
+    .GetPlayerMetadata({});
+  const money = playerRes.data?.player?.money ?? 0;
+
   const ready = await ensureAccess(ns, log);
   if (!ready) {
     // Idle-and-log, same shape gang_daemon.ts uses for its Formulas.exe
     // gate - covers both "still saving up" and a BitNode with
     // disable4SData set permanently, without ever trading on an
-    // unreliable/default forecast value.
-    await log.debug("[Stock] 4S Market Data (TIX API) not yet available; idling.");
+    // unreliable/default forecast value. Logs hasTixApiAccess/money too -
+    // without this, "not available" alone can't distinguish "still saving
+    // up for the $5B TIX API step" from "have TIX API, saving up for the
+    // 4S step" from "something is actually stuck". The 4S TIX API price is
+    // $25B * the BitNode's FourSigmaMarketDataApiCost multiplier (4 in
+    // BN9, so $100B there) - the flat $25B constant alone is misleading.
+    await log.debug(
+      `[Stock] Not ready: hasTixApiAccess=${ns.stock.hasTixApiAccess()} has4SDataTixApi=${ns.stock.has4SDataTixApi()} money=$${money.toFixed(0)}; idling.`
+    );
     return;
   }
-
-  const playerRes = await player_metadata_pb
-    .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
-    .GetPlayerMetadata({});
-  const money = playerRes.data?.player?.money ?? 0;
 
   const positions = gatherPositions(ns);
   const symbols = ns.stock.getSymbols();
@@ -161,19 +183,25 @@ async function tick(ns: NS, log: Logger, config: StockConfig): Promise<void> {
       existingCostBasis: positions.find((p) => p.sym === sym)?.costBasis ?? 0,
     }));
 
-  const affordableShares = (sym: string, budgetForSymbol: number): number =>
-    computeAffordableShares(ns, sym, budgetForSymbol, ns.stock.getMaxShares(sym));
+  // getMaxShares is the combined ceiling across all positions in that
+  // symbol, so subtract what's already held.
+  const affordable = (sym: string, budgetForSymbol: number): { shares: number; cost: number } => {
+    const held = positions.find((p) => p.sym === sym)?.shares ?? 0;
+    const shares = computeAffordableShares(ns, sym, budgetForSymbol, ns.stock.getMaxShares(sym) - held);
+    return { shares, cost: shares > 0 ? ns.stock.getPurchaseCost(sym, shares, "L") : 0 };
+  };
 
-  const evaluation = decideStockToBuy(candidates, money, config.reserveMoney, config.maxSpendFraction, config.maxPositionFraction, affordableShares);
+  const investedCostBasis = positions.reduce((sum, p) => sum + p.costBasis, 0);
+  const evaluation = decideStockToBuy(candidates, money, investedCostBasis, config, affordable);
 
   await log.debug(
-    `[Stock] tick: money=$${money.toFixed(0)} positions=${positions.length} sold=${sells.length} budget=$${evaluation.budget.toFixed(0)} ` +
-      `candidates=${evaluation.candidateCount} best=${
+    `[Stock] tick: money=$${money.toFixed(0)} invested=$${investedCostBasis.toFixed(0)} positions=${positions.length} sold=${sells.length} ` +
+      `budget=$${evaluation.budget.toFixed(0)} candidates=${evaluation.candidateCount} best=${
         evaluation.bestCandidate ? `${evaluation.bestCandidate.sym}@${evaluation.bestCandidate.forecast.toFixed(2)}` : "n/a"
-      } -> ${evaluation.decision ? `buy ${evaluation.decision.shares} ${evaluation.decision.sym}` : "none"}`
+      } -> ${evaluation.decisions.length > 0 ? evaluation.decisions.map((d) => `buy ${d.shares} ${d.sym}`).join(", ") : "none"}`
   );
 
-  await executeBuy(ns, log, evaluation.decision);
+  await executeBuys(ns, log, evaluation.decisions);
 }
 
 export async function main(ns: NS): Promise<void> {

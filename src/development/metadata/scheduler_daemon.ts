@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { applyDefined } from "development/libraries/merge";
 import * as rpc from "development/libraries/rpc";
@@ -7,6 +8,7 @@ import { allocateAcrossHosts, Allocation, computeBatchPlan, decidePrepAction, Ho
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as scheduler_pb from "development/metadata/scheduler";
 import * as server_metadata_pb from "development/metadata/server_metadata";
+import { loadConfig as loadStockTargetConfig } from "development/metadata/stock_target_daemon";
 import { loadConfig as loadTargetSelectorConfig, readWeightsFile } from "development/metadata/target_selector";
 
 const HACK_WORKER = "development/metadata/hack_worker.js";
@@ -47,6 +49,23 @@ const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
   homeReservedRamGb: 5,
 };
 
+/**
+ * Persisted via loadJsonConfig, same as every other daemon's /etc/*.txt -
+ * survives a restart (test_restart.js only wipes /var/log/ and
+ * /var/supervisor/). This used to be in-memory only, so e.g. switching to
+ * Approach.STOCK_TARGETING was silently undone by every restart. The file
+ * is the source of truth: main() re-reads it every tick (so a hand-edit
+ * takes effect within BATCH_CHECK_INTERVAL_MS, same as the other daemons),
+ * and PatchSchedulerConfig writes the merged result back. `approach` is
+ * stored as its numeric enum value (0 = HACK, 3 = STOCK_TARGETING) -
+ * tools/set_scheduler_approach.js is the readable way to change it.
+ */
+export const CONFIG_PATH = "/etc/scheduler.txt";
+
+export function loadConfig(ns: NS): scheduler_pb.SchedulerConfig {
+  return loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
+}
+
 export type SchedulerState = {
   config: scheduler_pb.SchedulerConfig;
 };
@@ -57,22 +76,45 @@ export function createSchedulerState(config: Partial<scheduler_pb.SchedulerConfi
 
 /**
  * Builds the RPC handlers. Stays synchronous and RAM-only, same shape as
- * supervisor.ts's createHandlers/createPlayerHandlers.
+ * supervisor.ts's createHandlers/createPlayerHandlers - persistence is
+ * injected via `onConfigChanged` rather than calling `ns` here, so the
+ * handlers stay testable without a fake NS.
  */
-export function createHandlers(state: SchedulerState): scheduler_pb.SchedulerServiceHandlers {
+export function createHandlers(
+  state: SchedulerState,
+  onConfigChanged: (config: scheduler_pb.SchedulerConfig) => void = () => {}
+): scheduler_pb.SchedulerServiceHandlers {
   return {
     GetSchedulerConfig: (): scheduler_pb.GetSchedulerConfigResponse => ({ config: state.config }),
 
     PatchSchedulerConfig: (req: scheduler_pb.PatchSchedulerConfigRequest): scheduler_pb.PatchSchedulerConfigResponse => {
-      if (req.config) applyDefined(state.config, req.config);
+      if (req.config) {
+        applyDefined(state.config, req.config);
+        onConfigChanged(state.config);
+      }
       return {};
     },
   };
 }
 
-/** config.targetOverride wins when set; otherwise the current top pick from target_selector.ts's weights.txt. */
+/**
+ * config.targetOverride wins when set (absolute, unconditional). Otherwise,
+ * under Approach.STOCK_TARGETING, prefers the top pick from
+ * stock_target_daemon.ts's own weights file - a stock-linked server we
+ * currently hold long, ranked by position size (see that file's module
+ * doc). If nothing qualifies there (no stock-linked long position exists
+ * right now), falls through to the normal money/security ranking rather
+ * than idling the whole scheduler over an empty portfolio - HACK always
+ * uses that same normal ranking directly.
+ */
 export function resolveTarget(ns: NS, config: scheduler_pb.SchedulerConfig): string | undefined {
   if (config.targetOverride) return config.targetOverride;
+
+  if (config.approach === scheduler_pb.Approach.STOCK_TARGETING) {
+    const stockWeightsFile = readWeightsFile(ns, loadStockTargetConfig(ns).weightsPath);
+    const stockTarget = stockWeightsFile?.weights[0]?.hostname;
+    if (stockTarget) return stockTarget;
+  }
 
   const weightsFile = readWeightsFile(ns, loadTargetSelectorConfig(ns).weightsPath);
   return weightsFile?.weights[0]?.hostname;
@@ -197,7 +239,10 @@ async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.Sc
       if (threads <= 0) continue;
 
       ensureWorkersDeployed(ns, host);
-      ns.exec(script, host, threads, target, 0);
+      // stock: true always, harmless when target isn't stock-linked (see
+      // hack_worker.ts's doc) - the prerequisite for Approach.STOCK_TARGETING
+      // (or just an already-stock-linked HACK target) to have any effect.
+      ns.exec(script, host, threads, target, 0, true);
       totalThreads += threads;
       hostsUsed.push(host);
     }
@@ -287,10 +332,14 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
 
   // A single action's threads may be spread across several hosts (see
   // allocateAcrossHosts) - fire one ns.exec per host it landed on, all with
-  // the same additionalMsec so they still complete together.
+  // the same additionalMsec so they still complete together. stock: true
+  // always (see prep()'s identical comment above) - passed to the weaken
+  // calls too for one uniform call shape, even though weaken_worker.ts
+  // itself never reads it (weaken has no stock-market effect at all,
+  // confirmed in Bitburner's own source).
   const fireOn = (script: string, group: Allocation[], delayMs: number): void => {
     for (const { host, threads } of group) {
-      if (threads > 0) ns.exec(script, host, threads, target, delayMs);
+      if (threads > 0) ns.exec(script, host, threads, target, delayMs, true);
     }
   };
 
@@ -312,8 +361,8 @@ export async function main(ns: NS): Promise<void> {
   // purchased_server_daemon.ts (see server_metadata.md).
   const log = createLogger(ns, "Scheduler", LOG_LEVEL.DEBUG);
 
-  const state = createSchedulerState();
-  const handlers = createHandlers(state);
+  const state = createSchedulerState(loadConfig(ns));
+  const handlers = createHandlers(state, (config) => ns.write(CONFIG_PATH, JSON.stringify(config, null, 2), "w"));
 
   const server = rpc.NewServer(ns, scheduler_pb.SchedulerServicePort);
   scheduler_pb.RegisterSchedulerService(server, handlers);
@@ -321,6 +370,11 @@ export async function main(ns: NS): Promise<void> {
   let currentTarget: string | undefined;
 
   server.addBackgroundTask(async () => {
+    // Re-read so hand-edits to /etc/scheduler.txt take effect without a
+    // restart - PatchSchedulerConfig writes through to the same file, so
+    // RPC patches survive this reload too.
+    state.config = loadConfig(ns);
+
     const target = resolveTarget(ns, state.config);
     if (!target) {
       await log.warn("[Scheduler] No target available yet (waiting on target_selector.js); skipping tick.");
@@ -333,7 +387,9 @@ export async function main(ns: NS): Promise<void> {
       await prep(ns, log, target, state.config);
     }
 
-    if (state.config.approach === scheduler_pb.Approach.HACK) {
+    // HACK and STOCK_TARGETING run the identical HWGW batch loop - they
+    // only disagree about which target resolveTarget() picks above.
+    if (state.config.approach === scheduler_pb.Approach.HACK || state.config.approach === scheduler_pb.Approach.STOCK_TARGETING) {
       await fireBatchIfRoom(ns, log, target, state.config);
     }
     // GROW_STATS/CRIME: defined in the schema, not implemented yet (see scheduler.proto).

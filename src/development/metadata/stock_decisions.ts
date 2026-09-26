@@ -40,70 +40,84 @@ export function decideStocksToSell(
 export type BuyCandidate = { sym: string; forecast: number; existingCostBasis: number };
 
 /**
- * Full picture of one tick's buy evaluation, not just the winning
- * decision - same diagnosability contract as hacknet_decisions.ts's
+ * Full picture of one tick's buy evaluation, not just the decisions made -
+ * same diagnosability contract as hacknet_decisions.ts's
  * InvestmentEvaluation. `bestCandidate` is the single highest-forecast
- * candidate found, whether or not it was actually affordable/under its
- * position cap - enough to diagnose a stuck tick without spamming the log.
+ * candidate found, whether or not anything was actually bought.
  */
 export type BuyEvaluation = {
-  decision?: { sym: string; shares: number };
+  decisions: { sym: string; shares: number }[];
   budget: number;
   candidateCount: number;
   bestCandidate?: { sym: string; forecast: number };
 };
 
+export type BuyLimits = {
+  reserveMoney: number;
+  maxSpendFraction: number;
+  // Per-symbol cap, as a fraction of net worth (cash + invested cost basis).
+  maxPositionFraction: number;
+  // Total stock exposure cap, as a fraction of net worth.
+  maxInvestedFraction: number;
+};
+
 /**
- * Picks at most one symbol to buy this tick - the highest-forecast
- * candidate among those that are both affordable and still under their
- * per-symbol position cap. Mirrors decideNodeInvestment's exact shape:
- * every candidate gets its own affordable-shares figure computed first
- * (respecting its OWN maxPositionFraction cap via `existingCostBasis`),
- * THEN the best-scoring one among those with a nonzero result wins - not
- * "pick globally-best-forecast first, then check if it's capped," which
- * would get stuck reporting the same maxed-out winner forever even while
- * budget remains for a second-best candidate that isn't capped.
+ * Splits this tick's budget across candidates in forecast order, each
+ * bounded by its own per-symbol room - one allocation decision per tick,
+ * the same shape as hwgw.ts's allocateAcrossHosts rather than a single
+ * winner.
  *
- * `budget` pairs an absolute floor (reserveMoney) with a relative
- * throttle (maxSpendFraction of current money) exactly like every other
- * spending daemon's decision function in this codebase.
+ * Both caps are measured against net worth (cash + invested cost basis),
+ * not cash alone. The first version capped each position at a fraction of
+ * *cash* and bought only one symbol per tick: with gang income refilling
+ * cash every tick, the top stock's room grew every tick too, so it won
+ * every single tick and nothing else was ever bought - caught live, all
+ * buys went to MGCP while four other qualifying stocks sat untouched and
+ * most of each tick's budget went unspent.
  *
- * `affordableShares` is an injected closure (mirrors
- * purchased_server_decisions.ts's cost-closure pattern) rather than this
- * function calling ns.stock.getPurchaseCost itself, since price isn't
- * linear in share count and this module stays ns-free - a test can pass
- * a trivial linear stand-in; the real closure (stock_daemon.ts)
- * binary-searches getPurchaseCost/getMaxShares for the largest
- * affordable count.
+ * maxInvestedFraction keeps a share of net worth in cash - stocks are
+ * liquid, but faction augmentation purchases and Daedalus's money
+ * requirement only count cash on hand.
+ *
+ * `affordable` is an injected closure (mirrors purchased_server_decisions.ts's
+ * cost-closure pattern) so this module stays ns-free - price isn't linear
+ * in share count, so the real closure (stock_daemon.ts) binary-searches
+ * ns.stock.getPurchaseCost; a test can pass a linear stand-in.
  */
 export function decideStockToBuy(
   candidates: BuyCandidate[],
   money: number,
-  reserveMoney: number,
-  maxSpendFraction: number,
-  maxPositionFraction: number,
-  affordableShares: (sym: string, budgetForSymbol: number) => number
+  investedCostBasis: number,
+  limits: BuyLimits,
+  affordable: (sym: string, budgetForSymbol: number) => { shares: number; cost: number }
 ): BuyEvaluation {
-  const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
+  const netWorth = money + investedCostBasis;
+  const spendBudget = Math.max(0, Math.min(money - limits.reserveMoney, money * limits.maxSpendFraction));
+  const exposureRoom = Math.max(0, limits.maxInvestedFraction * netWorth - investedCostBasis);
+  const budget = Math.min(spendBudget, exposureRoom);
 
-  if (candidates.length === 0) return { budget, candidateCount: 0 };
+  if (candidates.length === 0) return { decisions: [], budget, candidateCount: 0 };
 
-  const bestCandidate = candidates.reduce((a, b) => (b.forecast > a.forecast ? b : a));
+  const ranked = [...candidates].sort((a, b) => b.forecast - a.forecast);
+  const decisions: { sym: string; shares: number }[] = [];
+  let remaining = budget;
 
-  const scored = candidates.map((candidate) => {
-    const positionCap = Math.max(0, maxPositionFraction * money - candidate.existingCostBasis);
-    const symbolBudget = Math.min(budget, positionCap);
-    return { candidate, shares: affordableShares(candidate.sym, symbolBudget) };
-  });
+  for (const candidate of ranked) {
+    if (remaining <= 0) break;
+    const positionRoom = Math.max(0, limits.maxPositionFraction * netWorth - candidate.existingCostBasis);
+    const symbolBudget = Math.min(remaining, positionRoom);
+    if (symbolBudget <= 0) continue;
 
-  const affordable = scored.filter((s) => s.shares > 0);
-  const winner =
-    affordable.length === 0 ? undefined : affordable.reduce((a, b) => (b.candidate.forecast > a.candidate.forecast ? b : a));
+    const { shares, cost } = affordable(candidate.sym, symbolBudget);
+    if (shares <= 0) continue;
+    decisions.push({ sym: candidate.sym, shares });
+    remaining -= cost;
+  }
 
   return {
-    decision: winner ? { sym: winner.candidate.sym, shares: winner.shares } : undefined,
+    decisions,
     budget,
     candidateCount: candidates.length,
-    bestCandidate: { sym: bestCandidate.sym, forecast: bestCandidate.forecast },
+    bestCandidate: { sym: ranked[0].sym, forecast: ranked[0].forecast },
   };
 }
