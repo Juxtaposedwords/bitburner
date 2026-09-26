@@ -7,6 +7,7 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  decidePreInstall,
   decideWorkTarget,
   EligibilitySnapshot,
   evaluateRequirement,
@@ -381,5 +382,21 @@ describe("hasAnyCityFaction", () => {
 
   it("is true once any one city faction is joined", () => {
     expect(hasAnyCityFaction(["CyberSec", "Sector-12"])).toBe(true);
+  });
+});
+
+describe("decidePreInstall", () => {
+  const buy = { kind: "buy" as const, faction: "CyberSec", augmentation: "Neurotrainer I" };
+
+  it("spends any remaining affordable cash before anything else", () => {
+    expect(decidePreInstall(buy, 3)).toEqual(buy);
+  });
+
+  it("winds down (liquidate stock) when nothing is affordable but stock is still held", () => {
+    expect(decidePreInstall({ kind: "none" }, 3)).toEqual({ kind: "wind-down" });
+  });
+
+  it("installs only with nothing affordable and no stock held", () => {
+    expect(decidePreInstall({ kind: "none" }, 0)).toEqual({ kind: "install" });
   });
 });

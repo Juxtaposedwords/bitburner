@@ -1,5 +1,6 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
+import { clearInstallPending, readInstallPending, touchInstallPending } from "development/libraries/install_handshake";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import {
   AugmentationInfo,
@@ -12,6 +13,7 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  decidePreInstall,
   decideWorkTarget,
   EligibilityAction,
   EligibilitySnapshot,
@@ -526,19 +528,72 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
 
   if (joinedFactions.length === 0) return;
 
+  const now = Math.floor(Date.now() / 1000);
+  // Keeps an in-progress wind-down alive while its freed cash gets spent.
+  const refreshWindDown = (): void => {
+    if (readInstallPending(ns)) touchInstallPending(ns, now);
+  };
+
   if (purchaseDecision.kind === "buy") {
     if (ns.singularity.purchaseAugmentation(purchaseDecision.faction as FactionNameType, purchaseDecision.augmentation)) {
       await log.info(`[Faction] Purchased ${purchaseDecision.augmentation} from ${purchaseDecision.faction}.`);
     }
+    if (config.autoInstall) refreshWindDown();
     // Re-derive fresh state (including the new pending list) next tick
     // before even considering install - never buy and install same-tick.
     return;
   }
 
-  if (config.autoInstall && decideInstallReady(purchaseDecision, pending)) {
-    await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
-    ns.singularity.installAugmentations(config.bootScript);
+  if (!(config.autoInstall && decideInstallReady(purchaseDecision, pending))) {
+    if (readInstallPending(ns)) {
+      clearInstallPending(ns);
+      await log.info("[Faction] Install no longer ready (or autoInstall turned off) - cancelling the wind-down; stock trading resumes.");
+    }
+    return;
   }
+
+  // Everything left is spent before the install wipes cash and stock - see
+  // decidePreInstall and development/libraries/install_handshake.ts.
+  const finalPurchase: PurchaseDecision = config.autoPurchaseAugmentations
+    ? decideAugmentationPurchase(money, 0, 1, reps, catalog, owned)
+    : { kind: "none" };
+  const heldPositions = stockPositionsHeld(ns);
+  const action = decidePreInstall(finalPurchase, heldPositions);
+
+  if (action.kind === "buy") {
+    if (ns.singularity.purchaseAugmentation(action.faction as FactionNameType, action.augmentation)) {
+      await log.info(`[Faction] Pre-install: purchased ${action.augmentation} from ${action.faction} with the remaining cash.`);
+    }
+    refreshWindDown();
+    return;
+  }
+
+  if (action.kind === "wind-down") {
+    const starting = !readInstallPending(ns);
+    touchInstallPending(ns, now);
+    if (starting) {
+      await log.info(
+        `[Faction] Install ready, but ${heldPositions} stock position(s) are still held and an install deletes them with no refund. ` +
+          "Asking stock_daemon.js to sell everything; the cash will be spent on augmentations before installing."
+      );
+    } else {
+      await log.debug(`[Faction] Wind-down: waiting on stock_daemon.js to sell ${heldPositions} position(s).`);
+    }
+    return;
+  }
+
+  clearInstallPending(ns);
+  await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
+  ns.singularity.installAugmentations(config.bootScript);
+}
+
+/** Symbols with any shares held, long or short. 0 without TIX API access - every other ns.stock call needs it. */
+function stockPositionsHeld(ns: NS): number {
+  if (!ns.stock.hasTixApiAccess()) return 0;
+  return ns.stock.getSymbols().filter((sym) => {
+    const [long, , short] = ns.stock.getPosition(sym);
+    return long > 0 || short > 0;
+  }).length;
 }
 
 export async function main(ns: NS): Promise<void> {

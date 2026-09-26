@@ -1,5 +1,6 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
+import { isInstallPendingActive, readInstallPending } from "development/libraries/install_handshake";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { BuyCandidate, decideStocksToSell, decideStockToBuy, StockPosition } from "development/metadata/stock_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
@@ -169,6 +170,20 @@ async function tick(ns: NS, log: Logger, config: StockConfig): Promise<void> {
   }
 
   const positions = gatherPositions(ns);
+
+  // Pre-install wind-down (see development/libraries/install_handshake.ts):
+  // an augmentation install deletes every position with no refund, so sell
+  // everything - forecast irrelevant - and buy nothing until it's over.
+  if (isInstallPendingActive(readInstallPending(ns), Math.floor(Date.now() / 1000))) {
+    await executeSells(
+      ns,
+      log,
+      positions.map((p) => ({ sym: p.sym, shares: p.shares }))
+    );
+    await log.debug(`[Stock] Install pending: liquidated ${positions.length} position(s); not buying until the install is done or cancelled.`);
+    return;
+  }
+
   const symbols = ns.stock.getSymbols();
   const forecasts = new Map(symbols.map((sym) => [sym, ns.stock.getForecast(sym)]));
 

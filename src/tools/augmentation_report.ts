@@ -43,11 +43,32 @@ export async function main(ns: NS): Promise<void> {
   const joinedFactions = player.factions;
   const reps = gatherReps(ns, joinedFactions);
 
-  lines.push("=== Joined factions ===");
+  // Donating money for reputation (ns.singularity.donateToFaction) needs
+  // favor >= getFavorToDonate(). Favor only grows at install time, by
+  // getFactionFavorGain() - the rep earned this run, converted. The gang's
+  // own faction can never take donations.
+  const favorToDonate = ns.getFavorToDonate();
+  const gangFaction = ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
+
+  lines.push(`=== Joined factions (donations need favor >= ${favorToDonate.toFixed(0)}) ===`);
   if (joinedFactions.length === 0) {
     lines.push("(none yet)");
   } else {
-    for (const faction of joinedFactions) lines.push(`${faction}: rep=${(reps[faction] ?? 0).toFixed(0)}`);
+    for (const faction of joinedFactions) {
+      const favor = ns.singularity.getFactionFavor(faction);
+      const gain = ns.singularity.getFactionFavorGain(faction);
+      const donation =
+        faction === gangFaction
+          ? "gang faction - no donations"
+          : favor >= favorToDonate
+            ? "CAN DONATE NOW"
+            : favor + gain >= favorToDonate
+              ? "can donate after next install"
+              : `needs ${(favorToDonate - favor - gain).toFixed(0)} more favor beyond next install`;
+      lines.push(
+        `${faction}: rep=${(reps[faction] ?? 0).toFixed(0)} favor=${favor.toFixed(0)} (+${gain.toFixed(0)} at next install) -> ${donation}`
+      );
+    }
   }
   lines.push("");
 

@@ -127,6 +127,28 @@ export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAu
 }
 
 /**
+ * The last steps before an install, once decideInstallReady is true.
+ * An install resets cash to $1,000 and deletes every stock position with no
+ * refund (see development/libraries/install_handshake.ts), so anything
+ * still spendable is spent first:
+ *
+ * - `finalPurchase` is decided with the *whole* cash balance (no
+ *   reserveMoney, no maxSpendFraction). Those throttles protect money for
+ *   later, and there is no later - the old daily budget would leave up to
+ *   half the cash on the table at install. Anything affordable gets bought.
+ * - With nothing left to buy but stock still held, wind down: stock_daemon
+ *   sells, and the freed cash comes back through `finalPurchase` next tick.
+ * - Only with nothing affordable and no stock held does the install happen.
+ */
+export type PreInstallAction = { kind: "buy"; faction: string; augmentation: string } | { kind: "wind-down" } | { kind: "install" };
+
+export function decidePreInstall(finalPurchase: PurchaseDecision, stockPositionsHeld: number): PreInstallAction {
+  if (finalPurchase.kind === "buy") return finalPurchase;
+  if (stockPositionsHeld > 0) return { kind: "wind-down" };
+  return { kind: "install" };
+}
+
+/**
  * Active faction eligibility: everything above only ever reacts to
  * ns.singularity.checkFactionInvitations() - it never does anything to
  * become eligible for a faction we're not yet invited to. This section

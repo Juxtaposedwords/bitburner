@@ -589,6 +589,35 @@ success.
   optimization; the UI-only WSE account/plain 4S Market Data purchases (see above — not an
   oversight, deliberately never bought).
 
+### Pre-install wind-down: `development/libraries/install_handshake.ts`
+
+An augmentation install **deletes every stock position with no refund**:
+`initStockMarket()` replaces every `Stock` object, and shares live on those objects. It also
+**resets cash to $1,000** (`PlayerObjectGeneralMethods.ts`: `this.money = 1000 + ...`). Both
+were confirmed in Bitburner's source. TIX API and 4S access survive an install; only a new
+BitNode clears them (`prestigeSourceFile`). Before this existed, `faction_daemon.ts` decided to
+install purely from *cash* (nothing affordable, augmentations pending), with no idea stocks
+existed. With `autoInstall` on, that could delete tens of billions held in stock.
+
+The fix is a handshake through one flag file, `/var/install_pending.txt` (`{since, heartbeat}`):
+1. When an install is ready, `faction_daemon.ts` first spends the **whole** cash balance
+   (`decidePreInstall`). It ignores `reserveMoney`/`maxSpendFraction` for this, since there's
+   no later to save for; the old 50% throttle could leave half the cash on the table at install.
+2. If nothing is affordable but stock is still held, it writes the flag and waits, refreshing
+   `heartbeat` every tick.
+3. While the flag is active, `stock_daemon.ts` sells every position regardless of forecast and
+   buys nothing. Only `stock_daemon.ts` ever trades.
+4. The freed cash comes back through step 1 and is spent on augmentations (most expensive
+   first, as usual). Once nothing is affordable and no stock is held, `faction_daemon.ts`
+   deletes the flag and installs.
+
+If the install stops being ready mid-wind-down (e.g. `autoInstall` turned off), the flag is
+deleted and trading resumes. A heartbeat older than 10 minutes stops counting
+(`isInstallPendingActive`), so a `faction_daemon.ts` that dies mid-wind-down can't leave the
+portfolio in cash forever. The known gap is the other way around: if `stock_daemon.ts` isn't
+running (or `enabled: false`), nobody sells, and `faction_daemon.ts` waits rather than
+installing over the holdings. It logs that it's waiting on `stock_daemon.js` every tick.
+
 ### `tools/stock_server_report.ts`: which known servers are actually stock-linked
 
 A one-shot diagnostic, same shape as `check_cloud.ts`/`augmentation_report.ts`. Confirmed via
