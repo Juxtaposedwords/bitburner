@@ -1078,3 +1078,89 @@ territory changing hands based on `getChanceToWinClash`'s `myPower/(myPower+thei
   exactly how to resume (edit `/var/gang_state.txt`'s `casualties` back down, or delete the file).
   Nothing auto-clears it; same "a permanent loss requires an explicit human decision to retry"
   principle as `autoInstall`/`autoPurchaseAugmentations`.
+
+## Monitoring: `monitoring_daemon.ts` + `tools/monitor.ts` (`/var/monitoring/`)
+
+Where money comes from and goes, over time, without digging through daemon logs. It's a minimal
+time-series store, not an event log. The existing logs still answer "what happened" (which
+augmentation was bought, and exactly when); this answers "what's the trend."
+
+- **Storage (`development/libraries/timeseries.ts`)**: one small JSON file per series at
+  `/var/monitoring/<kind>/<name>.txt`, e.g. `counter/gang`, `gauge/net_worth`. The step is a fixed
+  60s and timestamps are implied by position (`{start, step, values}`), so each point costs one
+  number. There's a hard cap of 1440 points (24h); appending past it drops the oldest and advances
+  `start`. The cap matters because files on `home` are stored in the save file. A slot the
+  sampler missed (e.g. during a restart) is filled with `null`, so a gap stays a gap rather than
+  invented data. The pure core (`appendPoint`/`windowPoints`/`counterRates`) has no `ns`
+  dependency and is unit-tested.
+- **Sampler (`monitoring_daemon.ts`)**: a 60s loop and the only writer of every file under
+  `/var/monitoring/`. Counters are every nonzero category of `ns.getMoneySources().sinceStart`, the
+  game's own cumulative totals. So nothing that earns or spends money needs instrumenting, and
+  nothing is hardcoded about which categories exist. It uses `sinceStart` rather than
+  `sinceInstall` so installing augmentations doesn't reset them. Gauges are `cash` and
+  `hacking_level` (via `PlayerService`), `stock_value` (long positions at bid price, only with TIX
+  API access), and `net_worth` (cash + stock value). About 10 GB, launched in `boot.ts`'s
+  low-priority group. **Not** in `wipe_data.ts`'s `WIPE_PREFIXES`, so history survives
+  `test_restart.js`.
+- **Spending is negative.** `getMoneySources()` records spending categories (augmentations,
+  hacknet_expenses, servers, ...) as amounts that accumulate *downward*, and `stock` can go down on
+  realized losses. So `counterRates` reports signed rates. An earlier version treated any
+  negative change as a counter reset and nulled it, which silently blanked every spend series.
+  Caught by rendering sample output before shipping. With `sinceStart`, the only true reset is a
+  new BitNode, which shows up as a single spike.
+- **CLI (`tools/monitor.ts`)**:
+  - `run tools/monitor.js [--window 1h]` prints the summary table. Counters are grouped into
+    INCOME/SPEND by the sign of their change over the window, sorted by size, with unchanged ones
+    dropped; each row shows Δ total, average per minute, and min/max per-minute rate. Gauges show
+    start → end. This is the compact "state of the economy" view to paste for a check-in.
+  - `--graph <id>[,<id>...]` draws up to 4 series as an **SVG** chart, printed with
+    `ns.tprintRaw` (0 GB, takes a React element). By default there's one **stacked panel** per
+    series, each with its own y-axis, since one shared scale let a single −$20B hacknet spend
+    spike flatten gang into a line. `--overlay` puts every series on one panel with a shared
+    y-axis, for directly comparable series like `income,spend`, and rejects mixing money with
+    a plain-number gauge. Counters are graphed as per-minute rate; spend counters are shown as
+    a positive magnitude labeled "spent", so higher always means more money moving. Gauges are
+    graphed as value. The presets `income` and `spend` sum every counter's rate by direction.
+  - **`--stack`** draws a stacked area chart instead of lines: each series is a filled band on
+    top of the ones below it, so the top edge is the total and each band is one source's
+    share. On its own, `--graph income --stack` (or `spend`) expands the preset into its
+    categories (`directionalRates`). That's the "where does income come from" view, e.g. gang
+    87% / hacknet 9% / stock 3%. `stackBands` puts the largest total at the bottom, where its
+    flat baseline makes the shape easiest to read. It counts a missing or null point as 0,
+    since an area can't have holes, and clamps negatives to 0. An income category can dip
+    below zero for a minute on a realized stock loss, which would otherwise fold its band back
+    through the one below. The legend sits to the right in the same top-to-bottom order as the
+    bands, with each category's share of the window total. Stacks can use all 8 palette
+    colors, while line charts stay at 4 series. Beyond 8 categories, the smallest merge into
+    "other" (`mergeSmallest`). `--stack` and `--overlay` are mutually exclusive, and both
+    require series in the same units.
+  - **Axes:** y ticks use the standard "nice numbers" rounding (`niceTicks`: steps of
+    1/2/5×10ⁿ, so labels read $1B/$2B rather than $1.37B). X ticks land on round clock times
+    (`timeTicks`: every 5m/10m/1h/…, at most 7), not equal fractions of the window, which had
+    produced labels like 17:53/17:59. Points are placed by *timestamp* (`plotPoints`), so a
+    series that started recording late sits at its real time, and nulls split the line so gaps
+    stay gaps.
+  - **Axis controls:** `--ymin`/`--ymax` (`500M`, `5B`, `1.5T`, … via `parseAmount`) fix either
+    end of the y-axis exactly, with the other end still auto-rounded; values outside are
+    clamped to the edge. `--window` sets the x span, and `--ago` shifts it back in time (e.g.
+    `--window 2h --ago 1h`).
+  - **Why SVG, and why `globalThis.React`:** an earlier text renderer drew joined box-drawing
+    lines (`╭╯╮╰│`), but Bitburner's terminal adds spacing between rows, so they rendered as
+    disconnected fragments. That was caught live, since it looked fine in an ordinary terminal.
+    React comes from `globalThis.React`, **not** `lib/react.ts`: Bitburner's RAM calculator
+    (`RamCalculations.ts`) charges **25 GB** to any script referencing the identifier `window`
+    or `document`, and `lib/react.ts` does `window.React`. `globalThis` is the same object and
+    isn't charged. Layout was checked by rendering `buildChart` through a stand-in
+    `createElement` that serializes to SVG markup, then rasterizing it outside the game.
+  - `--list` shows every series with its point count and span. The summary stays text, since
+    it's the view to paste for a check-in.
+  - Windows/`--ago` accept `30m`/`2h`/`45s` or bare minutes. Series ids tab-complete.
+  - The pure pieces (`parseWindow`, `parseAmount`, `formatMoney`, `formatSummary`,
+    `aggregateByDirection`, `directionalRates`, `niceTicks`, `yRange`, `timeTicks`, `plotPoints`,
+    `stackBands`, `mergeSmallest`, `bandPolygon`) are unit-tested
+    in `tools/monitor_test.ts`; the `React.createElement` wrapper (`buildChart`) isn't.
+- **Scope cuts**:
+  - No coarser long-retention tier yet (e.g. 10-minute averages for a week).
+  - No custom per-daemon series yet (e.g. batches fired per minute). Adding one later means that
+    daemon writes its own file under its own `<kind>/`, which keeps the single-writer-per-file
+    rule.

@@ -13,6 +13,7 @@ const HACKNET_SCRIPT = "development/metadata/hacknet_daemon.js";
 const PURCHASED_SERVER_SCRIPT = "development/metadata/purchased_server_daemon.js";
 const STOCK_SCRIPT = "development/metadata/stock_daemon.js";
 const STOCK_TARGET_SCRIPT = "development/metadata/stock_target_daemon.js";
+const MONITORING_SCRIPT = "development/metadata/monitoring_daemon.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -126,4 +127,7 @@ export async function main(ns: NS): Promise<void> {
   launchIfNotRunning(ns, PURCHASED_SERVER_SCRIPT);
   launchIfNotRunning(ns, STOCK_SCRIPT);
   launchIfNotRunning(ns, STOCK_TARGET_SCRIPT);
+  // ~10 GB (mostly ns.stock.* for portfolio value), no dependencies - same
+  // low-priority placement as the growth daemons above.
+  launchIfNotRunning(ns, MONITORING_SCRIPT);
 }
