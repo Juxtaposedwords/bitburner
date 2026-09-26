@@ -422,6 +422,42 @@ mode or the cheapest-first fallback is active) — so a quiet daemon is always
 distinguishable from a stuck one by checking its own log file, not by
 comparing timestamps against other daemons' activity.
 
+### Buying: many purchases per tick, gated by payback
+
+Each tick, `hacknet_daemon.ts` keeps calling `decideNodeInvestment` and executing its pick until
+nothing qualifies or the tick's budget runs out (at most 200 purchases). It re-reads nodes and
+costs after every purchase. Budget is the same `reserveMoney` / `maxSpendFraction` limit as
+before, taken once per tick. One purchase per 5s tick, the old behavior, capped a full build-out
+(about 9,000 level/RAM/core/cache steps across 20 servers) at roughly 12 hours regardless of cash.
+
+With Formulas.exe, `maxPaybackHours` (default 4, 0 = off) skips any purchase that wouldn't earn
+its cost back in that time. A hash is valued at what "Sell for Money" pays for it ($1M ÷ its
+live hash cost). That's a floor: the priority hash upgrades are bought because they're worth
+more. An install wipes the whole Hacknet, so set it to roughly the time until the next install.
+Since each upgrade costs more than the last, this limit is also what stops spending once the
+fleet is built out. Capacity-driven cache upgrades (below) ignore it.
+
+`monitoring_daemon.ts` records `gauge/hacknet_nodes`, `gauge/hash_rate` (or
+`gauge/hacknet_money_rate` for plain nodes), `gauge/hashes`, and `gauge/hash_capacity`, e.g.
+`run tools/monitor.js --graph gauge/hash_rate --window 3h`.
+
+`gauge/hacking_exp` (via `PlayerService`'s `hacking_exp`) sits next to `gauge/hacking_level`.
+Level grows only logarithmically with experience, so experience per minute is the rate that shows
+whether studying and Improve Studying are working. The summary adds a `(+N/min)` rate to every
+non-money gauge.
+
+`run tools/skill_eta.js [hacking-target] [--window 1h]` compares both routes to a Daedalus
+invite:
+- **Hacking to 2500:** uses the measured experience rate, plus the configured class's rate from
+  `ns.formulas.work.universityGains`, and shows milestone ETAs.
+- **1500 in every combat stat:** uses the best gym per stat from `ns.formulas.work.gymGains`,
+  training one stat at a time.
+
+For each route it also says whether installing the pending augmentations now gets there sooner.
+Levels are converted with `ns.formulas.skills`, using each skill's multiplier solved from
+current level and experience (`skill_progress.ts`), since the BitNode's share needs SF5 to read.
+ETAs assume today's rates hold.
+
 ### Hash spending
 
 Each tick, `hacknet_daemon.ts` calls `decideHashSpend` in a loop and re-queries `hashCost` after
@@ -445,6 +481,10 @@ and hashes past `hashCapacity()` are lost.
   `decideNodeInvestment` gets `needCapacity` and buys the cheapest affordable cache upgrade ahead
   of its ROI pick. Without this, ROI mode never buys cache, since cache doesn't raise
   production.
+- **Current activity first:** `study_daemon.ts` writes what the player is training
+  (`/var/study_activity.txt`: class, gym, or none), and `prioritizeForActivity` moves the matching
+  upgrade to the front: Improve Studying in class, Improve Gym Training at the gym. It only
+  reorders the configured list, and it ignores a file older than a minute.
 - `/etc/hacknet.txt` values override defaults, so an existing file that already sets
   `hashSpendPriority` keeps its old list until it's edited
   (`run tools/set_config.js /etc/hacknet.txt --unset hashSpendPriority`).
@@ -758,15 +798,33 @@ cross-daemon coordination logic not justified until the manual version proves wo
 read over the `GetSchedulerConfig` RPC:
 
 - **`scheduler_daemon.ts`:** keeps running the same HWGW batch loop, so the fleet keeps earning.
-- **`study_daemon.ts`** (new, `ns.singularity`, launched only when `singularityAvailable`): keeps
-  the player in `course` at `university` (`/etc/study.txt`, defaults "Algorithms" at "ZB
-  Institute of Technology", the highest-experience pair). It travels to the university's city
-  first when needed, and never re-enrolls in a class already running. Pure logic lives in
-  `study_decisions.ts` (`decideStudyStep`).
+- **`study_daemon.ts`** (`ns.singularity`, launched only when `singularityAvailable`): trains
+  toward a Daedalus invite, which takes hacking 2500 **or** 1500 in every combat stat. Each tick
+  it estimates both routes from 0 GB formulas: each skill's multiplier is solved from level and
+  experience, and rates come from `universityGains` for `course` at `university`
+  (`/etc/study.txt`, default "Algorithms" at "ZB Institute of Technology") and from `gymGains` at
+  the best gym for each stat. If the combat total (stats train one at a time) is shorter, it
+  trains the first unfinished stat at its best gym (`chooseTraining`); otherwise it studies.
+  Once Daedalus is joined or w0r1d_d43m0n is visible, the combat route no longer matters and it
+  only studies. It travels first when needed and never restarts the activity already running
+  (`decideStudyStep`). Without Formulas.exe it always studies.
+
+  Why the choice matters: after the BN9 install, hacking 2500 was ~2.5 days of class, while
+  combat multipliers of x12–x40 (from years of gang-faction combat augmentations) put all four
+  stats at 1500 in ~6 minutes at Powerhouse Gym.
 - **`faction_daemon.ts`:** gives up the work slot (no faction work, no eligibility work, no
-  city-faction travel), so the two daemons don't restart over each other every tick. It still
-  buys augmentations and donates, but **holds the install**, because an install resets hacking
-  experience and would undo the studying.
+  city-faction travel), so the two daemons don't restart over each other every tick. It also
+  changes what it buys and when it installs, because the level multiplier sits inside an
+  exponent (`skill_progress.ts`). At x5.3, +10% level multiplier cuts the experience needed for
+  hacking 2500 by about 4×, while +10% experience rate saves only 10%:
+  - **Buys** (and donates for) only augmentations raising a multiplier in
+    `growStatsAugmentationFocus` (default `["hacking", "hacking_exp"]`; NeuroFlux qualifies).
+  - **Installs** only when `compareInstall` says installing reaches `growStatsHackingGoal`
+    (0 = w0r1d_d43m0n's requirement, else Daedalus's 2500) sooner. It compares experience still
+    needed now with experience needed from zero at the boosted multiplier, divided by the
+    experience boost; the rate cancels out. The ratio must be at most `growStatsInstallMaxRatio`
+    (default 0.8), leaving margin for the Hacknet and its study upgrades, which an install also
+    resets.
 - **`share_daemon.ts`:** drops to 0 threads, since share only boosts faction and company rep.
 
 Why it exists: in BN9, scripts earn 5% of normal hacking experience, but university classes

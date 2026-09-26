@@ -32,6 +32,7 @@ export interface PlayerMetadata {
     singularityAvailable?: boolean;
     money?: number;
     gangAvailable?: boolean;
+    hackingExp?: number;
 }
 
 export interface PlayerServiceHandlers {

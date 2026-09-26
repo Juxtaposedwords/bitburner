@@ -30,6 +30,10 @@ message PlayerMetadata {
   // (gated by SF4 instead), computed and patched in the same
   // detect_capabilities.ts pass.
   optional bool gang_available = 11;
+  // Raw hacking experience (ns.getPlayer().exp.hacking). Level grows only
+  // logarithmically with it, so monitoring_daemon.ts records this to show
+  // how fast studying/Improve Studying are actually adding up.
+  optional double hacking_exp = 12;
 }
 
 message GetPlayerMetadataRequest {}

@@ -28,6 +28,9 @@ export type AugmentationInfo = {
   price: number;
   repReq: number;
   prereqs: string[];
+  // ns.singularity.getAugmentationStats multipliers (e.g. hacking: 1.1);
+  // optional so tests and callers that don't need them can omit it.
+  stats?: Record<string, number>;
 };
 
 export type PurchaseDecision = { kind: "none" } | { kind: "buy"; faction: string; augmentation: string };

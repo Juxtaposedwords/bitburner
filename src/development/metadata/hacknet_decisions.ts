@@ -23,6 +23,9 @@ export type PurchaseDecision =
   | { kind: "upgrade"; index: number; upgrade: "level" | "ram" | "core" | "cache" }
   | { kind: "none" };
 
+/** See decideNodeInvestment's `maxPayback`. */
+export type MaxPayback = { seconds: number; valuePerUnit: number };
+
 /**
  * Full picture of one tick's evaluation, not just the winning decision -
  * lets a caller log *why* nothing happened. Rather than surfacing every
@@ -74,6 +77,13 @@ export type InvestmentEvaluation = {
  * a score, it's just left out of the competition when gainRate is
  * provided (still considered normally in the no-gainRate fallback).
  *
+ * `maxPayback` (ROI mode only) skips any candidate that wouldn't earn its
+ * cost back within `seconds`, valuing one unit of production at
+ * `valuePerUnit` dollars. An install wipes the whole Hacknet, so an upgrade
+ * that pays back after the next install never pays back at all; and
+ * because each upgrade costs more than the last, this is also what stops
+ * spending once the fleet is built out, instead of maxSpendFraction alone.
+ *
  * `needCapacity` covers what ROI can't see: hash upgrade costs rise with
  * every level bought, and one costing more than the hashes you can store
  * can never be bought at all. When the caller sets it (see
@@ -88,7 +98,8 @@ export function decideNodeInvestment(
   atMaxNodes: boolean,
   nodes: NodeUpgradeCosts[],
   gainRate?: (level: number, ram: number, cores: number) => number,
-  needCapacity = false
+  needCapacity = false,
+  maxPayback?: MaxPayback
 ): InvestmentEvaluation {
   const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
 
@@ -119,7 +130,9 @@ export function decideNodeInvestment(
     }
   }
 
-  const affordable = candidates.filter((c) => c.cost <= budget);
+  // score is production gained per dollar, so payback = 1 / (score * value).
+  const paysBack = (c: Candidate): boolean => !gainRate || !maxPayback || c.score * maxPayback.valuePerUnit * maxPayback.seconds >= 1;
+  const affordable = candidates.filter((c) => c.cost <= budget && paysBack(c));
   const isBetter = (a: Candidate, b: Candidate): boolean => (gainRate ? a.score > b.score : a.score < b.score);
   const pickBest = (list: Candidate[]): Candidate => list.reduce((best, c) => (isBetter(c, best) ? c : best));
 
@@ -169,6 +182,25 @@ export function pickHashUpgrade(priority: string[], numHashes: number, costs: Re
 export function hashCapacityBound(priority: string[], costs: Record<string, number>, capacity: number, drainAboveFraction: number): boolean {
   const known = priority.map((name) => costs[name]).filter((cost): cost is number => cost !== undefined);
   return known.length > 0 && Math.min(...known) > drainAboveFraction * capacity;
+}
+
+/** The hash upgrade that speeds up each training activity (see study_decisions.ts's ActivityFile). */
+export const ACTIVITY_HASH_UPGRADE: Record<string, string> = {
+  class: "Improve Studying",
+  gym: "Improve Gym Training",
+};
+
+/**
+ * `priority` with the upgrade boosting the player's current activity moved
+ * to the front - hashes spent on Improve Studying while at the gym (or the
+ * reverse) do nothing until the activity changes. Only reorders: an upgrade
+ * not already on the list isn't added, and anything else ("none", unknown)
+ * leaves the list as configured.
+ */
+export function prioritizeForActivity(priority: string[], activity: string | undefined): string[] {
+  const upgrade = activity === undefined ? undefined : ACTIVITY_HASH_UPGRADE[activity];
+  if (!upgrade || !priority.includes(upgrade)) return priority;
+  return [upgrade, ...priority.filter((name) => name !== upgrade)];
 }
 
 /**

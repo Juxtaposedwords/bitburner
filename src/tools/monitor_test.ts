@@ -89,6 +89,21 @@ describe("formatSummary", () => {
     expect(text).toContain("858 → 871");
   });
 
+  it("adds a per-minute rate to non-money gauges only", () => {
+    const lines = formatSummary(
+      [
+        { id: "gauge/cash", series: series([1e9, 2e9]) },
+        { id: "gauge/hacking_exp", series: series([1.2e6, 1.5e6]) },
+      ],
+      60,
+      3600
+    );
+    const text = lines.join("\n");
+
+    expect(text).toContain("1.20M → 1.50M   (+300K/min)");
+    expect(text).not.toMatch(/\$2\.00B.*\/min/);
+  });
+
   it("only counts points inside the window", () => {
     // Points at t=0,60,120; a 60s window ending at 120 sees only 60->120.
     const lines = formatSummary([{ id: "counter/gang", series: series([0, 10e9, 11e9]) }], 120, 60);

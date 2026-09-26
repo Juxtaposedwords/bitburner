@@ -27,6 +27,15 @@ import {
 } from "development/metadata/faction_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import { Approach, NewSchedulerServiceClient } from "development/metadata/scheduler";
+import {
+  combineMultipliers,
+  compareInstall,
+  effectiveSkillMult,
+  hackingGoal,
+  matchesFocus,
+  PENDING_BOOST_PATH,
+  PendingBoost,
+} from "development/libraries/skill_progress";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 // FactionName/FactionWorkType/CompanyName/CityName/JobField/CrimeType/
@@ -44,6 +53,8 @@ type CompanyNameType = Parameters<NS["singularity"]["applyToCompany"]>[0];
 type JobFieldType = Parameters<NS["singularity"]["applyToCompany"]>[1];
 type CrimeTypeType = Parameters<NS["singularity"]["commitCrime"]>[0];
 type GymLocationNameType = Parameters<NS["singularity"]["gymWorkout"]>[0];
+
+const WORLD_DAEMON = "w0r1d_d43m0n";
 
 /**
  * The third file allowed to import ns.singularity (after
@@ -142,6 +153,20 @@ export type FactionConfig = {
   // for (gyms only exist in Aevum/Sector-12/Volhaven) - default pairs
   // with cityFactionPriority's default (Sector-12 first).
   gymLocation: string;
+
+  // During Approach.GROW_STATS (see study_daemon.ts): only augmentations
+  // raising one of these multipliers are bought or donated for - the level
+  // multiplier sits inside an exponent (see skill_progress.ts), so it's worth
+  // far more toward the goal than anything else. [] = buy everything.
+  growStatsAugmentationFocus: string[];
+  // Hacking level GROW_STATS works toward; 0 = w0r1d_d43m0n's requirement
+  // once visible, else Daedalus's 2500 (see hackingGoal).
+  growStatsHackingGoal: number;
+  // During GROW_STATS, install only if it reaches the goal in at most this
+  // fraction of the time staying would take (compareInstall's ratio). Below
+  // 1 because an install also resets the Hacknet and its study upgrades,
+  // which the comparison doesn't count.
+  growStatsInstallMaxRatio: number;
 };
 
 export const DEFAULT_CONFIG: FactionConfig = {
@@ -167,6 +192,10 @@ export const DEFAULT_CONFIG: FactionConfig = {
   minCrimeSuccessChance: 0.5,
   maxCrimeAttempts: 100,
   gymLocation: "Iron Gym",
+
+  growStatsAugmentationFocus: ["hacking", "hacking_exp"],
+  growStatsHackingGoal: 0,
+  growStatsInstallMaxRatio: 0.8,
 };
 
 export const CONFIG_PATH = "/etc/faction.txt";
@@ -196,6 +225,7 @@ export function gatherCatalog(ns: NS, joinedFactions: string[]): AugmentationInf
         price: ns.singularity.getAugmentationPrice(name),
         repReq: ns.singularity.getAugmentationRepReq(name),
         prereqs: ns.singularity.getAugmentationPrereq(name),
+        stats: ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>,
       });
     }
   }
@@ -473,6 +503,35 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
   }
 }
 
+/**
+ * Whether installing `pending` now reaches the GROW_STATS hacking goal
+ * sooner than continuing to study (compareInstall's ratio at or under
+ * growStatsInstallMaxRatio). Without Formulas.exe it can't tell, so no.
+ */
+async function growStatsInstallSaves(
+  ns: NS,
+  log: Logger,
+  config: FactionConfig,
+  player: ReturnType<NS["getPlayer"]>,
+  pending: PendingBoost
+): Promise<boolean> {
+  if (!ns.fileExists("Formulas.exe", "home")) return false;
+  const level = player.skills.hacking;
+  const exp = player.exp.hacking;
+  const mult = effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m));
+  if (mult === undefined) return false;
+
+  const goal = hackingGoal(config.growStatsHackingGoal, ns.serverExists(WORLD_DAEMON) ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : undefined);
+  const boost = pending.multipliers;
+  const c = compareInstall(goal, exp, mult, boost.hacking ?? 1, boost.hacking_exp ?? 1, (lvl, m) => ns.formulas.skills.calculateExp(lvl, m));
+  const saves = c.ratio <= config.growStatsInstallMaxRatio;
+  await log.debug(
+    `[Faction] GROW_STATS install check: goal=${goal} level=${level} pending=${pending.count} ` +
+      `level x${(boost.hacking ?? 1).toFixed(3)} exp x${(boost.hacking_exp ?? 1).toFixed(3)} ratio=${c.ratio.toFixed(2)} -> ${saves ? "install" : "hold"}`
+  );
+  return saves;
+}
+
 /** Whether scheduler_daemon.js's current approach is `approach`; false if the scheduler isn't reachable. */
 async function schedulerApproachIs(ns: NS, approach: Approach): Promise<boolean> {
   const res = await NewSchedulerServiceClient(ns).GetSchedulerConfig({});
@@ -503,11 +562,20 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const catalog: AugmentationInfo[] = joinedFactions.length > 0 ? gatherCatalog(ns, joinedFactions) : [];
   const owned = ns.singularity.getOwnedAugmentations(true);
   const pending = getPendingAugmentations(ns);
+  const pendingBoost: PendingBoost = {
+    count: pending.length,
+    multipliers: combineMultipliers(pending.map((name) => ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>)),
+    writtenAt: Date.now(),
+  };
+  ns.write(PENDING_BOOST_PATH, JSON.stringify(pendingBoost), "w");
 
   // GROW_STATS (scheduler.proto) hands the player's work slot to
   // study_daemon.ts, so neither faction work nor eligibility work below
   // claims it - otherwise each would restart over the other every tick.
   const growingStats = await schedulerApproachIs(ns, Approach.GROW_STATS);
+
+  // What's bought or donated for - narrowed during GROW_STATS.
+  const buyCatalog = growingStats ? catalog.filter((aug) => matchesFocus(aug.stats, config.growStatsAugmentationFocus)) : catalog;
 
   const workTarget = !growingStats && joinedFactions.length > 0 ? decideWorkTarget(joinedFactions, reps, catalog, owned) : undefined;
   if (workTarget) {
@@ -547,7 +615,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   }
 
   const purchaseDecision: PurchaseDecision = config.autoPurchaseAugmentations
-    ? decideAugmentationPurchase(money, config.reserveMoney, config.maxSpendFraction, reps, catalog, owned)
+    ? decideAugmentationPurchase(money, config.reserveMoney, config.maxSpendFraction, reps, buyCatalog, owned)
     : { kind: "none" };
 
   await log.debug(
@@ -586,7 +654,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const donationForRep = (rep: number): number => Math.ceil(ns.formulas.reputation.donationForRep(rep, player) * 1.001);
   const decideDonationWith = (reserveMoney: number, maxSpendFraction: number): DonationDecision =>
     donatable.size > 0
-      ? decideDonation(money, reserveMoney, maxSpendFraction, reps, catalog, owned, donatable, donationForRep)
+      ? decideDonation(money, reserveMoney, maxSpendFraction, reps, buyCatalog, owned, donatable, donationForRep)
       : { kind: "none" };
 
   const donation = decideDonationWith(config.reserveMoney, config.donationSpendFraction);
@@ -596,13 +664,16 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     return;
   }
 
-  // An install resets hacking experience, undoing GROW_STATS' studying -
-  // augmentations are still bought, but the install waits for the mode to end.
-  if (!(config.autoInstall && decideInstallReady(purchaseDecision, pending)) || growingStats) {
+  // During GROW_STATS an install resets the hacking experience being
+  // studied up, so it only goes ahead when the pending augmentations'
+  // multipliers more than make up for it (see growStatsInstallSaves).
+  const installReady = config.autoInstall && decideInstallReady(purchaseDecision, pending);
+  const growStatsBlocks = installReady && growingStats && !(await growStatsInstallSaves(ns, log, config, player, pendingBoost));
+  if (!installReady || growStatsBlocks) {
     if (readInstallPending(ns)) {
       clearInstallPending(ns);
       await log.info(
-        `[Faction] Install no longer ready (autoInstall off, or held during GROW_STATS) - cancelling the wind-down; stock trading resumes.`
+        `[Faction] Install no longer ready (autoInstall off, or not worth it during GROW_STATS) - cancelling the wind-down; stock trading resumes.`
       );
     }
     return;
@@ -611,7 +682,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Everything left is spent before the install wipes cash and stock - see
   // decidePreInstall and development/libraries/install_handshake.ts.
   const finalPurchase: PurchaseDecision = config.autoPurchaseAugmentations
-    ? decideAugmentationPurchase(money, 0, 1, reps, catalog, owned)
+    ? decideAugmentationPurchase(money, 0, 1, reps, buyCatalog, owned)
     : { kind: "none" };
   if (finalPurchase.kind === "none") {
     // Same whole-balance rule as finalPurchase: the install is about to

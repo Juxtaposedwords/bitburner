@@ -129,6 +129,7 @@ export function readPlayerContext(ns: NS, path: string): player_metadata_pb.Play
         charisma?: number;
         intelligence?: number;
       };
+      exp?: { hacking?: number };
       portOpenersOwned?: number;
       money?: number;
     };
@@ -142,6 +143,7 @@ export function readPlayerContext(ns: NS, path: string): player_metadata_pb.Play
       charisma: player.skills?.charisma,
       intelligence: player.skills?.intelligence,
       money: player.money,
+      hackingExp: player.exp?.hacking,
     };
   } catch {
     return {};

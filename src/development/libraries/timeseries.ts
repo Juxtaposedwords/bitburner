@@ -119,3 +119,13 @@ export function listSeries(ns: NS): string[] {
     .filter((id): id is string => id !== undefined)
     .sort();
 }
+
+/** "30m" / "2h" / "45s" / bare minutes -> seconds; undefined for anything else. */
+export function parseWindow(raw: string): number | undefined {
+  const match = /^(\d+(?:\.\d+)?)([smh]?)$/.exec(raw.trim());
+  if (!match) return undefined;
+  const n = Number(match[1]);
+  const unit = match[2] === "s" ? 1 : match[2] === "h" ? 3600 : 60;
+  const seconds = Math.round(n * unit);
+  return seconds > 0 ? seconds : undefined;
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHashSpend, decideNodeInvestment, hashCapacityBound, pickHashUpgrade } from "development/metadata/hacknet_decisions";
+import { decideHashSpend, decideNodeInvestment, hashCapacityBound, pickHashUpgrade, prioritizeForActivity } from "development/metadata/hacknet_decisions";
 
 describe("decideNodeInvestment", () => {
   it("buys a new node when it's the cheapest affordable option", () => {
@@ -283,5 +283,53 @@ describe("decideNodeInvestment needCapacity", () => {
   it("ignores cache upgrades in ROI mode when capacity isn't needed", () => {
     const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, nodes, gainRate);
     expect(decision).not.toMatchObject({ upgrade: "cache" });
+  });
+});
+
+describe("decideNodeInvestment maxPayback", () => {
+  // level 10 -> 11 adds 1 unit/s per ram*cores = 1; cost 100 -> payback 100s at $1/unit.
+  const node = { index: 0, level: 10, ram: 1, cores: 1, levelCost: 100, ramCost: Infinity, coreCost: Infinity };
+  const gainRate = (level: number, ram: number, cores: number) => level * ram * cores;
+
+  it("buys an upgrade that pays back within the limit", () => {
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, [node], gainRate, false, { seconds: 200, valuePerUnit: 1 });
+    expect(decision).toEqual({ kind: "upgrade", index: 0, upgrade: "level" });
+  });
+
+  it("skips an upgrade that pays back too slowly", () => {
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, [node], gainRate, false, { seconds: 50, valuePerUnit: 1 });
+    expect(decision).toEqual({ kind: "none" });
+  });
+
+  it("counts production value when judging payback", () => {
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, [node], gainRate, false, { seconds: 50, valuePerUnit: 2.5 });
+    expect(decision).toEqual({ kind: "upgrade", index: 0, upgrade: "level" });
+  });
+
+  it("still buys cache for capacity regardless of payback", () => {
+    const withCache = { ...node, cacheCost: 10 };
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, [withCache], gainRate, true, { seconds: 1, valuePerUnit: 1 });
+    expect(decision).toEqual({ kind: "upgrade", index: 0, upgrade: "cache" });
+  });
+});
+
+describe("prioritizeForActivity", () => {
+  const priority = ["Improve Studying", "Improve Gym Training", "Company Favor"];
+
+  it("puts Improve Gym Training first at the gym", () => {
+    expect(prioritizeForActivity(priority, "gym")).toEqual(["Improve Gym Training", "Improve Studying", "Company Favor"]);
+  });
+
+  it("keeps Improve Studying first in class", () => {
+    expect(prioritizeForActivity(priority, "class")).toEqual(priority);
+  });
+
+  it("leaves the order alone with no activity", () => {
+    expect(prioritizeForActivity(priority, "none")).toEqual(priority);
+    expect(prioritizeForActivity(priority, undefined)).toEqual(priority);
+  });
+
+  it("never adds an upgrade that isn't configured", () => {
+    expect(prioritizeForActivity(["Improve Studying"], "gym")).toEqual(["Improve Studying"]);
   });
 });

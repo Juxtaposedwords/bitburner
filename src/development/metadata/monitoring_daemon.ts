@@ -37,6 +37,28 @@ function stockValue(ns: NS): number | undefined {
   return total;
 }
 
+/**
+ * Hacknet economy: production rate, node count and, for Hacknet Servers,
+ * stored hashes against capacity. All gauges: tools/monitor.ts treats every
+ * counter as money. `production` is hashes/s for servers and $/s for plain
+ * nodes, so the rate series is named after whichever this is.
+ */
+function recordHacknet(ns: NS, t: number): string {
+  const count = ns.hacknet.numNodes();
+  if (count === 0) return "hacknet=none";
+  const isServer = ns.hacknet.hashCapacity() > 0;
+  const unit = isServer ? "hash" : "hacknet_money";
+  let rate = 0;
+  for (let i = 0; i < count; i++) rate += ns.hacknet.getNodeStats(i).production;
+  record(ns, "gauge/hacknet_nodes", t, count);
+  record(ns, `gauge/${unit}_rate`, t, rate);
+  if (isServer) {
+    record(ns, "gauge/hashes", t, ns.hacknet.numHashes());
+    record(ns, "gauge/hash_capacity", t, ns.hacknet.hashCapacity());
+  }
+  return `hacknet=${count} ${unit}_rate=${rate.toFixed(2)}/s`;
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Monitoring", LOG_LEVEL.DEBUG);
@@ -60,12 +82,16 @@ export async function main(ns: NS): Promise<void> {
     const cash = playerRes.data?.player?.money ?? 0;
     record(ns, "gauge/cash", t, cash);
     record(ns, "gauge/hacking_level", t, playerRes.data?.player?.hackingLevel ?? 0);
+    const hackingExp = playerRes.data?.player?.hackingExp;
+    if (hackingExp !== undefined) record(ns, "gauge/hacking_exp", t, hackingExp);
 
     const stock = stockValue(ns);
     if (stock !== undefined) record(ns, "gauge/stock_value", t, stock);
     record(ns, "gauge/net_worth", t, cash + (stock ?? 0));
 
-    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)}`);
+    const hacknet = recordHacknet(ns, t);
+
+    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet}`);
 
     await ns.asleep(TICK_INTERVAL_MS);
   }

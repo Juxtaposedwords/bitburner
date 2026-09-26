@@ -1,6 +1,6 @@
 import { AutocompleteData, NS } from "@ns";
 import type ReactNamespace from "react";
-import { counterRates, listSeries, readSeries, Series, seriesIdFromPath, windowPoints } from "development/libraries/timeseries";
+import { counterRates, listSeries, parseWindow, readSeries, Series, seriesIdFromPath, windowPoints } from "development/libraries/timeseries";
 
 /**
  * Reads the time series monitoring_daemon.ts records under /var/monitoring/.
@@ -27,17 +27,10 @@ const OVERLAY_FLAG = "--overlay";
 const STACK_FLAG = "--stack";
 
 // Gauges that aren't money - shown as plain integers.
-const NON_MONEY_GAUGES = new Set(["gauge/hacking_level"]);
+const NON_MONEY_GAUGES = new Set(["gauge/hacking_level", "gauge/hacking_exp", "gauge/hacknet_nodes", "gauge/hash_rate", "gauge/hashes", "gauge/hash_capacity"]);
 
-/** "30m" / "2h" / "45s" / bare minutes -> seconds; undefined for anything else. */
-export function parseWindow(raw: string): number | undefined {
-  const match = /^(\d+(?:\.\d+)?)([smh]?)$/.exec(raw.trim());
-  if (!match) return undefined;
-  const n = Number(match[1]);
-  const unit = match[2] === "s" ? 1 : match[2] === "h" ? 3600 : 60;
-  const seconds = Math.round(n * unit);
-  return seconds > 0 ? seconds : undefined;
-}
+// Re-exported: callers and monitor_test.ts import it from here.
+export { parseWindow };
 
 export function formatMoney(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -62,8 +55,10 @@ function formatSigned(n: number): string {
   return n > 0 ? `+${formatMoney(n)}` : formatMoney(n);
 }
 
+/** Plain numbers: whole below 10K (levels, node counts), else formatMoney's suffixes without the "$" (experience, hashes). */
 function formatPlain(n: number): string {
-  return n.toFixed(0);
+  if (Math.abs(n) < 1e4) return Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2);
+  return formatMoney(n).replace("$", "");
 }
 
 function formatGauge(id: string, n: number): string {
@@ -121,7 +116,12 @@ export function formatSummary(all: { id: string; series: Series }[], now: number
       };
       (delta > 0 ? income : spend).push(row);
     } else if (id.startsWith("gauge/")) {
-      gauges.push(`${displayName(id).padEnd(18)} ${formatGauge(id, first.v)} → ${formatGauge(id, last.v)}`);
+      // Non-money gauges (levels, experience, hashes) also get their rate -
+      // e.g. hacking experience/min is how fast studying is paying off.
+      // Money gauges don't: cash/min just repeats the counters above.
+      const minutes = (last.t - first.t) / 60;
+      const rate = NON_MONEY_GAUGES.has(id) && minutes > 0 ? `   (${last.v >= first.v ? "+" : ""}${formatPlain((last.v - first.v) / minutes)}/min)` : "";
+      gauges.push(`${displayName(id).padEnd(18)} ${formatGauge(id, first.v)} → ${formatGauge(id, last.v)}${rate}`);
     }
   }
 

@@ -2,8 +2,17 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
-import { decideHashSpend, decideNodeInvestment, hashCapacityBound, NodeUpgradeCosts, PurchaseDecision } from "development/metadata/hacknet_decisions";
+import {
+  decideHashSpend,
+  decideNodeInvestment,
+  hashCapacityBound,
+  MaxPayback,
+  NodeUpgradeCosts,
+  prioritizeForActivity,
+  PurchaseDecision,
+} from "development/metadata/hacknet_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
+import { ACTIVITY_PATH, ActivityFile } from "development/metadata/study_decisions";
 import { NewSchedulerServiceClient } from "development/metadata/scheduler";
 import { resolveTarget } from "development/metadata/scheduler_daemon";
 import * as server_metadata_pb from "development/metadata/server_metadata";
@@ -25,6 +34,11 @@ type HacknetConfig = {
   // Relative throttle: never commit more than this fraction of *current*
   // money in one tick, even before the floor above is reached.
   maxSpendFraction: number;
+  // With Formulas.exe: skip any purchase that wouldn't pay for itself within
+  // this many hours (see decideNodeInvestment's maxPayback). An install
+  // wipes the Hacknet, so this is roughly "how long until the next
+  // install". 0 = no limit.
+  maxPaybackHours: number;
   // Ordered, most-preferred-first. Must exactly match one of Bitburner's
   // hash upgrade names (ns.hacknet.getHashUpgrades()) - an unrecognized
   // or currently-unaffordable entry is skipped, not an error. Each tick
@@ -45,6 +59,7 @@ const DEFAULT_CONFIG: HacknetConfig = {
   enabled: true,
   reserveMoney: 0,
   maxSpendFraction: 0.5,
+  maxPaybackHours: 4,
   // Tuned for BN9, where script hacking gives 5% of normal experience and
   // almost no money: Improve Studying multiplies university class
   // experience (which BN9 doesn't nerf) - the real path to hacking level
@@ -59,6 +74,15 @@ const DEFAULT_CONFIG: HacknetConfig = {
 // Safety bound on purchases per tick - a drain at 4 hashes each can take
 // many calls; whatever's left gets picked up next tick.
 const MAX_HASH_SPENDS_PER_TICK = 500;
+// Same idea for node purchases/upgrades.
+const MAX_PURCHASES_PER_TICK = 200;
+// study_daemon.ts writes every 10s; allow a few missed writes.
+const ACTIVITY_MAX_AGE_MS = 60_000;
+
+// "Sell for Money" pays a flat $1M per purchase (Bitburner's HashUpgrades);
+// its hash cost is read live.
+const SELL_FOR_MONEY = "Sell for Money";
+const SELL_FOR_MONEY_PAYOUT = 1e6;
 
 const CONFIG_PATH = "/etc/hacknet.txt";
 
@@ -106,13 +130,13 @@ function buildGainRate(ns: NS, isServerContext: boolean): ((level: number, ram: 
     : (level, ram, cores) => ns.formulas.hacknetNodes.moneyGainRate(level, ram, cores);
 }
 
-/** Carries out a PurchaseDecision against the live game; returns a log line describing it, or undefined if there was nothing to do or it failed. */
+/** Carries out a PurchaseDecision against the live game; returns a short label for the tick summary ("new node", "level", ...), or undefined if there was nothing to do or it failed. */
 function executeInvestment(ns: NS, decision: PurchaseDecision): string | undefined {
   if (decision.kind === "none") return undefined;
 
   if (decision.kind === "buyNode") {
     const index = ns.hacknet.purchaseNode();
-    return index === -1 ? undefined : `Purchased node ${index}.`;
+    return index === -1 ? undefined : "new node";
   }
 
   const { index, upgrade } = decision;
@@ -124,7 +148,7 @@ function executeInvestment(ns: NS, decision: PurchaseDecision): string | undefin
         : upgrade === "core"
           ? ns.hacknet.upgradeCore(index)
           : ns.hacknet.upgradeCache(index);
-  return ok ? `Upgraded node ${index}'s ${upgrade}.` : undefined;
+  return ok ? upgrade : undefined;
 }
 
 /** config.hashSpendTargetOverride wins when set; otherwise reuses scheduler_daemon.ts's current target rather than re-deriving it. */
@@ -137,6 +161,20 @@ async function resolveHashTarget(ns: NS, config: HacknetConfig): Promise<string 
   return resolveTarget(ns, res.data?.config ?? {});
 }
 
+/**
+ * decideNodeInvestment's payback limit. A hash is valued at what "Sell for
+ * Money" pays for it - a floor, since the priority upgrades are bought
+ * because they're worth more than that. Plain Hacknet Nodes produce money
+ * directly. undefined (no limit) when maxPaybackHours is 0.
+ */
+function paybackLimit(ns: NS, config: HacknetConfig, isServerContext: boolean, validNames: Set<string>): MaxPayback | undefined {
+  if (!(config.maxPaybackHours > 0)) return undefined;
+  const seconds = config.maxPaybackHours * 3600;
+  if (!isServerContext) return { seconds, valuePerUnit: 1 };
+  if (!validNames.has(SELL_FOR_MONEY)) return undefined;
+  return { seconds, valuePerUnit: SELL_FOR_MONEY_PAYOUT / ns.hacknet.hashCost(SELL_FOR_MONEY as HashUpgradeName) };
+}
+
 /** Whether the priority hash upgrades have outgrown hash capacity, so cache upgrades should come first (see hashCapacityBound). */
 function priorityCapacityBound(ns: NS, config: HacknetConfig, validNames: Set<string>): boolean {
   const costs: Record<string, number> = {};
@@ -146,37 +184,76 @@ function priorityCapacityBound(ns: NS, config: HacknetConfig, validNames: Set<st
   return hashCapacityBound(config.hashSpendPriority, costs, ns.hacknet.hashCapacity(), config.hashDrainAboveFraction);
 }
 
-async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
+/**
+ * study_daemon.ts's current activity, or undefined when its file is missing,
+ * unreadable, or stale (older than ACTIVITY_MAX_AGE_MS - a stopped study
+ * daemon shouldn't keep reordering hash spending).
+ */
+function readActivity(ns: NS): string | undefined {
+  const raw = ns.read(ACTIVITY_PATH);
+  if (!raw) return undefined;
+  try {
+    const file = JSON.parse(raw) as ActivityFile;
+    return Date.now() - file.writtenAt <= ACTIVITY_MAX_AGE_MS ? file.kind : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function tick(ns: NS, log: Logger, configIn: HacknetConfig): Promise<void> {
+  // Whatever the player is training right now gets its hash upgrade first
+  // (prioritizeForActivity); the configured order applies otherwise.
+  const activity = readActivity(ns);
+  const config: HacknetConfig = { ...configIn, hashSpendPriority: prioritizeForActivity(configIn.hashSpendPriority, activity) };
+
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
     .GetPlayerMetadata({});
   const money = playerRes.data?.player?.money ?? 0;
 
   const isServerContext = ns.hacknet.hashCapacity() > 0;
-  const atMaxNodes = ns.hacknet.numNodes() >= ns.hacknet.maxNumNodes();
-  const nodes = gatherNodes(ns, isServerContext);
   const gainRate = buildGainRate(ns, isServerContext);
   const validNames = new Set<string>(ns.hacknet.getHashUpgrades());
-  const capacityBound = isServerContext && priorityCapacityBound(ns, config, validNames);
+  const maxPayback = paybackLimit(ns, config, isServerContext, validNames);
 
-  const { decision, budget, bestCandidate, candidateCount } = decideNodeInvestment(
-    money,
-    config.reserveMoney,
-    config.maxSpendFraction,
-    ns.hacknet.getPurchaseNodeCost(),
-    atMaxNodes,
-    nodes,
-    gainRate,
-    capacityBound
-  );
+  // Keep buying until the tick's budget or the payback limit runs out,
+  // re-reading nodes and costs after every purchase. One purchase per 5s
+  // tick capped a full build-out (~9,000 purchases) at about 12 hours,
+  // however much cash there was.
+  let remaining = Math.max(0, Math.min(money - config.reserveMoney, money * config.maxSpendFraction));
+  const purchased: Record<string, number> = {};
+  let spent = 0;
+  for (let i = 0; i < MAX_PURCHASES_PER_TICK; i++) {
+    const capacityBound = isServerContext && priorityCapacityBound(ns, config, validNames);
+    const { decision, budget, bestCandidate, candidateCount } = decideNodeInvestment(
+      remaining,
+      0,
+      1,
+      ns.hacknet.getPurchaseNodeCost(),
+      ns.hacknet.numNodes() >= ns.hacknet.maxNumNodes(),
+      gatherNodes(ns, isServerContext),
+      gainRate,
+      capacityBound,
+      maxPayback
+    );
+    if (i === 0) {
+      await log.debug(
+        `[Hacknet] node tick: money=$${money.toFixed(0)} budget=$${budget.toFixed(0)} candidates=${candidateCount} mode=${gainRate ? "ROI" : "cheapest-first"} ` +
+          `capacityBound=${capacityBound} maxPaybackHours=${config.maxPaybackHours} ` +
+          `best=${bestCandidate ? `$${bestCandidate.cost.toFixed(0)} (${JSON.stringify(bestCandidate.decision)})` : "n/a"} -> ${decision.kind}`
+      );
+    }
 
-  await log.debug(
-    `[Hacknet] node tick: money=$${money.toFixed(0)} budget=$${budget.toFixed(0)} candidates=${candidateCount} mode=${gainRate ? "ROI" : "cheapest-first"} capacityBound=${capacityBound} ` +
-      `best=${bestCandidate ? `$${bestCandidate.cost.toFixed(0)} (${JSON.stringify(bestCandidate.decision)})` : "n/a"} -> ${decision.kind}`
-  );
-
-  const investmentLog = executeInvestment(ns, decision);
-  if (investmentLog) await log.info(`[Hacknet] ${investmentLog}`);
+    const before = ns.getServerMoneyAvailable("home");
+    const done = executeInvestment(ns, decision);
+    if (!done) break;
+    const cost = before - ns.getServerMoneyAvailable("home");
+    remaining -= cost;
+    spent += cost;
+    purchased[done] = (purchased[done] ?? 0) + 1;
+  }
+  const purchaseSummary = Object.entries(purchased).map(([what, n]) => `${what} x${n}`).join(", ");
+  if (purchaseSummary) await log.info(`[Hacknet] Spent $${spent.toExponential(2)}: ${purchaseSummary}.`);
 
   if (!isServerContext) return;
 
@@ -211,7 +288,7 @@ async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
   if (summary) await log.info(`[Hacknet] Spent hashes: ${summary}${target ? ` (target: ${target})` : ""}.`);
   await log.debug(
     `[Hacknet] hash tick: hashes ${startHashes.toFixed(0)} -> ${ns.hacknet.numHashes().toFixed(0)} of ${capacity.toFixed(0)} capacity, ` +
-      `bought: ${summary || "nothing affordable"}`
+      `bought: ${summary || "nothing affordable"} activity=${activity ?? "unknown"} priority=${JSON.stringify(config.hashSpendPriority)}`
   );
 }
 
