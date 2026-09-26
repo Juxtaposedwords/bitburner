@@ -9,6 +9,9 @@ import {
   decideMemberTask,
   decideStandDown,
   decideTerritoryReadiness,
+  GANG_STATUS_PATH,
+  GangStatusFile,
+  worstClashWinChance,
   decideTerritoryWarfareAssignment,
   decideTrainingTask,
   detectCasualties,
@@ -222,13 +225,32 @@ async function manageTerritoryEngagement(
   territoryWarfareCount: number,
   standDown: boolean
 ): Promise<void> {
+  const rivalPowers = Object.values(ns.gang.getAllGangInformation())
+    .filter((rival) => rival.territory > 0)
+    .map((rival) => rival.power);
+  const worstWinChance = worstClashWinChance(gang.power, rivalPowers);
+  const strongestRivalPower = Math.max(0, ...rivalPowers);
+
   let shouldEngage = false;
   if (territoryWarfareCount > 0 && !standDown) {
-    const rivalPowers = Object.values(ns.gang.getAllGangInformation())
-      .filter((rival) => rival.territory > 0)
-      .map((rival) => rival.power);
     shouldEngage = decideTerritoryReadiness(gang.power, rivalPowers, config.minClashWinChance);
+    await log.debug(
+      `[Gang] territory: worstWinChance=${(worstWinChance * 100).toFixed(1)}% ` +
+        `(engage at ${(config.minClashWinChance * 100).toFixed(0)}%) power=${gang.power.toFixed(0)} strongestRival=${strongestRivalPower.toFixed(0)}`
+    );
   }
+
+  const status: GangStatusFile = {
+    power: gang.power,
+    territory: gang.territory,
+    worstWinChance,
+    strongestRivalPower,
+    respect: gang.respect,
+    territoryWarfareMembers: territoryWarfareCount,
+    engaged: shouldEngage,
+    writtenAt: Date.now(),
+  };
+  ns.write(GANG_STATUS_PATH, JSON.stringify(status), "w");
 
   if (shouldEngage !== gang.territoryWarfareEngaged) {
     ns.gang.setTerritoryWarfare(shouldEngage);

@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { loadJsonConfig } from "development/libraries/config";
 import {
   COMBAT_SKILLS,
@@ -6,6 +7,7 @@ import {
   DAEDALUS_COMBAT_LEVEL,
   effectiveSkillMult,
   hackingGoal,
+  skillMultiplier,
   PENDING_BOOST_PATH,
   PendingBoost,
 } from "development/libraries/skill_progress";
@@ -31,6 +33,7 @@ import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULTS } fr
  * at all (see compareInstall).
  */
 
+type Skill = "hacking" | (typeof COMBAT_SKILLS)[number];
 type ClassType = Parameters<NS["formulas"]["work"]["universityGains"]>[1];
 type LocationNameType = Parameters<NS["formulas"]["work"]["universityGains"]>[2];
 
@@ -127,8 +130,13 @@ export async function main(ns: NS): Promise<void> {
 
   const player = ns.getPlayer();
   const expFor = (level: number, mult: number): number => ns.formulas.skills.calculateExp(level, mult);
-  const multFor = (level: number, exp: number): number | undefined =>
-    effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m));
+  // Exact from the BitNode multipliers when detect_capabilities.ts recorded
+  // them (Source-File 5); solved from level and experience otherwise.
+  const bitNodeMultipliers = readBitNodeInfo(ns)?.multipliers;
+  const multFor = (skill: Skill) =>
+    skillMultiplier(skill, player.mults[skill], bitNodeMultipliers, () =>
+      effectiveSkillMult(player.skills[skill], (m) => ns.formulas.skills.calculateSkill(player.exp[skill], m))
+    );
 
   // From faction_daemon.ts rather than ns.singularity, which would cost ~11 GB.
   const pendingFile = readPendingBoost(ns);
@@ -141,7 +149,7 @@ export async function main(ns: NS): Promise<void> {
   const goal = hackingGoal(configuredGoal, ns.serverExists(WORLD_DAEMON) ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : undefined);
   const level = player.skills.hacking;
   const exp = player.exp.hacking;
-  const mult = multFor(level, exp);
+  const { mult, source: multSource } = multFor("hacking");
   const study = loadJsonConfig(ns, STUDY_CONFIG_PATH, STUDY_DEFAULTS);
   const classRate = ns.formulas.work.universityGains(player, study.course as ClassType, study.university as LocationNameType).hackExp * CYCLES_PER_MIN;
   const measured = measuredExpRate(ns, windowSec);
@@ -151,7 +159,7 @@ export async function main(ns: NS): Promise<void> {
   if (mult === undefined) {
     lines.push("couldn't solve the hacking multiplier from level and experience");
   } else {
-    lines.push(`level ${level}, exp ${formatExp(exp)}, level multiplier x${mult.toFixed(3)}`);
+    lines.push(`level ${level}, exp ${formatExp(exp)}, level multiplier x${mult.toFixed(3)} (${multSource === "bitnode" ? "exact, BitNode multipliers" : "solved from level and experience"})`);
     lines.push(
       `rate: ${measured ? `measured ${formatExp(measured.perMin)}/min over ${Math.round(measured.minutes)}m` : "no measured data yet"}; ` +
         `${study.course} at ${study.university} gives ${formatExp(classRate)}/min by formula` +
@@ -172,40 +180,48 @@ export async function main(ns: NS): Promise<void> {
   }
 
   // ---- Combat route ----
-  const gyms = Object.values(ns.enums.LocationName).filter((name) => name.endsWith("Gym"));
-  lines.push("", `=== Combat route: ${DAEDALUS_COMBAT_LEVEL} in every combat stat ===`);
-  lines.push(`${"stat".padEnd(10)}${"level".padStart(6)}${"mult".padStart(8)}${"exp needed".padStart(12)}${"rate/min".padStart(11)}  ${"best gym".padEnd(22)}${"eta".padStart(8)}${"if installed".padStart(14)}`);
-  let stayTotal = 0;
-  let installTotal = 0;
-  for (const stat of COMBAT_SKILLS) {
-    const statLevel = player.skills[stat];
-    const statExp = player.exp[stat];
-    const statMult = multFor(statLevel, statExp);
-    const gymType = ns.enums.GymType[stat];
-    const expKey = `${gymType}Exp` as "strExp" | "defExp" | "dexExp" | "agiExp";
-    let best = { gym: "", perMin: 0 };
-    for (const gym of gyms) {
-      const perMin = ns.formulas.work.gymGains(player, gymType, gym)[expKey] * CYCLES_PER_MIN;
-      if (perMin > best.perMin) best = { gym, perMin };
+  // Only the Daedalus invite needs it (1500 in every combat stat instead of
+  // hacking 2500) - same condition as study_daemon.ts's pickGym.
+  const combatRouteOpen = !ns.serverExists(WORLD_DAEMON) && !player.factions.includes("Daedalus");
+  if (!combatRouteOpen) {
+    lines.push("", "(Combat route skipped: it only matters for the Daedalus invite, which is done.)");
+  } else {
+    const gyms = Object.values(ns.enums.LocationName).filter((name) => name.endsWith("Gym"));
+    lines.push("", `=== Combat route: ${DAEDALUS_COMBAT_LEVEL} in every combat stat ===`);
+    lines.push(`${"stat".padEnd(10)}${"level".padStart(6)}${"mult".padStart(8)}${"exp needed".padStart(12)}${"rate/min".padStart(11)}  ${"best gym".padEnd(22)}${"eta".padStart(8)}${"if installed".padStart(14)}`);
+    let stayTotal = 0;
+    let installTotal = 0;
+    for (const stat of COMBAT_SKILLS) {
+      const statLevel = player.skills[stat];
+      const statExp = player.exp[stat];
+      const statMult = multFor(stat).mult;
+      const gymType = ns.enums.GymType[stat];
+      const expKey = `${gymType}Exp` as "strExp" | "defExp" | "dexExp" | "agiExp";
+      let best = { gym: "", perMin: 0 };
+      for (const gym of gyms) {
+        const perMin = ns.formulas.work.gymGains(player, gymType, gym)[expKey] * CYCLES_PER_MIN;
+        if (perMin > best.perMin) best = { gym, perMin };
+      }
+      if (statMult === undefined) {
+        lines.push(`${stat.padEnd(10)}${String(statLevel).padStart(6)}  couldn't solve the multiplier`);
+        continue;
+      }
+      const c = compareInstall(DAEDALUS_COMBAT_LEVEL, statExp, statMult, boost[stat] ?? 1, boost[`${stat}_exp`] ?? 1, expFor);
+      const stayMin = best.perMin > 0 ? c.stayExp / best.perMin : Infinity;
+      const installMin = best.perMin > 0 ? c.installExp / best.perMin : Infinity;
+      stayTotal += stayMin;
+      installTotal += installMin;
+      lines.push(
+        `${stat.padEnd(10)}${String(statLevel).padStart(6)}${("x" + statMult.toFixed(2)).padStart(8)}${formatExp(c.stayExp).padStart(12)}` +
+          `${formatExp(best.perMin).padStart(11)}  ${best.gym.padEnd(22)}${formatDuration(stayMin).padStart(8)}${formatDuration(installMin).padStart(14)}`
+      );
     }
-    if (statMult === undefined) {
-      lines.push(`${stat.padEnd(10)}${String(statLevel).padStart(6)}  couldn't solve the multiplier`);
-      continue;
-    }
-    const c = compareInstall(DAEDALUS_COMBAT_LEVEL, statExp, statMult, boost[stat] ?? 1, boost[`${stat}_exp`] ?? 1, expFor);
-    const stayMin = best.perMin > 0 ? c.stayExp / best.perMin : Infinity;
-    const installMin = best.perMin > 0 ? c.installExp / best.perMin : Infinity;
-    stayTotal += stayMin;
-    installTotal += installMin;
     lines.push(
-      `${stat.padEnd(10)}${String(statLevel).padStart(6)}${("x" + statMult.toFixed(2)).padStart(8)}${formatExp(c.stayExp).padStart(12)}` +
-        `${formatExp(best.perMin).padStart(11)}  ${best.gym.padEnd(22)}${formatDuration(stayMin).padStart(8)}${formatDuration(installMin).padStart(14)}`
+      `total, one stat at a time: ${formatDuration(stayTotal)} (${formatDuration(installTotal)} if the ${pendingCount} pending were installed first) -> ` +
+        installVerdict(stayTotal > 0 ? installTotal / stayTotal : Infinity)
     );
   }
-  lines.push(
-    `total, one stat at a time: ${formatDuration(stayTotal)} (${formatDuration(installTotal)} if the ${pendingCount} pending were installed first) -> ` +
-      installVerdict(stayTotal > 0 ? installTotal / stayTotal : Infinity)
-  );
+
   lines.push("", "ETAs assume today's rates hold. An install also resets the Hacknet (and its Improve Studying/Gym Training levels).");
 
   ns.tprintf("%s", lines.join("\n"));

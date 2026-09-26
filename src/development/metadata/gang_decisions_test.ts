@@ -13,8 +13,7 @@ import {
   EquipmentOption,
   selectBestAscensionCandidate,
   TaskOption,
-  WantedPolicy,
-} from "development/metadata/gang_decisions";
+  WantedPolicy, worstClashWinChance } from "development/metadata/gang_decisions";
 import { GangPosture } from "development/metadata/gang";
 
 const task = (overrides: Partial<TaskOption> = {}): TaskOption => ({
@@ -285,5 +284,15 @@ describe("decideStandDown", () => {
 
   it("stays tripped past the threshold", () => {
     expect(decideStandDown(3, 1)).toBe(true);
+  });
+});
+
+describe("worstClashWinChance", () => {
+  it("is the chance against the strongest rival", () => {
+    expect(worstClashWinChance(100, [50, 194])).toBeCloseTo(100 / 294);
+  });
+
+  it("is 1 with no rivals holding territory", () => {
+    expect(worstClashWinChance(100, [])).toBe(1);
   });
 });

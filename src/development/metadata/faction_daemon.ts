@@ -1,10 +1,12 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { clearInstallPending, readInstallPending, touchInstallPending } from "development/libraries/install_handshake";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
 import {
   AugmentationInfo,
+  bestWorkType,
   CITY_FACTION_NAMES,
   COMPANY_FACTION_EMPLOYER,
   COMPANY_FACTION_NAMES,
@@ -13,6 +15,8 @@ import {
   decideCrimeForKills,
   decideDonation,
   DonationDecision,
+  FACTION_REPS_PATH,
+  FactionRepsFile,
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
@@ -22,7 +26,9 @@ import {
   EligibilitySnapshot,
   findBlockingRequirement,
   hasAnyCityFaction,
+  pendingAugmentations,
   PurchaseDecision,
+  redPillFocus,
   requirementToAction,
 } from "development/metadata/faction_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
@@ -31,6 +37,7 @@ import {
   combineMultipliers,
   compareInstall,
   effectiveSkillMult,
+  skillMultiplier,
   hackingGoal,
   matchesFocus,
   PENDING_BOOST_PATH,
@@ -55,6 +62,8 @@ type CrimeTypeType = Parameters<NS["singularity"]["commitCrime"]>[0];
 type GymLocationNameType = Parameters<NS["singularity"]["gymWorkout"]>[0];
 
 const WORLD_DAEMON = "w0r1d_d43m0n";
+// ns.formulas.work.*Gains are per 200ms game cycle.
+const CYCLES_PER_MIN = 300;
 
 /**
  * The third file allowed to import ns.singularity (after
@@ -240,14 +249,28 @@ export function gatherReps(ns: NS, joinedFactions: string[]): Record<string, num
 
 /** Augmentations bought but not yet applied via installAugmentations - the owned(true)/owned(false) diff already inlined in tick(), pulled out so augmentation_report.ts shares the same definition. */
 export function getPendingAugmentations(ns: NS): string[] {
-  const installed = ns.singularity.getOwnedAugmentations(false);
-  return ns.singularity.getOwnedAugmentations(true).filter((name) => !installed.includes(name));
+  return pendingAugmentations(ns.singularity.getOwnedAugmentations(true), ns.singularity.getOwnedAugmentations(false));
 }
 
-/** "hacking" if the faction offers it, else whatever's first - see faction_decisions.ts's module doc for why there's no hardcoded faction->workType table. */
-function pickWorkType(ns: NS, faction: string): string | undefined {
+/**
+ * The work type earning the most rep at `faction` right now (bestWorkType),
+ * with each offered type's rep/min from ns.formulas.work.factionGains (0 GB,
+ * per 200ms cycle). Without Formulas.exe: "hacking" if offered, else the
+ * first - see faction_decisions.ts's module doc for why there's no
+ * hardcoded faction->workType table.
+ */
+function pickWorkType(
+  ns: NS,
+  faction: string,
+  player: ReturnType<NS["getPlayer"]>
+): { type: string | undefined; gains?: Record<string, number> } {
   const types = ns.singularity.getFactionWorkTypes(faction as FactionNameType);
-  return types.includes("hacking") ? "hacking" : types[0];
+  if (!ns.fileExists("Formulas.exe", "home")) return { type: types.includes("hacking") ? "hacking" : types[0] };
+
+  const favor = ns.singularity.getFactionFavor(faction as FactionNameType);
+  const gains: Record<string, number> = {};
+  for (const type of types) gains[type] = ns.formulas.work.factionGains(player, type, favor).reputation * CYCLES_PER_MIN;
+  return { type: bestWorkType(types, gains), gains };
 }
 
 /**
@@ -518,7 +541,9 @@ async function growStatsInstallSaves(
   if (!ns.fileExists("Formulas.exe", "home")) return false;
   const level = player.skills.hacking;
   const exp = player.exp.hacking;
-  const mult = effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m));
+  const { mult } = skillMultiplier("hacking", player.mults.hacking, readBitNodeInfo(ns)?.multipliers, () =>
+    effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m))
+  );
   if (mult === undefined) return false;
 
   const goal = hackingGoal(config.growStatsHackingGoal, ns.serverExists(WORLD_DAEMON) ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : undefined);
@@ -578,11 +603,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const buyCatalog = growingStats ? catalog.filter((aug) => matchesFocus(aug.stats, config.growStatsAugmentationFocus)) : catalog;
 
   const workTarget = !growingStats && joinedFactions.length > 0 ? decideWorkTarget(joinedFactions, reps, catalog, owned) : undefined;
-  if (workTarget) {
-    const workType = pickWorkType(ns, workTarget);
-    if (workType && !isAlreadyWorking(ns, workTarget, workType)) {
-      ns.singularity.workForFaction(workTarget as FactionNameType, workType as FactionWorkTypeType);
-    }
+  const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
+  const repsFile: FactionRepsFile = { reps, workTarget, workType: work?.type, workGains: work?.gains, writtenAt: Date.now() };
+  ns.write(FACTION_REPS_PATH, JSON.stringify(repsFile), "w");
+  if (workTarget && work?.type && !isAlreadyWorking(ns, workTarget, work.type)) {
+    ns.singularity.workForFaction(workTarget as FactionNameType, work.type as FactionWorkTypeType);
+    const rates = work.gains ? ` (rep/min by formula: ${Object.entries(work.gains).map(([t, r]) => `${t}=${r.toFixed(0)}`).join(", ")})` : "";
+    await log.info(`[Faction] Working ${work.type} for ${workTarget}${rates}.`);
   }
 
   // Active eligibility-seeking (full design in server_metadata.md) - runs
@@ -614,14 +641,25 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     saveState(ns, state);
   }
 
+  // Factions that accept donations (favor >= getFavorToDonate()) - needed
+  // here already so The Red Pill can take over purchases (redPillFocus).
+  const donatable =
+    config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
+      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
+      : new Set<string>();
+  // While The Red Pill can be bought or donated for, it's the only thing
+  // bought or donated for, so the cash goes to the BitNode's finish line.
+  const redPill = redPillFocus(catalog, reps, owned, donatable);
+  const spendCatalog = redPill ? [redPill] : buyCatalog;
+
   const purchaseDecision: PurchaseDecision = config.autoPurchaseAugmentations
-    ? decideAugmentationPurchase(money, config.reserveMoney, config.maxSpendFraction, reps, buyCatalog, owned)
+    ? decideAugmentationPurchase(money, config.reserveMoney, config.maxSpendFraction, reps, spendCatalog, owned)
     : { kind: "none" };
 
   await log.debug(
     `[Faction] tick: money=$${money.toFixed(0)} joined=${joinedFactions.length} workTarget=${workTarget ?? "none"} ` +
       `pending=${pending.length} purchase=${purchaseDecision.kind === "buy" ? purchaseDecision.augmentation : "none"} ` +
-      `city=${cityAction.kind} eligibility=${eligibilityAction.kind} crimeAttempts=${state.crimeAttempts} growStats=${growingStats}`
+      `city=${cityAction.kind} eligibility=${eligibilityAction.kind} crimeAttempts=${state.crimeAttempts} growStats=${growingStats} redPillFocus=${redPill !== undefined}`
   );
 
   if (joinedFactions.length === 0) return;
@@ -645,16 +683,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Nothing purchasable outright - try buying the missing reputation with
   // money (decideDonation). The augmentation itself is bought next tick by
   // the normal purchase path above.
-  const donatable =
-    config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
-      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
-      : new Set<string>();
   // 0.1% over the exact amount, so float rounding can't leave the rep a
   // hair short of the requirement.
   const donationForRep = (rep: number): number => Math.ceil(ns.formulas.reputation.donationForRep(rep, player) * 1.001);
   const decideDonationWith = (reserveMoney: number, maxSpendFraction: number): DonationDecision =>
     donatable.size > 0
-      ? decideDonation(money, reserveMoney, maxSpendFraction, reps, buyCatalog, owned, donatable, donationForRep)
+      ? decideDonation(money, reserveMoney, maxSpendFraction, reps, spendCatalog, owned, donatable, donationForRep)
       : { kind: "none" };
 
   const donation = decideDonationWith(config.reserveMoney, config.donationSpendFraction);
@@ -667,7 +701,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // During GROW_STATS an install resets the hacking experience being
   // studied up, so it only goes ahead when the pending augmentations'
   // multipliers more than make up for it (see growStatsInstallSaves).
-  const installReady = config.autoInstall && decideInstallReady(purchaseDecision, pending);
+  const installReady = config.autoInstall && decideInstallReady(purchaseDecision, pending, config.reserveMoney);
   const growStatsBlocks = installReady && growingStats && !(await growStatsInstallSaves(ns, log, config, player, pendingBoost));
   if (!installReady || growStatsBlocks) {
     if (readInstallPending(ns)) {
@@ -682,7 +716,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Everything left is spent before the install wipes cash and stock - see
   // decidePreInstall and development/libraries/install_handshake.ts.
   const finalPurchase: PurchaseDecision = config.autoPurchaseAugmentations
-    ? decideAugmentationPurchase(money, 0, 1, reps, buyCatalog, owned)
+    ? decideAugmentationPurchase(money, 0, 1, reps, spendCatalog, owned)
     : { kind: "none" };
   if (finalPurchase.kind === "none") {
     // Same whole-balance rule as finalPurchase: the install is about to

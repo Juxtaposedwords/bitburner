@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineMultipliers, compareInstall, effectiveSkillMult, hackingGoal, matchesFocus } from "development/libraries/skill_progress";
+import { combineMultipliers, compareInstall, effectiveSkillMult, hackingGoal, matchesFocus, skillMultiplier } from "development/libraries/skill_progress";
 
 // Bitburner's curve: level = floor(mult * (32 * ln(exp + 534.6) - 200)), at least 1.
 const skill = (exp: number, mult: number): number => Math.max(Math.floor(mult * (32 * Math.log(exp + 534.6) - 200)), 1);
@@ -68,5 +68,16 @@ describe("matchesFocus", () => {
 
   it("matches everything with an empty focus", () => {
     expect(matchesFocus(undefined, [])).toBe(true);
+  });
+});
+
+describe("skillMultiplier", () => {
+  it("multiplies the player's multiplier by the BitNode's when known", () => {
+    expect(skillMultiplier("hacking", 16, { HackingLevelMultiplier: 0.5 }, () => 99)).toEqual({ mult: 8, source: "bitnode" });
+    expect(skillMultiplier("strength", 3, { StrengthLevelMultiplier: 1 }, () => 99)).toEqual({ mult: 3, source: "bitnode" });
+  });
+
+  it("falls back to solving without BitNode multipliers", () => {
+    expect(skillMultiplier("hacking", 16, undefined, () => 7.9)).toEqual({ mult: 7.9, source: "solved" });
   });
 });

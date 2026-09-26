@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { BITNODE_INFO_PATH, bitNodeMultipliersAvailable, buildBitNodeInfo } from "development/libraries/bitnode_info";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
 import * as player_metadata_pb from "development/metadata/player_metadata";
@@ -36,6 +37,18 @@ export async function main(ns: NS): Promise<void> {
   const log = createLogger(ns, "CapabilityDetector", LOG_LEVEL.INFO);
 
   const resetInfo = ns.getResetInfo();
+
+  // The current BitNode's facts for every other script (bitnode_info.ts) -
+  // written first, so it's there even if the supervisor patch below fails.
+  const multipliers = bitNodeMultipliersAvailable(resetInfo.currentNode, resetInfo.ownedSF)
+    ? (ns.getBitNodeMultipliers() as unknown as Record<string, number>)
+    : undefined;
+  ns.write(
+    BITNODE_INFO_PATH,
+    JSON.stringify(buildBitNodeInfo(resetInfo.currentNode, resetInfo.lastNodeReset, resetInfo.ownedSF, multipliers, Date.now())),
+    "w"
+  );
+
   const singularityAvailable = computeSingularityAvailable(resetInfo.currentNode, resetInfo.ownedSF);
   const gangAvailable = computeGangAvailable(resetInfo.currentNode, resetInfo.ownedSF);
 
@@ -46,5 +59,8 @@ export async function main(ns: NS): Promise<void> {
     return;
   }
 
-  await log.info(`[CapabilityDetector] singularityAvailable = ${singularityAvailable}, gangAvailable = ${gangAvailable}.`);
+  await log.info(
+    `[CapabilityDetector] BitNode ${resetInfo.currentNode}, multipliers ${multipliers ? "recorded" : "unavailable (needs SF5)"}; ` +
+      `singularityAvailable = ${singularityAvailable}, gangAvailable = ${gangAvailable}.`
+  );
 }

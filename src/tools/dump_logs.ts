@@ -11,6 +11,9 @@ interface ParsedArgs {
   tailLines: number;
   includeBackups: boolean;
   output: string;
+  // Positional words: only log files whose path contains one of them
+  // (e.g. "hacknet"). Empty = every log.
+  filters: string[];
 }
 
 function parseArgs(rawArgs: (string | number | boolean)[]): ParsedArgs {
@@ -18,9 +21,13 @@ function parseArgs(rawArgs: (string | number | boolean)[]): ParsedArgs {
   let tailLines: number = DEFAULT_TAIL;
   let includeBackups = false;
   let output = DEFAULT_OUTPUT;
+  const filters: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--tail") {
+    // "--lines", not only "--tail": Bitburner's own `run` command takes
+    // --tail (opens the tail window) and never passes it to the script, so
+    // `run tools/dump_logs.js --tail 4` silently dumped 200 lines each.
+    if (args[i] === "--lines" || args[i] === "--tail") {
       const next = args[i + 1];
       if (next !== undefined && !isNaN(Number(next))) {
         tailLines = Number(next);
@@ -36,10 +43,12 @@ function parseArgs(rawArgs: (string | number | boolean)[]): ParsedArgs {
         output = next;
         i++;
       }
+    } else if (!args[i].startsWith("--")) {
+      filters.push(args[i].toLowerCase());
     }
   }
 
-  return { tailLines, includeBackups, output };
+  return { tailLines, includeBackups, output, filters };
 }
 
 /**
@@ -64,11 +73,12 @@ export function buildDump(files: { path: string; content: string }[], tailLines:
  * written). Extracted so tools/test_restart.ts can reuse it without
  * spawning a subprocess.
  */
-export function collectAndWriteDump(ns: NS, host: string, tailLines: number, includeBackups: boolean, output: string): number {
+export function collectAndWriteDump(ns: NS, host: string, tailLines: number, includeBackups: boolean, output: string, filters: string[] = []): number {
   const logFiles = ns
     .ls(host, LOG_DIR)
     .filter((f) => f !== output && f.endsWith(".txt"))
     .filter((f) => includeBackups || !isLogBackup(f))
+    .filter((f) => filters.length === 0 || filters.some((word) => f.toLowerCase().includes(word)))
     .sort();
 
   if (logFiles.length === 0) return 0;
@@ -80,10 +90,10 @@ export function collectAndWriteDump(ns: NS, host: string, tailLines: number, inc
 
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
-  const { tailLines, includeBackups, output } = parseArgs(ns.args);
+  const { tailLines, includeBackups, output, filters } = parseArgs(ns.args);
 
   const host = ns.getHostname();
-  const fileCount = collectAndWriteDump(ns, host, tailLines, includeBackups, output);
+  const fileCount = collectAndWriteDump(ns, host, tailLines, includeBackups, output, filters);
 
   if (fileCount === 0) {
     ns.tprint(`[DumpLogs] No log files found under ${LOG_DIR} on ${host}.`);

@@ -28,6 +28,16 @@ const STACK_FLAG = "--stack";
 
 // Gauges that aren't money - shown as plain integers.
 const NON_MONEY_GAUGES = new Set(["gauge/hacking_level", "gauge/hacking_exp", "gauge/hacknet_nodes", "gauge/hash_rate", "gauge/hashes", "gauge/hash_capacity"]);
+// One per joined faction (monitoring_daemon.ts's recordReps) - only the ones
+// actually changing are worth a summary line.
+const REP_GAUGE_PREFIX = "gauge/rep_";
+
+// monitoring_daemon.ts's recordGang - power, odds, territory, respect, members.
+const GANG_GAUGE_PREFIX = "gauge/gang_";
+
+function isPlainGauge(id: string): boolean {
+  return NON_MONEY_GAUGES.has(id) || id.startsWith(REP_GAUGE_PREFIX) || id.startsWith(GANG_GAUGE_PREFIX);
+}
 
 // Re-exported: callers and monitor_test.ts import it from here.
 export { parseWindow };
@@ -62,7 +72,7 @@ function formatPlain(n: number): string {
 }
 
 function formatGauge(id: string, n: number): string {
-  return NON_MONEY_GAUGES.has(id) ? formatPlain(n) : formatMoney(n);
+  return isPlainGauge(id) ? formatPlain(n) : formatMoney(n);
 }
 
 function formatClock(t: number): string {
@@ -120,7 +130,8 @@ export function formatSummary(all: { id: string; series: Series }[], now: number
       // e.g. hacking experience/min is how fast studying is paying off.
       // Money gauges don't: cash/min just repeats the counters above.
       const minutes = (last.t - first.t) / 60;
-      const rate = NON_MONEY_GAUGES.has(id) && minutes > 0 ? `   (${last.v >= first.v ? "+" : ""}${formatPlain((last.v - first.v) / minutes)}/min)` : "";
+      if (id.startsWith(REP_GAUGE_PREFIX) && last.v === first.v) continue;
+      const rate = isPlainGauge(id) && minutes > 0 ? `   (${last.v >= first.v ? "+" : ""}${formatPlain((last.v - first.v) / minutes)}/min)` : "";
       gauges.push(`${displayName(id).padEnd(18)} ${formatGauge(id, first.v)} → ${formatGauge(id, last.v)}${rate}`);
     }
   }
@@ -564,7 +575,7 @@ function resolveSeries(ns: NS, rawIds: string, now: number, windowSec: number, s
       const rates = counterRates(points).map((r) => ({ t: r.t, v: r.perMin === null ? null : spending ? -r.perMin : r.perMin }));
       series.push({ label: `${displayName(id)} (${spending ? "spent" : "earned"} /min)`, points: rates, format: formatMoney });
     } else {
-      series.push({ label: displayName(id), points, format: NON_MONEY_GAUGES.has(id) ? formatPlain : formatMoney });
+      series.push({ label: displayName(id), points, format: isPlainGauge(id) ? formatPlain : formatMoney });
     }
   }
 

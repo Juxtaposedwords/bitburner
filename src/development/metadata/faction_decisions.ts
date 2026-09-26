@@ -21,6 +21,43 @@
 import type { PlayerRequirement } from "@ns";
 
 export const NEUROFLUX_GOVERNOR = "NeuroFlux Governor";
+// Installing it reveals w0r1d_d43m0n - the BitNode's finish line.
+export const RED_PILL = "The Red Pill";
+
+/**
+ * Written by faction_daemon.ts every tick: every joined faction's current
+ * rep, plus which one it's working for. monitoring_daemon.ts turns it into
+ * gauge/rep_<faction> series (see repSeriesId) - reading rep directly would
+ * put ns.singularity's RAM cost on the sampler.
+ */
+export const FACTION_REPS_PATH = "/var/faction_reps.txt";
+export type FactionRepsFile = {
+  reps: Record<string, number>;
+  workTarget?: string;
+  workType?: string;
+  // Rep/min for each work type the work target offers, by formula (see
+  // bestWorkType) - `cat` the file to compare field work vs hacking contracts.
+  workGains?: Record<string, number>;
+  writtenAt: number;
+};
+
+/**
+ * The work type earning the most rep, from ns.formulas.work.factionGains
+ * for each type the faction offers. Which one wins depends on the player:
+ * hacking contracts scale with hacking alone, field work with every stat,
+ * so with combat stats at 1500 field work can beat hacking. Ties keep the
+ * faction's own listing order. undefined for no types.
+ */
+export function bestWorkType(types: string[], repPerMin: Record<string, number>): string | undefined {
+  let best: string | undefined;
+  for (const type of types) if (best === undefined || (repPerMin[type] ?? 0) > (repPerMin[best] ?? 0)) best = type;
+  return best;
+}
+
+/** "The Black Hand" -> "gauge/rep_the_black_hand" (lowercase, runs of non-alphanumerics to "_"). */
+export function repSeriesId(faction: string): string {
+  return `gauge/rep_${faction.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
+}
 
 export type AugmentationInfo = {
   name: string;
@@ -47,6 +84,11 @@ export function decideFactionsToJoin(invitations: string[], alreadyJoined: strin
  * there finishes something soonest, rather than spreading effort thin
  * across every faction at once. A faction with nothing left to unlock
  * (every offering owned, or none left needing more rep) isn't returned.
+ *
+ * Exception: The Red Pill. While a joined faction offers it (Daedalus),
+ * it isn't owned, and its rep isn't there yet, that faction wins outright -
+ * finishing the BitNode outranks every other augmentation, and a nearly-
+ * reached NeuroFlux Governor elsewhere would otherwise keep winning on gap.
  */
 export function decideWorkTarget(
   joinedFactions: string[],
@@ -55,6 +97,11 @@ export function decideWorkTarget(
   owned: string[]
 ): string | undefined {
   const ownedSet = new Set(owned);
+
+  const redPill = catalog.find(
+    (aug) => aug.name === RED_PILL && joinedFactions.includes(aug.faction) && !ownedSet.has(aug.name) && (reps[aug.faction] ?? 0) < aug.repReq
+  );
+  if (redPill) return redPill.faction;
 
   let best: { faction: string; gap: number } | undefined;
   for (const faction of joinedFactions) {
@@ -175,9 +222,54 @@ export function decideDonation(
   return { kind: "donate", faction: best.aug.faction, augmentation: best.aug.name, amount: best.amount };
 }
 
-/** True once this tick found nothing left worth buying and something purchased-but-uninstalled is actually waiting to be installed. */
-export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAugmentations: string[]): boolean {
-  return purchaseDecision.kind === "none" && pendingAugmentations.length > 0;
+/**
+ * The Red Pill, when it should be the only thing bought or donated for: not
+ * owned, offered by a joined faction, and either its rep is already met
+ * (buy it - it costs $0) or that faction takes donations (save up and buy
+ * the rep). decideAugmentationPurchase/decideDonation rank by price, so
+ * without this a $0 Red Pill lost to every repeatable NeuroFlux donation
+ * elsewhere, which would keep spending the cash it needs. undefined while
+ * it's only reachable by grinding rep - nothing to save for then.
+ */
+export function redPillFocus(
+  catalog: AugmentationInfo[],
+  reps: Record<string, number>,
+  owned: string[],
+  donatable: Set<string>
+): AugmentationInfo | undefined {
+  if (owned.includes(RED_PILL)) return undefined;
+  return catalog.find((aug) => aug.name === RED_PILL && ((reps[aug.faction] ?? 0) >= aug.repReq || donatable.has(aug.faction)));
+}
+
+/**
+ * Augmentations bought but not yet installed: `ownedWithQueued`
+ * (getOwnedAugmentations(true)) minus `installed` (getOwnedAugmentations(false))
+ * as a multiset - one queued copy per name is removed for each installed
+ * one. A plain name filter dropped a queued NeuroFlux Governor whenever one
+ * was already installed, so pending read 0 and auto-install never fired.
+ */
+export function pendingAugmentations(ownedWithQueued: string[], installed: string[]): string[] {
+  const remaining = new Map<string, number>();
+  for (const name of installed) remaining.set(name, (remaining.get(name) ?? 0) + 1);
+  return ownedWithQueued.filter((name) => {
+    const left = remaining.get(name) ?? 0;
+    if (left === 0) return true;
+    remaining.set(name, left - 1);
+    return false;
+  });
+}
+
+/**
+ * True once this tick found nothing left worth buying and something
+ * purchased-but-uninstalled is actually waiting to be installed - and no
+ * cash reserve is set. An install resets cash to $1,000, which breaks any
+ * reserveMoney floor; worse, with a reserve set "nothing affordable" just
+ * means "the reserve blocked it", not "done buying". That combination once
+ * spent a $100B Daedalus savings on augmentations and installed. So while
+ * reserveMoney > 0, installs wait.
+ */
+export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAugmentations: string[], reserveMoney: number): boolean {
+  return reserveMoney <= 0 && purchaseDecision.kind === "none" && pendingAugmentations.length > 0;
 }
 
 /**

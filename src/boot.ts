@@ -82,22 +82,17 @@ export async function main(ns: NS): Promise<void> {
     await launchAndWait(ns, script, ONE_SHOT_TIMEOUT_MS);
   }
 
-  // Source-File 2/4 (gang/singularity) availability never changes
-  // mid-session (see server_metadata.md), so once supervisor already has
-  // both — persisted across restarts via state.player, not just this
-  // process's memory — there's no need to pay ns.getResetInfo()'s cost
-  // again by re-running detect_capabilities.js. Checking BOTH fields
-  // matters: a save from before gangAvailable existed would otherwise
-  // have singularityAvailable already set (skipping re-detection forever)
-  // while gangAvailable stays permanently undefined. Supervisor is
-  // guaranteed reachable here: the ONE_SHOT loop above already RPC'd it
-  // successfully.
+  // Runs every boot. It used to be skipped once supervisor had cached
+  // singularity/gang availability, on the reasoning that Source-Files never
+  // change mid-session - but entering a new BitNode is exactly when they
+  // (and the BitNode multipliers it now records to /var/bitnode/current.txt,
+  // see bitnode_info.ts) do change, and nothing re-checked then. A one-shot
+  // ~1 GB getResetInfo (plus getBitNodeMultipliers with SF5) per boot is
+  // cheap. Supervisor is guaranteed reachable here: the ONE_SHOT loop above
+  // already RPC'd it successfully.
   const playerClient = player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort);
-  let playerRes = await playerClient.GetPlayerMetadata({});
-  if (playerRes.data?.player?.singularityAvailable === undefined || playerRes.data?.player?.gangAvailable === undefined) {
-    await launchAndWait(ns, CAPABILITY_DETECTOR_SCRIPT, ONE_SHOT_TIMEOUT_MS);
-    playerRes = await playerClient.GetPlayerMetadata({});
-  }
+  await launchAndWait(ns, CAPABILITY_DETECTOR_SCRIPT, ONE_SHOT_TIMEOUT_MS);
+  const playerRes = await playerClient.GetPlayerMetadata({});
 
   if (playerRes.data?.player?.singularityAvailable) {
     launchIfNotRunning(ns, PROGRAM_SHOPPER_SCRIPT);

@@ -178,10 +178,23 @@ default — distinct from `player.ts`'s `playerInfoPath`, which supervisor
 only ever reads, never owns) whenever that's set, the same "mark dirty,
 flush persists" shape already used for `listDirty`. `main()` loads it back
 via `loadPlayerStateFromDisk` before serving, mirroring
-`loadStateFromDisk` for server metadata. `boot.ts` uses this to avoid
-re-running `detect_capabilities.js` (and re-paying `ns.getResetInfo()`'s
-1 GB) on every boot: it queries `GetPlayerMetadata` first, and only
-launches the detector if `singularityAvailable` is still unset.
+`loadStateFromDisk` for server metadata. `boot.ts` used to skip
+`detect_capabilities.js` once these flags were cached. It now runs the detector every boot,
+because entering a new BitNode is exactly when Source-Files, and so these flags, change.
+
+**BitNode facts: `/var/bitnode/current.txt` (`bitnode_info.ts`).** The detector also records the
+node, `lastNodeReset`, owned Source-Files and, with SF5 or in BitNode 5,
+`ns.getBitNodeMultipliers()`. Other scripts read it for 0 GB instead of paying the multipliers
+call themselves. Uses so far:
+- `skillMultiplier` (`skill_progress.ts`) computes a skill's exact level multiplier as the
+  player's `mults` × the BitNode's `…LevelMultiplier`, used by `skill_eta`, the study daemon's
+  route choice and the GROW_STATS install check. It falls back to solving the multiplier from
+  level and experience when the file has no multipliers.
+- `bitnode_status_report` uses `DaedalusAugsRequirement` instead of assuming 30.
+
+The file is versioned (`v`), rewritten each boot, and kept out of `WIPE_PREFIXES`. It is the
+"current BitNode" half of the BitNode record planned in the design review; the append-only
+history is not built yet.
 
 It's served by `supervisor.ts`'s
 *same* RPC server as `SupervisorService`, registered onto the same port
@@ -446,6 +459,27 @@ Level grows only logarithmically with experience, so experience per minute is th
 whether studying and Improve Studying are working. The summary adds a `(+N/min)` rate to every
 non-money gauge.
 
+**Faction rep:** `faction_daemon.ts` writes every joined faction's rep and its current work target
+to `/var/faction_reps.txt` each tick. The sampler records them as `gauge/rep_<faction>` (e.g.
+`gauge/rep_daedalus`), skipping a file more than a minute old. Reading rep directly would put
+`ns.singularity`'s RAM cost on the sampler. The summary shows only rep gauges that changed, with
+a per-minute rate, so rep per second is that rate ÷ 60.
+
+**Gang:** `gang_daemon.ts` writes `/var/gang_status.txt` each tick. The sampler records
+`gauge/gang_power`, `gauge/gang_rival_power` (the strongest rival holding territory),
+`gauge/gang_win_chance_pct` (the worst clash odds, which the daemon compares to
+`minClashWinChance`), `gauge/gang_territory_pct`, `gauge/gang_respect` and
+`gauge/gang_warfare_members`. Income is already `counter/gang`. Together they show whether
+moving members onto Territory Warfare is paying off: odds climbing toward the threshold, then
+territory and income rising.
+
+**Work type by formula:** with Formulas.exe, `faction_daemon.ts` works whichever type
+(hacking, field, security) earns the most rep at the work target, using
+`ns.formulas.work.factionGains` with that faction's favor (`bestWorkType`). Hacking contracts
+scale with hacking level alone; field work uses every stat, so with combat stats trained up it can
+win. The file above also carries `workType` and each type's rep/min (`workGains`), so
+`cat /var/faction_reps.txt` shows the comparison. Without Formulas.exe it still prefers hacking.
+
 `run tools/skill_eta.js [hacking-target] [--window 1h]` compares both routes to a Daedalus
 invite:
 - **Hacking to 2500:** uses the measured experience rate, plus the configured class's rate from
@@ -657,6 +691,17 @@ success.
   oversight, deliberately never bought).
 
 ### Pre-install wind-down: `development/libraries/install_handshake.ts`
+
+**Pending counts repeats** (`pendingAugmentations`): pending is getOwnedAugmentations(true)
+minus getOwnedAugmentations(false) as a multiset. A plain name filter dropped a queued NeuroFlux
+Governor whenever one was already installed, so pending read 0 and auto-install never fired with
+only NeuroFlux queued.
+
+**No auto-install while `reserveMoney` > 0** in `/etc/faction.txt` (`decideInstallReady`). An
+install resets cash to $1,000, which defeats the reserve. Also, with a reserve set, "nothing
+affordable" means only that the reserve blocked the purchase, not that buying is done. Before
+this rule, raising the reserve to $100B to save for Daedalus made the daemon treat buying as
+finished. The whole-balance pre-install purchases then spent the savings, and it installed.
 
 An augmentation install **deletes every stock position with no refund**:
 `initStockMarket()` replaces every `Stock` object, and shares live on those objects. It also
@@ -973,6 +1018,12 @@ game's formula (`amount / $1M × faction_rep mult × BitNode FactionWorkRepGain`
 - **Pre-install:** the same whole-balance rule as `decidePreInstall` applies. With nothing left to
   buy outright, a donation that fits the *entire* remaining cash is made before installing,
   because the install is about to wipe that cash anyway.
+- **The Red Pill comes first** (`redPillFocus`). Once it's buyable, or its faction (Daedalus)
+  takes donations, it's the only augmentation bought or donated for. Everything else waits, so
+  the cash builds up for its donation. Both deciders rank by price, so otherwise a $0 Red Pill
+  lost to every repeatable ~$170B NeuroFlux donation elsewhere. Getting Daedalus to 150 favor
+  means about 462k rep before one install (favor = ln(1 + rep/25,000) / ln(1.02)); then the rep
+  can be bought.
 - **What it can't do:** unique augmentations at factions below the favor threshold (e.g.
   BitRunners at favor ~102, gaining ~2 per install) still need rep grinding, which
   `share_daemon.ts` speeds up (see "Share manager" below).

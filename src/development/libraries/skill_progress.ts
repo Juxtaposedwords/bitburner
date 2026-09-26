@@ -62,6 +62,34 @@ export function effectiveSkillMult(level: number, skillAt: (mult: number) => num
   return a === undefined || b === undefined ? undefined : (a + b) / 2;
 }
 
+/** The BitNode multiplier (ns.getBitNodeMultipliers) each skill's level is scaled by. */
+export const SKILL_LEVEL_MULTIPLIER_KEY: Record<string, string> = {
+  hacking: "HackingLevelMultiplier",
+  strength: "StrengthLevelMultiplier",
+  defense: "DefenseLevelMultiplier",
+  dexterity: "DexterityLevelMultiplier",
+  agility: "AgilityLevelMultiplier",
+  charisma: "CharismaLevelMultiplier",
+};
+
+/**
+ * A skill's total level multiplier: the player's own (augmentations and
+ * Source-Files, ns.getPlayer().mults) times the BitNode's - exact, when the
+ * BitNode multipliers are known (Source-File 5, via bitnode_info.ts).
+ * Otherwise falls back to `solve()` (effectiveSkillMult from level and
+ * experience), which is accurate but only to within a level's rounding.
+ */
+export function skillMultiplier(
+  skill: string,
+  playerMult: number,
+  bitNodeMultipliers: Record<string, number> | undefined,
+  solve: () => number | undefined
+): { mult: number | undefined; source: "bitnode" | "solved" } {
+  const bnMult = bitNodeMultipliers?.[SKILL_LEVEL_MULTIPLIER_KEY[skill] ?? ""];
+  if (bnMult !== undefined) return { mult: playerMult * bnMult, source: "bitnode" };
+  return { mult: solve(), source: "solved" };
+}
+
 /** Product of every augmentation's multipliers, key by key (ns.singularity.getAugmentationStats for each pending one). */
 export function combineMultipliers(stats: Record<string, number>[]): Record<string, number> {
   const out: Record<string, number> = {};

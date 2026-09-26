@@ -194,6 +194,29 @@ export function decideTerritoryWarfareAssignment(
  * theirPower) (confirmed against Bitburner's AllGangs.ts). Trivially
  * true if no rival holds any territory - nothing to be unready for.
  */
+/**
+ * Written by gang_daemon.ts every tick; monitoring_daemon.ts turns it into
+ * gauge/gang_* series. Going through a file keeps ns.gang's RAM cost off
+ * the sampler, the same way faction rep reaches it.
+ */
+export const GANG_STATUS_PATH = "/var/gang_status.txt";
+export type GangStatusFile = {
+  power: number;
+  // Fractions (0-1), as the game reports them.
+  territory: number;
+  worstWinChance: number;
+  strongestRivalPower: number;
+  respect: number;
+  territoryWarfareMembers: number;
+  engaged: boolean;
+  writtenAt: number;
+};
+
+/** The lowest clash win chance against any of `rivalPowers` (1 with no rivals) - what decideTerritoryReadiness compares to its threshold. */
+export function worstClashWinChance(myPower: number, rivalPowers: number[]): number {
+  return rivalPowers.reduce((worst, rivalPower) => Math.min(worst, myPower / (myPower + rivalPower)), 1);
+}
+
 export function decideTerritoryReadiness(myPower: number, rivalPowers: number[], minClashWinChance: number): boolean {
   return rivalPowers.every((rivalPower) => myPower / (myPower + rivalPower) >= minClashWinChance);
 }

@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 
 /**
  * One-shot readiness check for actually finishing the BitNode - not just
@@ -22,7 +23,9 @@ const DAEDALUS = "Daedalus" as FactionNameType;
 const RED_PILL = "The Red Pill";
 const WORLD_DAEMON = "w0r1d_d43m0n";
 
-const DAEDALUS_AUGS_REQUIREMENT = 30;
+// Bitburner's default; the real value for this BitNode comes from
+// DaedalusAugsRequirement in /var/bitnode/current.txt when recorded (SF5).
+const DEFAULT_DAEDALUS_AUGS_REQUIREMENT = 30;
 const DAEDALUS_MONEY_REQUIREMENT = 100e9;
 const DAEDALUS_HACKING_REQUIREMENT = 2500;
 const DAEDALUS_COMBAT_REQUIREMENT = 1500;
@@ -32,6 +35,8 @@ export async function main(ns: NS): Promise<void> {
   const player = ns.getPlayer();
 
   const installedAugs = ns.singularity.getOwnedAugmentations(false).length;
+  const bitNodeDaedalusAugs = readBitNodeInfo(ns)?.multipliers?.DaedalusAugsRequirement;
+  const daedalusAugs = bitNodeDaedalusAugs ?? DEFAULT_DAEDALUS_AUGS_REQUIREMENT;
   const inDaedalus = player.factions.includes(DAEDALUS);
   const invitedToDaedalus = ns.singularity.checkFactionInvitations().includes(DAEDALUS);
   const combatReady =
@@ -44,8 +49,8 @@ export async function main(ns: NS): Promise<void> {
   lines.push("=== Daedalus readiness (source of The Red Pill) ===");
   lines.push(`joined=${inDaedalus} invited=${invitedToDaedalus}`);
   lines.push(
-    `installedAugmentations=${installedAugs}/${DAEDALUS_AUGS_REQUIREMENT} ` +
-      `${installedAugs >= DAEDALUS_AUGS_REQUIREMENT ? "OK" : "SHORT"} (BN9's actual multiplier unconfirmed - default assumed)`
+    `installedAugmentations=${installedAugs}/${daedalusAugs} ` +
+      `${installedAugs >= daedalusAugs ? "OK" : "SHORT"} (${bitNodeDaedalusAugs !== undefined ? "this BitNode's requirement" : "default - BitNode multipliers not recorded"})`
   );
   lines.push(
     `money=$${player.money.toFixed(0)}/$${DAEDALUS_MONEY_REQUIREMENT.toFixed(0)} ` +

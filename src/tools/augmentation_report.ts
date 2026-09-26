@@ -97,6 +97,9 @@ export async function main(ns: NS): Promise<void> {
       const affordable = aug.price <= player.money;
       lines.push(
         `${aug.name} [${aug.faction}] price=$${aug.price.toFixed(0)} ` +
+          // Hacking level and experience multipliers - what the push to
+          // w0r1d_d43m0n's level needs (see skill_progress.ts).
+          `hacking=x${(aug.stats?.hacking ?? 1).toFixed(3)} hacking_exp=x${(aug.stats?.hacking_exp ?? 1).toFixed(3)} ` +
           `rep=${currentRep.toFixed(0)}/${aug.repReq.toFixed(0)} (${repMet ? "OK" : "SHORT"}) ` +
           `prereqs=${missingPrereqs.length === 0 ? "OK" : `MISSING (${missingPrereqs.join(", ")})`} ` +
           `affordable=${affordable ? "YES" : "no"}` +
@@ -121,7 +124,7 @@ export async function main(ns: NS): Promise<void> {
     catalog,
     owned
   );
-  const installReady = decideInstallReady(purchaseDecision, pending);
+  const installReady = decideInstallReady(purchaseDecision, pending, factionConfig.reserveMoney);
 
   lines.push("=== What faction_daemon.ts would decide right now ===");
   lines.push(`purchase -> ${purchaseDecision.kind === "buy" ? `buy ${purchaseDecision.augmentation} from ${purchaseDecision.faction}` : "none"}`);

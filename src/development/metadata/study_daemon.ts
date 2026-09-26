@@ -15,7 +15,8 @@ import {
   GYM_CITY,
   StudyConfig,
 } from "development/metadata/study_decisions";
-import { COMBAT_SKILLS, DAEDALUS_COMBAT_LEVEL, DAEDALUS_HACKING_LEVEL, effectiveSkillMult } from "development/libraries/skill_progress";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
+import { COMBAT_SKILLS, DAEDALUS_COMBAT_LEVEL, DAEDALUS_HACKING_LEVEL, effectiveSkillMult, skillMultiplier } from "development/libraries/skill_progress";
 
 type CityNameType = Parameters<NS["singularity"]["travelToCity"]>[0];
 type UniversityNameType = Parameters<NS["singularity"]["universityCourse"]>[0];
@@ -40,6 +41,8 @@ type LocationNameType = Parameters<NS["formulas"]["work"]["gymGains"]>[2];
  */
 const TICK_INTERVAL_MS = 10_000;
 
+type Skill = "hacking" | (typeof COMBAT_SKILLS)[number];
+
 const CYCLES_PER_MIN = 300; // ns.formulas.work.*Gains are per 200ms game cycle.
 const WORLD_DAEMON = "w0r1d_d43m0n";
 const DAEDALUS = "Daedalus";
@@ -58,15 +61,20 @@ function pickGym(ns: NS, config: StudyConfig): { need: CombatNeed; hackingMinute
   const combatRouteOpen = !ns.serverExists(WORLD_DAEMON) && !player.factions.includes(DAEDALUS);
   if (!combatRouteOpen) return undefined;
 
-  const minutesTo = (level: number, exp: number, goal: number, perMin: number): number => {
-    const mult = effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m));
+  const bitNodeMultipliers = readBitNodeInfo(ns)?.multipliers;
+  const minutesTo = (skill: Skill, goal: number, perMin: number): number => {
+    const level = player.skills[skill];
+    const exp = player.exp[skill];
+    const { mult } = skillMultiplier(skill, player.mults[skill], bitNodeMultipliers, () =>
+      effectiveSkillMult(level, (m) => ns.formulas.skills.calculateSkill(exp, m))
+    );
     if (mult === undefined || !(perMin > 0)) return Infinity;
     return Math.max(0, ns.formulas.skills.calculateExp(goal, mult) - exp) / perMin;
   };
 
   const classPerMin =
     ns.formulas.work.universityGains(player, config.course as UniversityClassType, config.university as LocationNameType).hackExp * CYCLES_PER_MIN;
-  const hackingMinutes = minutesTo(player.skills.hacking, player.exp.hacking, DAEDALUS_HACKING_LEVEL, classPerMin);
+  const hackingMinutes = minutesTo("hacking", DAEDALUS_HACKING_LEVEL, classPerMin);
 
   const gyms = Object.keys(GYM_CITY);
   const combat: CombatNeed[] = COMBAT_SKILLS.map((stat) => {
@@ -77,7 +85,7 @@ function pickGym(ns: NS, config: StudyConfig): { need: CombatNeed; hackingMinute
       const perMin = ns.formulas.work.gymGains(player, gymType, gym as LocationNameType)[expKey] * CYCLES_PER_MIN;
       if (perMin > best.perMin) best = { gym, perMin };
     }
-    return { stat, gymType, gym: best.gym, minutes: minutesTo(player.skills[stat], player.exp[stat], DAEDALUS_COMBAT_LEVEL, best.perMin) };
+    return { stat, gymType, gym: best.gym, minutes: minutesTo(stat, DAEDALUS_COMBAT_LEVEL, best.perMin) };
   });
 
   const need = chooseTraining(hackingMinutes, combat, combatRouteOpen);

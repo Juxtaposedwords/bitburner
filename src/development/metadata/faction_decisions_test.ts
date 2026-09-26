@@ -8,6 +8,10 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  redPillFocus,
+  pendingAugmentations,
+  bestWorkType,
+  repSeriesId,
   decidePreInstall,
   decideWorkTarget,
   EligibilitySnapshot,
@@ -57,6 +61,26 @@ describe("decideFactionsToJoin", () => {
 });
 
 describe("decideWorkTarget", () => {
+  it("works for The Red Pill's faction ahead of a smaller gap elsewhere", () => {
+    const catalog = [
+      aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }),
+      aug({ name: "The Red Pill", faction: "Daedalus", repReq: 2.5e6 }),
+    ];
+    const reps = { "Sector-12": 990, Daedalus: 0 };
+
+    expect(decideWorkTarget(["Sector-12", "Daedalus"], reps, catalog, [])).toBe("Daedalus");
+  });
+
+  it("goes back to the smallest gap once The Red Pill's rep is reached or it's owned", () => {
+    const catalog = [
+      aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }),
+      aug({ name: "The Red Pill", faction: "Daedalus", repReq: 2.5e6 }),
+    ];
+
+    expect(decideWorkTarget(["Sector-12", "Daedalus"], { "Sector-12": 990, Daedalus: 2.5e6 }, catalog, [])).toBe("Sector-12");
+    expect(decideWorkTarget(["Sector-12", "Daedalus"], { "Sector-12": 990, Daedalus: 0 }, catalog, ["The Red Pill"])).toBe("Sector-12");
+  });
+
   it("picks the faction with the smallest positive reputation gap to its next wanted augmentation", () => {
     const catalog = [
       aug({ name: "Cheap", faction: "CyberSec", repReq: 100 }),
@@ -152,15 +176,19 @@ describe("decideAugmentationPurchase", () => {
 
 describe("decideInstallReady", () => {
   it("is true once nothing's left to buy and something purchased is waiting to be installed", () => {
-    expect(decideInstallReady({ kind: "none" }, ["Aug"])).toBe(true);
+    expect(decideInstallReady({ kind: "none" }, ["Aug"], 0)).toBe(true);
   });
 
   it("is false while there's still something affordable to buy", () => {
-    expect(decideInstallReady({ kind: "buy", faction: "CyberSec", augmentation: "Aug" }, ["Aug"])).toBe(false);
+    expect(decideInstallReady({ kind: "buy", faction: "CyberSec", augmentation: "Aug" }, ["Aug"], 0)).toBe(false);
   });
 
   it("is false when nothing has been purchased yet, even with nothing left to buy", () => {
-    expect(decideInstallReady({ kind: "none" }, [])).toBe(false);
+    expect(decideInstallReady({ kind: "none" }, [], 0)).toBe(false);
+  });
+
+  it("is false while a cash reserve is set, since an install would wipe the reserved cash", () => {
+    expect(decideInstallReady({ kind: "none" }, ["Aug"], 100e9)).toBe(false);
   });
 });
 
@@ -463,5 +491,70 @@ describe("decideDonation", () => {
     ];
     const decision = decideDonation(10_000, 0, 1, { "Sector-12": 100, CyberSec: 900 }, catalog, [NEUROFLUX_GOVERNOR], donatable, perRep);
     expect(decision).toEqual({ kind: "donate", faction: "CyberSec", augmentation: NEUROFLUX_GOVERNOR, amount: 100 });
+  });
+});
+
+describe("repSeriesId", () => {
+  it("slugs faction names into series ids", () => {
+    expect(repSeriesId("The Black Hand")).toBe("gauge/rep_the_black_hand");
+    expect(repSeriesId("Sector-12")).toBe("gauge/rep_sector_12");
+    expect(repSeriesId("Daedalus")).toBe("gauge/rep_daedalus");
+  });
+});
+
+describe("bestWorkType", () => {
+  it("picks the work type with the most rep", () => {
+    expect(bestWorkType(["hacking", "field", "security"], { hacking: 2900, field: 4100, security: 3000 })).toBe("field");
+  });
+
+  it("keeps listing order on a tie", () => {
+    expect(bestWorkType(["hacking", "field"], { hacking: 100, field: 100 })).toBe("hacking");
+  });
+
+  it("is undefined with nothing offered", () => {
+    expect(bestWorkType([], {})).toBeUndefined();
+  });
+});
+
+describe("pendingAugmentations", () => {
+  it("counts a queued NeuroFlux Governor even when one is already installed", () => {
+    expect(pendingAugmentations(["NeuroFlux Governor", "Aug A", "NeuroFlux Governor"], ["NeuroFlux Governor", "Aug A"])).toEqual(["NeuroFlux Governor"]);
+  });
+
+  it("returns every queued augmentation not yet installed", () => {
+    expect(pendingAugmentations(["Aug A", "Aug B"], ["Aug A"])).toEqual(["Aug B"]);
+  });
+
+  it("is empty with nothing queued", () => {
+    expect(pendingAugmentations(["Aug A", "NeuroFlux Governor"], ["Aug A", "NeuroFlux Governor"])).toEqual([]);
+  });
+});
+
+describe("redPillFocus", () => {
+  const catalog = [
+    aug({ name: "NeuroFlux Governor", faction: "Sector-12", price: 1e9, repReq: 674119 }),
+    aug({ name: "The Red Pill", faction: "Daedalus", price: 0, repReq: 2.5e6 }),
+  ];
+
+  it("focuses on The Red Pill once its faction takes donations", () => {
+    expect(redPillFocus(catalog, { Daedalus: 1000 }, [], new Set(["Daedalus", "Sector-12"]))?.name).toBe("The Red Pill");
+  });
+
+  it("focuses on it once its rep is met, even without donations", () => {
+    expect(redPillFocus(catalog, { Daedalus: 2.5e6 }, [], new Set())?.name).toBe("The Red Pill");
+  });
+
+  it("doesn't hold spending while it's only reachable by grinding", () => {
+    expect(redPillFocus(catalog, { Daedalus: 1000 }, [], new Set(["Sector-12"]))).toBeUndefined();
+  });
+
+  it("stops once it's owned", () => {
+    expect(redPillFocus(catalog, { Daedalus: 2.5e6 }, ["The Red Pill"], new Set(["Daedalus"]))).toBeUndefined();
+  });
+
+  it("makes the donation go to The Red Pill instead of a pricier NeuroFlux", () => {
+    const focus = redPillFocus(catalog, { Daedalus: 1000, "Sector-12": 0 }, [], new Set(["Daedalus", "Sector-12"]));
+    const decision = decideDonation(1e13, 0, 0.9, { Daedalus: 1000, "Sector-12": 0 }, focus ? [focus] : catalog, [], new Set(["Daedalus", "Sector-12"]), (rep) => rep * 258e3);
+    expect(decision).toMatchObject({ kind: "donate", faction: "Daedalus", augmentation: "The Red Pill" });
   });
 });

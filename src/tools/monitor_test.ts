@@ -89,6 +89,30 @@ describe("formatSummary", () => {
     expect(text).toContain("858 → 871");
   });
 
+  it("shows gang gauges as plain numbers with a rate", () => {
+    const lines = formatSummary([{ id: "gauge/gang_win_chance_pct", series: series([34, 40]) }], 60, 3600);
+    const text = lines.join("\n");
+
+    expect(text).toContain("gang win chance pct 34 → 40   (+6/min)");
+    expect(text).not.toContain("$");
+  });
+
+  it("shows changing rep gauges with a rate and drops still ones", () => {
+    const lines = formatSummary(
+      [
+        { id: "gauge/rep_daedalus", series: series([5197, 65197]) },
+        { id: "gauge/rep_cybersec", series: series([24236, 24236]) },
+      ],
+      60,
+      3600
+    );
+    const text = lines.join("\n");
+
+    expect(text).toContain("rep daedalus");
+    expect(text).toContain("5197 → 65.2K   (+60.0K/min)");
+    expect(text).not.toContain("cybersec");
+  });
+
   it("adds a per-minute rate to non-money gauges only", () => {
     const lines = formatSummary(
       [

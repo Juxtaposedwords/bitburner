@@ -1,6 +1,8 @@
 import { NS } from "@ns";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 import { appendPoint, DEFAULT_CAPACITY, DEFAULT_STEP_SECONDS, readSeries, writeSeries } from "development/libraries/timeseries";
+import { FACTION_REPS_PATH, FactionRepsFile, repSeriesId } from "development/metadata/faction_decisions";
+import { GANG_STATUS_PATH, GangStatusFile } from "development/metadata/gang_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
@@ -21,6 +23,10 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
  * survives test_restart.js - a restart shows up as a gap of nulls.
  */
 const TICK_INTERVAL_MS = DEFAULT_STEP_SECONDS * 1000;
+// faction_daemon.ts writes every 5s; allow a few missed writes.
+const REPS_MAX_AGE_MS = 60_000;
+// gang_daemon.ts writes every 5s too.
+const STATUS_MAX_AGE_MS = 60_000;
 
 function record(ns: NS, id: string, t: number, value: number): void {
   writeSeries(ns, id, appendPoint(readSeries(ns, id), t, value, DEFAULT_STEP_SECONDS, DEFAULT_CAPACITY));
@@ -59,6 +65,50 @@ function recordHacknet(ns: NS, t: number): string {
   return `hacknet=${count} ${unit}_rate=${rate.toFixed(2)}/s`;
 }
 
+/**
+ * One gauge per joined faction from faction_daemon.ts's FACTION_REPS_PATH.
+ * Skipped when that file is stale (faction daemon not running), so a gap
+ * shows instead of a flat line of old values.
+ */
+function recordReps(ns: NS, t: number): string {
+  const raw = ns.read(FACTION_REPS_PATH);
+  if (!raw) return "reps=none";
+  let file: FactionRepsFile;
+  try {
+    file = JSON.parse(raw) as FactionRepsFile;
+  } catch {
+    return "reps=unreadable";
+  }
+  if (Date.now() - file.writtenAt > REPS_MAX_AGE_MS) return "reps=stale";
+  for (const [faction, rep] of Object.entries(file.reps)) record(ns, repSeriesId(faction), t, rep);
+  return `reps=${Object.keys(file.reps).length} workTarget=${file.workTarget ?? "none"}`;
+}
+
+/**
+ * Gang power, odds and territory from gang_daemon.ts's GANG_STATUS_PATH,
+ * for judging whether putting members on Territory Warfare pays off
+ * (income itself is already counter/gang). Percentages are stored as 0-100
+ * so the summary reads naturally. Skipped when the file is stale.
+ */
+function recordGang(ns: NS, t: number): string {
+  const raw = ns.read(GANG_STATUS_PATH);
+  if (!raw) return "gang=none";
+  let s: GangStatusFile;
+  try {
+    s = JSON.parse(raw) as GangStatusFile;
+  } catch {
+    return "gang=unreadable";
+  }
+  if (Date.now() - s.writtenAt > STATUS_MAX_AGE_MS) return "gang=stale";
+  record(ns, "gauge/gang_power", t, s.power);
+  record(ns, "gauge/gang_rival_power", t, s.strongestRivalPower);
+  record(ns, "gauge/gang_win_chance_pct", t, s.worstWinChance * 100);
+  record(ns, "gauge/gang_territory_pct", t, s.territory * 100);
+  record(ns, "gauge/gang_respect", t, s.respect);
+  record(ns, "gauge/gang_warfare_members", t, s.territoryWarfareMembers);
+  return `gang winChance=${(s.worstWinChance * 100).toFixed(1)}% territory=${(s.territory * 100).toFixed(1)}%`;
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Monitoring", LOG_LEVEL.DEBUG);
@@ -90,8 +140,10 @@ export async function main(ns: NS): Promise<void> {
     record(ns, "gauge/net_worth", t, cash + (stock ?? 0));
 
     const hacknet = recordHacknet(ns, t);
+    const reps = recordReps(ns, t);
+    const gang = recordGang(ns, t);
 
-    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet}`);
+    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet} ${reps} ${gang}`);
 
     await ns.asleep(TICK_INTERVAL_MS);
   }
