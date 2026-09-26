@@ -4,10 +4,11 @@ package scheduler;
 
 // The shared "what is home's effort going toward right now" concept - not
 // necessarily owned by scheduler.ts alone. HACK, STOCK_TARGETING, and
-// GROW_STATS all drive scheduler.ts's own batch loop (only HACK and
-// STOCK_TARGETING get real behavior for now - they run the identical HWGW
-// batch loop, differing only in which target resolveTarget() picks);
-// CRIME is a placeholder for a future, separate daemon that would watch
+// GROW_STATS all run scheduler.ts's identical HWGW batch loop; STOCK_TARGETING
+// changes which target resolveTarget() picks, and GROW_STATS changes what the
+// player does instead: study_daemon.ts keeps them in a university class,
+// faction_daemon.ts gives up the work slot and holds installs, and
+// share_daemon.ts idles (share only boosts faction/company rep). CRIME is a placeholder for a future, separate daemon that would watch
 // this same config and do something with no relationship to hack/grow/weaken
 // batching at all - defined now so the schema doesn't need another breaking
 // change later, not implemented anywhere yet.

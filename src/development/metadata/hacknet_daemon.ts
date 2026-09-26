@@ -2,7 +2,7 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
-import { decideNodeInvestment, NodeUpgradeCosts, pickHashUpgrade, PurchaseDecision } from "development/metadata/hacknet_decisions";
+import { decideHashSpend, decideNodeInvestment, hashCapacityBound, NodeUpgradeCosts, PurchaseDecision } from "development/metadata/hacknet_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import { NewSchedulerServiceClient } from "development/metadata/scheduler";
 import { resolveTarget } from "development/metadata/scheduler_daemon";
@@ -27,8 +27,14 @@ type HacknetConfig = {
   maxSpendFraction: number;
   // Ordered, most-preferred-first. Must exactly match one of Bitburner's
   // hash upgrade names (ns.hacknet.getHashUpgrades()) - an unrecognized
-  // or currently-unaffordable entry is skipped, not an error.
+  // or currently-unaffordable entry is skipped, not an error. Each tick
+  // buys as many as it can afford, not just one (see decideHashSpend).
   hashSpendPriority: string[];
+  // Sold only once hashes pass hashDrainAboveFraction of capacity - hashes
+  // past capacity are lost, but draining every tick would stop hashes ever
+  // building up for the priority upgrades.
+  hashDrainUpgrade: string;
+  hashDrainAboveFraction: number;
   // Target for upgrades that need one (see TARGET_SCOPED_UPGRADES). Unset
   // = reuse whatever scheduler_daemon.ts is currently attacking, so hash
   // spending automatically synergizes with the HWGW loop.
@@ -39,11 +45,20 @@ const DEFAULT_CONFIG: HacknetConfig = {
   enabled: true,
   reserveMoney: 0,
   maxSpendFraction: 0.5,
-  // Boost the live HWGW target first (cheaper security -> less weaken
-  // overhead per batch; higher max money -> more $/batch), falling back to
-  // straight cash once neither upgrade is affordable/needed.
-  hashSpendPriority: ["Reduce Minimum Security", "Increase Maximum Money", "Sell for Money"],
+  // Tuned for BN9, where script hacking gives 5% of normal experience and
+  // almost no money: Improve Studying multiplies university class
+  // experience (which BN9 doesn't nerf) - the real path to hacking level
+  // here. Improve Gym Training does the same for combat stats (criminal
+  // factions). The HWGW-target upgrades (Reduce Minimum Security /
+  // Increase Maximum Money) only pay off where script hacking does.
+  hashSpendPriority: ["Improve Studying", "Improve Gym Training"],
+  hashDrainUpgrade: "Sell for Money",
+  hashDrainAboveFraction: 0.9,
 };
+
+// Safety bound on purchases per tick - a drain at 4 hashes each can take
+// many calls; whatever's left gets picked up next tick.
+const MAX_HASH_SPENDS_PER_TICK = 500;
 
 const CONFIG_PATH = "/etc/hacknet.txt";
 
@@ -122,6 +137,15 @@ async function resolveHashTarget(ns: NS, config: HacknetConfig): Promise<string 
   return resolveTarget(ns, res.data?.config ?? {});
 }
 
+/** Whether the priority hash upgrades have outgrown hash capacity, so cache upgrades should come first (see hashCapacityBound). */
+function priorityCapacityBound(ns: NS, config: HacknetConfig, validNames: Set<string>): boolean {
+  const costs: Record<string, number> = {};
+  for (const name of config.hashSpendPriority) {
+    if (validNames.has(name)) costs[name] = ns.hacknet.hashCost(name as HashUpgradeName);
+  }
+  return hashCapacityBound(config.hashSpendPriority, costs, ns.hacknet.hashCapacity(), config.hashDrainAboveFraction);
+}
+
 async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
@@ -132,6 +156,8 @@ async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
   const atMaxNodes = ns.hacknet.numNodes() >= ns.hacknet.maxNumNodes();
   const nodes = gatherNodes(ns, isServerContext);
   const gainRate = buildGainRate(ns, isServerContext);
+  const validNames = new Set<string>(ns.hacknet.getHashUpgrades());
+  const capacityBound = isServerContext && priorityCapacityBound(ns, config, validNames);
 
   const { decision, budget, bestCandidate, candidateCount } = decideNodeInvestment(
     money,
@@ -140,11 +166,12 @@ async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
     ns.hacknet.getPurchaseNodeCost(),
     atMaxNodes,
     nodes,
-    gainRate
+    gainRate,
+    capacityBound
   );
 
   await log.debug(
-    `[Hacknet] node tick: money=$${money.toFixed(0)} budget=$${budget.toFixed(0)} candidates=${candidateCount} mode=${gainRate ? "ROI" : "cheapest-first"} ` +
+    `[Hacknet] node tick: money=$${money.toFixed(0)} budget=$${budget.toFixed(0)} candidates=${candidateCount} mode=${gainRate ? "ROI" : "cheapest-first"} capacityBound=${capacityBound} ` +
       `best=${bestCandidate ? `$${bestCandidate.cost.toFixed(0)} (${JSON.stringify(bestCandidate.decision)})` : "n/a"} -> ${decision.kind}`
   );
 
@@ -153,31 +180,39 @@ async function tick(ns: NS, log: Logger, config: HacknetConfig): Promise<void> {
 
   if (!isServerContext) return;
 
-  const validNames = new Set(ns.hacknet.getHashUpgrades());
-  const numHashes = ns.hacknet.numHashes();
-  const costs: Record<string, number> = {};
-  for (const name of config.hashSpendPriority) {
-    if (validNames.has(name as HashUpgradeName)) costs[name] = ns.hacknet.hashCost(name as HashUpgradeName);
-  }
-
-  const upgrade = pickHashUpgrade(config.hashSpendPriority, numHashes, costs);
-
-  await log.debug(`[Hacknet] hash tick: numHashes=${numHashes.toFixed(0)} costs=${JSON.stringify(costs)} -> ${upgrade ?? "none affordable"}`);
-
-  if (!upgrade) return;
-
+  const capacity = ns.hacknet.hashCapacity();
+  const names = [...config.hashSpendPriority, config.hashDrainUpgrade].filter((name) => validNames.has(name));
+  const startHashes = ns.hacknet.numHashes();
+  const bought: Record<string, number> = {};
   let target: string | undefined;
-  if (TARGET_SCOPED_UPGRADES.has(upgrade)) {
-    target = await resolveHashTarget(ns, config);
-    if (!target) {
-      await log.warn(`[Hacknet] "${upgrade}" needs a target but none is resolvable yet; skipping this tick.`);
-      return;
+
+  // Loop, re-querying costs after every purchase (they rise per level), until
+  // nothing on the list is affordable. The old one-purchase-per-tick version
+  // let production outrun spending, and hashes past capacity are lost.
+  for (let i = 0; i < MAX_HASH_SPENDS_PER_TICK; i++) {
+    const numHashes = ns.hacknet.numHashes();
+    const costs: Record<string, number> = {};
+    for (const name of names) costs[name] = ns.hacknet.hashCost(name as HashUpgradeName);
+    const spend = decideHashSpend(config.hashSpendPriority, numHashes, capacity, costs, config.hashDrainUpgrade, config.hashDrainAboveFraction);
+    if (!spend) break;
+
+    if (TARGET_SCOPED_UPGRADES.has(spend.upgrade) && !target) {
+      target = await resolveHashTarget(ns, config);
+      if (!target) {
+        await log.warn(`[Hacknet] "${spend.upgrade}" needs a target but none is resolvable yet; stopping hash spending this tick.`);
+        break;
+      }
     }
+    if (!ns.hacknet.spendHashes(spend.upgrade as HashUpgradeName, TARGET_SCOPED_UPGRADES.has(spend.upgrade) ? target : undefined)) break;
+    bought[spend.upgrade] = (bought[spend.upgrade] ?? 0) + 1;
   }
 
-  if (ns.hacknet.spendHashes(upgrade as HashUpgradeName, target)) {
-    await log.info(`[Hacknet] Spent hashes on "${upgrade}"${target ? ` (target: ${target})` : ""}.`);
-  }
+  const summary = Object.entries(bought).map(([name, n]) => `${name} x${n}`).join(", ");
+  if (summary) await log.info(`[Hacknet] Spent hashes: ${summary}${target ? ` (target: ${target})` : ""}.`);
+  await log.debug(
+    `[Hacknet] hash tick: hashes ${startHashes.toFixed(0)} -> ${ns.hacknet.numHashes().toFixed(0)} of ${capacity.toFixed(0)} capacity, ` +
+      `bought: ${summary || "nothing affordable"}`
+  );
 }
 
 export async function main(ns: NS): Promise<void> {

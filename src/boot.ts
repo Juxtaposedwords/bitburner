@@ -7,6 +7,7 @@ const CAPABILITY_DETECTOR_SCRIPT = "development/metadata/detect_capabilities.js"
 const PROGRAM_SHOPPER_SCRIPT = "tools/program_shopper.js";
 const BACKDOOR_SCRIPT = "development/metadata/backdoor_daemon.js";
 const FACTION_SCRIPT = "development/metadata/faction_daemon.js";
+const STUDY_SCRIPT = "development/metadata/study_daemon.js";
 const GANG_SCRIPT = "development/metadata/gang_daemon.js";
 const SCHEDULER_SCRIPT = "development/metadata/scheduler_daemon.js";
 const HACKNET_SCRIPT = "development/metadata/hacknet_daemon.js";
@@ -14,6 +15,7 @@ const PURCHASED_SERVER_SCRIPT = "development/metadata/purchased_server_daemon.js
 const STOCK_SCRIPT = "development/metadata/stock_daemon.js";
 const STOCK_TARGET_SCRIPT = "development/metadata/stock_target_daemon.js";
 const MONITORING_SCRIPT = "development/metadata/monitoring_daemon.js";
+const SHARE_SCRIPT = "development/metadata/share_daemon.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -101,6 +103,7 @@ export async function main(ns: NS): Promise<void> {
     launchIfNotRunning(ns, PROGRAM_SHOPPER_SCRIPT);
     launchIfNotRunning(ns, BACKDOOR_SCRIPT);
     launchIfNotRunning(ns, FACTION_SCRIPT);
+    launchIfNotRunning(ns, STUDY_SCRIPT);
   }
 
   // Independent capability from singularityAvailable - gated by
@@ -130,4 +133,7 @@ export async function main(ns: NS): Promise<void> {
   // ~10 GB (mostly ns.stock.* for portfolio value), no dependencies - same
   // low-priority placement as the growth daemons above.
   launchIfNotRunning(ns, MONITORING_SCRIPT);
+  // Small, no dependencies; its share workers fill whatever fleet RAM
+  // the scheduler isn't using at the moment it tops up.
+  launchIfNotRunning(ns, SHARE_SCRIPT);
 }

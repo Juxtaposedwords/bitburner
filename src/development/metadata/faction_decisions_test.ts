@@ -4,6 +4,7 @@ import {
   AugmentationInfo,
   decideAugmentationPurchase,
   decideCrimeForKills,
+  decideDonation,
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
@@ -398,5 +399,69 @@ describe("decidePreInstall", () => {
 
   it("installs only with nothing affordable and no stock held", () => {
     expect(decidePreInstall({ kind: "none" }, 0)).toEqual({ kind: "install" });
+  });
+});
+
+describe("decideDonation", () => {
+  // $1 of donation per point of rep, to keep the arithmetic readable.
+  const perRep = (rep: number) => rep;
+  const donatable = new Set(["Sector-12", "CyberSec"]);
+
+  it("donates exactly the rep gap for an augmentation that's otherwise affordable", () => {
+    const catalog = [aug({ name: "Aug", faction: "Sector-12", price: 100, repReq: 1000 })];
+    expect(decideDonation(10_000, 0, 1, { "Sector-12": 400 }, catalog, [], donatable, perRep)).toEqual({
+      kind: "donate",
+      faction: "Sector-12",
+      augmentation: "Aug",
+      amount: 600,
+    });
+  });
+
+  it("skips factions that can't take donations (not enough favor, or the gang faction)", () => {
+    const catalog = [aug({ name: "Aug", faction: "BitRunners", price: 100, repReq: 1000 })];
+    expect(decideDonation(10_000, 0, 1, { BitRunners: 0 }, catalog, [], donatable, perRep)).toEqual({ kind: "none" });
+  });
+
+  it("needs the donation AND the augmentation's price to fit the budget - never burns money on rep it can't use", () => {
+    const catalog = [aug({ name: "Aug", faction: "Sector-12", price: 500, repReq: 1000 })];
+    // gap 1000 + price 500 = 1500 > 1200
+    expect(decideDonation(1200, 0, 1, { "Sector-12": 0 }, catalog, [], donatable, perRep)).toEqual({ kind: "none" });
+  });
+
+  it("respects reserveMoney and maxSpendFraction like the normal purchase path", () => {
+    const catalog = [aug({ name: "Aug", faction: "Sector-12", price: 100, repReq: 200 })];
+    // budget = min(1000 - 0, 1000 * 0.2) = 200 < 200 + 100
+    expect(decideDonation(1000, 0, 0.2, { "Sector-12": 0 }, catalog, [], donatable, perRep)).toEqual({ kind: "none" });
+  });
+
+  it("ignores augmentations whose rep is already met - the normal purchase path buys those", () => {
+    const catalog = [aug({ name: "Aug", faction: "Sector-12", price: 100, repReq: 100 })];
+    expect(decideDonation(10_000, 0, 1, { "Sector-12": 100 }, catalog, [], donatable, perRep)).toEqual({ kind: "none" });
+  });
+
+  it("skips already-owned augmentations and ones with missing prereqs", () => {
+    const catalog = [
+      aug({ name: "Owned", faction: "Sector-12", repReq: 100 }),
+      aug({ name: "NeedsPrereq", faction: "Sector-12", repReq: 100, prereqs: ["Missing"] }),
+    ];
+    expect(decideDonation(1e9, 0, 1, { "Sector-12": 0 }, catalog, ["Owned"], donatable, perRep)).toEqual({ kind: "none" });
+  });
+
+  it("prefers the most expensive qualifying augmentation, same as the purchase path", () => {
+    const catalog = [
+      aug({ name: "Cheap", faction: "Sector-12", price: 100, repReq: 10 }),
+      aug({ name: "Pricey", faction: "Sector-12", price: 900, repReq: 10 }),
+    ];
+    const decision = decideDonation(10_000, 0, 1, { "Sector-12": 0 }, catalog, [], donatable, perRep);
+    expect(decision).toMatchObject({ kind: "donate", augmentation: "Pricey" });
+  });
+
+  it("for NeuroFlux Governor offered by several donatable factions, donates to the one closest to the requirement", () => {
+    const catalog = [
+      aug({ name: NEUROFLUX_GOVERNOR, faction: "Sector-12", price: 100, repReq: 1000 }),
+      aug({ name: NEUROFLUX_GOVERNOR, faction: "CyberSec", price: 100, repReq: 1000 }),
+    ];
+    const decision = decideDonation(10_000, 0, 1, { "Sector-12": 100, CyberSec: 900 }, catalog, [NEUROFLUX_GOVERNOR], donatable, perRep);
+    expect(decision).toEqual({ kind: "donate", faction: "CyberSec", augmentation: NEUROFLUX_GOVERNOR, amount: 100 });
   });
 });

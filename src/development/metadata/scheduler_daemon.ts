@@ -387,12 +387,19 @@ export async function main(ns: NS): Promise<void> {
       await prep(ns, log, target, state.config);
     }
 
-    // HACK and STOCK_TARGETING run the identical HWGW batch loop - they
-    // only disagree about which target resolveTarget() picks above.
-    if (state.config.approach === scheduler_pb.Approach.HACK || state.config.approach === scheduler_pb.Approach.STOCK_TARGETING) {
+    // HACK, STOCK_TARGETING and GROW_STATS all run the identical HWGW batch
+    // loop. STOCK_TARGETING only changes which target resolveTarget() picks;
+    // GROW_STATS changes what the *player* does (study_daemon.ts puts them in
+    // a university class), and the fleet keeps earning meanwhile.
+    const approach = state.config.approach;
+    if (
+      approach === scheduler_pb.Approach.HACK ||
+      approach === scheduler_pb.Approach.STOCK_TARGETING ||
+      approach === scheduler_pb.Approach.GROW_STATS
+    ) {
       await fireBatchIfRoom(ns, log, target, state.config);
     }
-    // GROW_STATS/CRIME: defined in the schema, not implemented yet (see scheduler.proto).
+    // CRIME: defined in the schema, not implemented yet (see scheduler.proto).
   }, BATCH_CHECK_INTERVAL_MS);
 
   await log.info(`[Scheduler] Serving SchedulerService on port ${scheduler_pb.SchedulerServicePort}...`);

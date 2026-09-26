@@ -72,11 +72,13 @@ export type InvestmentEvaluation = {
  * grows hash storage capacity, it doesn't affect production rate at all,
  * so it would always score 0 ROI and never win on merit. Rather than fake
  * a score, it's just left out of the competition when gainRate is
- * provided (still considered normally in the no-gainRate fallback). Known
- * scope-cut: this means hash-storage overflow isn't guarded against here -
- * acceptable given hashes get spent every tick whenever anything's
- * affordable (see hacknet_daemon.ts's hash-spend section), but worth
- * revisiting if overflow turns out to be a real problem in practice.
+ * provided (still considered normally in the no-gainRate fallback).
+ *
+ * `needCapacity` covers what ROI can't see: hash upgrade costs rise with
+ * every level bought, and one costing more than the hashes you can store
+ * can never be bought at all. When the caller sets it (see
+ * hacknet_daemon.ts's capacityBound check), the cheapest affordable cache
+ * upgrade wins outright; if none is affordable, the normal pick applies.
  */
 export function decideNodeInvestment(
   money: number,
@@ -85,7 +87,8 @@ export function decideNodeInvestment(
   purchaseNodeCost: number,
   atMaxNodes: boolean,
   nodes: NodeUpgradeCosts[],
-  gainRate?: (level: number, ram: number, cores: number) => number
+  gainRate?: (level: number, ram: number, cores: number) => number,
+  needCapacity = false
 ): InvestmentEvaluation {
   const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
 
@@ -120,8 +123,23 @@ export function decideNodeInvestment(
   const isBetter = (a: Candidate, b: Candidate): boolean => (gainRate ? a.score > b.score : a.score < b.score);
   const pickBest = (list: Candidate[]): Candidate => list.reduce((best, c) => (isBetter(c, best) ? c : best));
 
-  const decision: PurchaseDecision = affordable.length === 0 ? { kind: "none" } : pickBest(affordable).decision;
   const best = candidates.length > 0 ? pickBest(candidates) : undefined;
+
+  if (needCapacity) {
+    const caches = nodes
+      .filter((node) => node.cacheCost !== undefined && Number.isFinite(node.cacheCost) && node.cacheCost <= budget)
+      .sort((a, b) => (a.cacheCost as number) - (b.cacheCost as number));
+    if (caches.length > 0) {
+      return {
+        decision: { kind: "upgrade", index: caches[0].index, upgrade: "cache" },
+        budget,
+        bestCandidate: best ? { cost: best.cost, decision: best.decision } : undefined,
+        candidateCount: candidates.length,
+      };
+    }
+  }
+
+  const decision: PurchaseDecision = affordable.length === 0 ? { kind: "none" } : pickBest(affordable).decision;
 
   return {
     decision,
@@ -139,4 +157,47 @@ export function decideNodeInvestment(
  */
 export function pickHashUpgrade(priority: string[], numHashes: number, costs: Record<string, number>): string | undefined {
   return priority.find((name) => costs[name] !== undefined && costs[name] <= numHashes);
+}
+
+/**
+ * True when every recognized priority upgrade costs more than the hashes
+ * that can build up before the drain starts selling (drainAboveFraction of
+ * capacity) - i.e. nothing on the list can ever be bought again without
+ * more hash capacity. Names missing from `costs` are ignored; an empty list
+ * never needs capacity.
+ */
+export function hashCapacityBound(priority: string[], costs: Record<string, number>, capacity: number, drainAboveFraction: number): boolean {
+  const known = priority.map((name) => costs[name]).filter((cost): cost is number => cost !== undefined);
+  return known.length > 0 && Math.min(...known) > drainAboveFraction * capacity;
+}
+
+/**
+ * One hash purchase: the first affordable upgrade in `priority`, or - only
+ * once hashes pass `drainAboveFraction` of capacity - the drain upgrade
+ * (normally "Sell for Money"). Hashes past capacity are simply lost, so the
+ * drain stops that waste; keeping it off the regular priority list lets
+ * hashes build up for the priority upgrades, whose cost rises every level,
+ * instead of being sold off every tick. The drain is filtered out of
+ * `priority` even if listed there, for the same reason. Callers loop until
+ * this returns undefined, re-querying costs after each purchase.
+ */
+export function decideHashSpend(
+  priority: string[],
+  numHashes: number,
+  capacity: number,
+  costs: Record<string, number>,
+  drainUpgrade: string,
+  drainAboveFraction: number
+): { upgrade: string; reason: "priority" | "drain" } | undefined {
+  const pick = pickHashUpgrade(
+    priority.filter((name) => name !== drainUpgrade),
+    numHashes,
+    costs
+  );
+  if (pick) return { upgrade: pick, reason: "priority" };
+
+  const drainCost = costs[drainUpgrade];
+  const overThreshold = capacity > 0 && numHashes >= drainAboveFraction * capacity;
+  if (overThreshold && drainCost !== undefined && drainCost <= numHashes) return { upgrade: drainUpgrade, reason: "drain" };
+  return undefined;
 }

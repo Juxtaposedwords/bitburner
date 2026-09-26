@@ -2,6 +2,7 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { clearInstallPending, readInstallPending, touchInstallPending } from "development/libraries/install_handshake";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
+import { Codes } from "development/libraries/status";
 import {
   AugmentationInfo,
   CITY_FACTION_NAMES,
@@ -10,6 +11,8 @@ import {
   CRIMINAL_FACTION_NAMES,
   decideAugmentationPurchase,
   decideCrimeForKills,
+  decideDonation,
+  DonationDecision,
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
@@ -23,6 +26,7 @@ import {
   requirementToAction,
 } from "development/metadata/faction_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
+import { Approach, NewSchedulerServiceClient } from "development/metadata/scheduler";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 // FactionName/FactionWorkType/CompanyName/CityName/JobField/CrimeType/
@@ -92,6 +96,16 @@ export type FactionConfig = {
   // explicitly once the join+work loop has been watched running safely.
   autoPurchaseAugmentations: boolean;
   autoInstall: boolean;
+  // Buy an augmentation's missing reputation with money at factions that
+  // accept donations (see decideDonation). Only acts when
+  // autoPurchaseAugmentations is also on - a donation only ever happens to
+  // make an augmentation buyable. Needs Formulas.exe for the exact amount.
+  autoDonate: boolean;
+  // Share of cash one donation (plus the augmentation's price) may use.
+  // Separate from maxSpendFraction, which throttles the many small repeated
+  // purchases across daemons: a donation is one targeted lump with a known
+  // payoff, and at 0.5 a ~$61B NeuroFlux unlock waited for ~$122B cash.
+  donationSpendFraction: number;
   // Script to relaunch into after installAugmentations wipes everything.
   bootScript: string;
 
@@ -136,6 +150,8 @@ export const DEFAULT_CONFIG: FactionConfig = {
   maxSpendFraction: 0.5,
   autoPurchaseAugmentations: false,
   autoInstall: false,
+  autoDonate: true,
+  donationSpendFraction: 0.9,
   bootScript: "boot.js",
 
   pursueCityFactions: false,
@@ -457,6 +473,12 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
   }
 }
 
+/** Whether scheduler_daemon.js's current approach is `approach`; false if the scheduler isn't reachable. */
+async function schedulerApproachIs(ns: NS, approach: Approach): Promise<boolean> {
+  const res = await NewSchedulerServiceClient(ns).GetSchedulerConfig({});
+  return res.status === Codes.OK && (res.data?.config?.approach ?? Approach.HACK) === approach;
+}
+
 async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
@@ -482,7 +504,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const owned = ns.singularity.getOwnedAugmentations(true);
   const pending = getPendingAugmentations(ns);
 
-  const workTarget = joinedFactions.length > 0 ? decideWorkTarget(joinedFactions, reps, catalog, owned) : undefined;
+  // GROW_STATS (scheduler.proto) hands the player's work slot to
+  // study_daemon.ts, so neither faction work nor eligibility work below
+  // claims it - otherwise each would restart over the other every tick.
+  const growingStats = await schedulerApproachIs(ns, Approach.GROW_STATS);
+
+  const workTarget = !growingStats && joinedFactions.length > 0 ? decideWorkTarget(joinedFactions, reps, catalog, owned) : undefined;
   if (workTarget) {
     const workType = pickWorkType(ns, workTarget);
     if (workType && !isAlreadyWorking(ns, workTarget, workType)) {
@@ -500,14 +527,17 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Travel never touches the work slot, so it runs unconditionally
   // alongside whatever wins the work slot below - see pursueCityFactions'
   // own doc for the mutual-exclusivity short-circuit.
-  const cityAction: EligibilityAction = config.pursueCityFactions
+  // Also skipped during GROW_STATS: study_daemon.ts may need the player in
+  // a different city (a university), and the two would travel back and forth.
+  const cityAction: EligibilityAction = config.pursueCityFactions && !growingStats
     ? pursueCityFactions(ns, config, snapshot, joinedFactions)
     : { kind: "none" };
   await executeEligibilityAction(ns, log, cityAction, config.gymLocation);
 
   // Only tried when the work slot isn't already claimed by grinding rep
   // at an already-joined faction - see decideEligibilityWorkSlotAction's doc.
-  const eligibilityAction: EligibilityAction = workTarget
+  const eligibilityAction: EligibilityAction =
+    workTarget || growingStats
     ? { kind: "none" }
     : await decideEligibilityWorkSlotAction(ns, log, config, state, snapshot, joinedFactions);
   const crimeAttempted = await executeEligibilityAction(ns, log, eligibilityAction, config.gymLocation);
@@ -523,7 +553,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   await log.debug(
     `[Faction] tick: money=$${money.toFixed(0)} joined=${joinedFactions.length} workTarget=${workTarget ?? "none"} ` +
       `pending=${pending.length} purchase=${purchaseDecision.kind === "buy" ? purchaseDecision.augmentation : "none"} ` +
-      `city=${cityAction.kind} eligibility=${eligibilityAction.kind} crimeAttempts=${state.crimeAttempts}`
+      `city=${cityAction.kind} eligibility=${eligibilityAction.kind} crimeAttempts=${state.crimeAttempts} growStats=${growingStats}`
   );
 
   if (joinedFactions.length === 0) return;
@@ -544,10 +574,36 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     return;
   }
 
-  if (!(config.autoInstall && decideInstallReady(purchaseDecision, pending))) {
+  // Nothing purchasable outright - try buying the missing reputation with
+  // money (decideDonation). The augmentation itself is bought next tick by
+  // the normal purchase path above.
+  const donatable =
+    config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
+      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
+      : new Set<string>();
+  // 0.1% over the exact amount, so float rounding can't leave the rep a
+  // hair short of the requirement.
+  const donationForRep = (rep: number): number => Math.ceil(ns.formulas.reputation.donationForRep(rep, player) * 1.001);
+  const decideDonationWith = (reserveMoney: number, maxSpendFraction: number): DonationDecision =>
+    donatable.size > 0
+      ? decideDonation(money, reserveMoney, maxSpendFraction, reps, catalog, owned, donatable, donationForRep)
+      : { kind: "none" };
+
+  const donation = decideDonationWith(config.reserveMoney, config.donationSpendFraction);
+  if (donation.kind === "donate") {
+    await executeDonation(ns, log, donation);
+    if (config.autoInstall) refreshWindDown();
+    return;
+  }
+
+  // An install resets hacking experience, undoing GROW_STATS' studying -
+  // augmentations are still bought, but the install waits for the mode to end.
+  if (!(config.autoInstall && decideInstallReady(purchaseDecision, pending)) || growingStats) {
     if (readInstallPending(ns)) {
       clearInstallPending(ns);
-      await log.info("[Faction] Install no longer ready (or autoInstall turned off) - cancelling the wind-down; stock trading resumes.");
+      await log.info(
+        `[Faction] Install no longer ready (autoInstall off, or held during GROW_STATS) - cancelling the wind-down; stock trading resumes.`
+      );
     }
     return;
   }
@@ -557,6 +613,16 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const finalPurchase: PurchaseDecision = config.autoPurchaseAugmentations
     ? decideAugmentationPurchase(money, 0, 1, reps, catalog, owned)
     : { kind: "none" };
+  if (finalPurchase.kind === "none") {
+    // Same whole-balance rule as finalPurchase: the install is about to
+    // wipe this cash, so rep bought now is the last thing it can become.
+    const finalDonation = decideDonationWith(0, 1);
+    if (finalDonation.kind === "donate") {
+      await executeDonation(ns, log, finalDonation);
+      refreshWindDown();
+      return;
+    }
+  }
   const heldPositions = stockPositionsHeld(ns);
   const action = decidePreInstall(finalPurchase, heldPositions);
 
@@ -585,6 +651,28 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   clearInstallPending(ns);
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
   ns.singularity.installAugmentations(config.bootScript);
+}
+
+/**
+ * Joined factions that accept donations: favor >= getFavorToDonate(), and
+ * never the gang's own faction (donateToFaction always refuses it). The gang
+ * check is skipped entirely without Source-File 2, where ns.gang would throw.
+ */
+function donatableFactions(ns: NS, joinedFactions: string[], gangAvailable: boolean): Set<string> {
+  const threshold = ns.getFavorToDonate();
+  const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
+  return new Set(
+    joinedFactions.filter((faction) => faction !== gangFaction && ns.singularity.getFactionFavor(faction as FactionNameType) >= threshold)
+  );
+}
+
+async function executeDonation(ns: NS, log: Logger, donation: { faction: string; augmentation: string; amount: number }): Promise<void> {
+  const amount = `$${(donation.amount / 1e9).toFixed(2)}B`;
+  if (ns.singularity.donateToFaction(donation.faction as FactionNameType, donation.amount)) {
+    await log.info(`[Faction] Donated ${amount} to ${donation.faction} to cover the reputation for ${donation.augmentation}.`);
+  } else {
+    await log.warn(`[Faction] Donation of ${amount} to ${donation.faction} (for ${donation.augmentation}) was refused.`);
+  }
 }
 
 /** Symbols with any shares held, long or short. 0 without TIX API access - every other ns.stock call needs it. */

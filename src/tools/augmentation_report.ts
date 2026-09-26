@@ -7,7 +7,7 @@ import {
   gatherReps,
   getPendingAugmentations,
 } from "development/metadata/faction_daemon";
-import { decideAugmentationPurchase, decideInstallReady, NEUROFLUX_GOVERNOR } from "development/metadata/faction_decisions";
+import { decideAugmentationPurchase, decideDonation, decideInstallReady, NEUROFLUX_GOVERNOR } from "development/metadata/faction_decisions";
 import {
   CONFIG_PATH as GANG_CONFIG_PATH,
   DEFAULT_CONFIG as GANG_DEFAULT_CONFIG,
@@ -72,6 +72,15 @@ export async function main(ns: NS): Promise<void> {
   }
   lines.push("");
 
+  // Same donatable set and cost function faction_daemon.ts uses (see its
+  // donatableFactions / donationForRep), so the numbers below match what it
+  // would actually do.
+  const donatable = new Set<string>(
+    joinedFactions.filter((f) => f !== gangFaction && ns.singularity.getFactionFavor(f) >= favorToDonate)
+  );
+  const hasFormulas = ns.fileExists("Formulas.exe", "home");
+  const donationForRep = (rep: number): number => Math.ceil(ns.formulas.reputation.donationForRep(rep, player) * 1.001);
+
   const catalog = gatherCatalog(ns, joinedFactions);
   const owned = ns.singularity.getOwnedAugmentations(true);
   const ownedSet = new Set(owned);
@@ -90,7 +99,10 @@ export async function main(ns: NS): Promise<void> {
         `${aug.name} [${aug.faction}] price=$${aug.price.toFixed(0)} ` +
           `rep=${currentRep.toFixed(0)}/${aug.repReq.toFixed(0)} (${repMet ? "OK" : "SHORT"}) ` +
           `prereqs=${missingPrereqs.length === 0 ? "OK" : `MISSING (${missingPrereqs.join(", ")})`} ` +
-          `affordable=${affordable ? "YES" : "no"}`
+          `affordable=${affordable ? "YES" : "no"}` +
+          (!repMet && hasFormulas && donatable.has(aug.faction)
+            ? ` donate-to-unlock=$${(donationForRep(aug.repReq - currentRep) / 1e9).toFixed(1)}B`
+            : "")
       );
     }
   }
@@ -113,7 +125,18 @@ export async function main(ns: NS): Promise<void> {
 
   lines.push("=== What faction_daemon.ts would decide right now ===");
   lines.push(`purchase -> ${purchaseDecision.kind === "buy" ? `buy ${purchaseDecision.augmentation} from ${purchaseDecision.faction}` : "none"}`);
-  lines.push(`installReady -> ${installReady} (autoPurchaseAugmentations=${factionConfig.autoPurchaseAugmentations}, autoInstall=${factionConfig.autoInstall})`);
+  const donationDecision =
+    purchaseDecision.kind === "none" && hasFormulas && factionConfig.autoDonate && donatable.size > 0
+      ? decideDonation(player.money, factionConfig.reserveMoney, factionConfig.donationSpendFraction, reps, catalog, owned, donatable, donationForRep)
+      : { kind: "none" as const };
+  lines.push(
+    `donation -> ${
+      donationDecision.kind === "donate"
+        ? `donate $${(donationDecision.amount / 1e9).toFixed(2)}B to ${donationDecision.faction} for ${donationDecision.augmentation}`
+        : "none (nothing affordable within the spend budget, or no donatable faction)"
+    }`
+  );
+  lines.push(`installReady -> ${installReady && donationDecision.kind === "none"} (autoPurchaseAugmentations=${factionConfig.autoPurchaseAugmentations}, autoInstall=${factionConfig.autoInstall}, autoDonate=${factionConfig.autoDonate})`);
   lines.push("");
 
   if (ns.gang.inGang()) {

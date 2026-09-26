@@ -121,6 +121,57 @@ export function decideAugmentationPurchase(
   return { kind: "buy", faction: mostExpensive.faction, augmentation: mostExpensive.name };
 }
 
+export type DonationDecision = { kind: "none" } | { kind: "donate"; faction: string; augmentation: string; amount: number };
+
+/**
+ * Buys the missing reputation for an augmentation with money
+ * (ns.singularity.donateToFaction), once nothing is purchasable outright.
+ * Only for factions in `donatable` - favor >= getFavorToDonate(), and never
+ * the gang's own faction, which can't take donations.
+ *
+ * An augmentation qualifies if its prereqs are owned (the same rules as
+ * decideAugmentationPurchase) and donating its rep gap *plus* its price fits
+ * the budget - a donation that leaves the augmentation itself unaffordable
+ * would just burn money. Among those, the most expensive augmentation wins,
+ * for the same price-inflation reason decideAugmentationPurchase buys the
+ * priciest first. Ties (NeuroFlux Governor, offered by several donatable
+ * factions at the same price) go to the smallest donation - the faction
+ * already closest to the requirement.
+ *
+ * `donationForRep` is ns.formulas.reputation.donationForRep in the daemon,
+ * injected so this stays `ns`-free.
+ */
+export function decideDonation(
+  money: number,
+  reserveMoney: number,
+  maxSpendFraction: number,
+  reps: Record<string, number>,
+  catalog: AugmentationInfo[],
+  owned: string[],
+  donatable: Set<string>,
+  donationForRep: (rep: number) => number
+): DonationDecision {
+  const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
+  const ownedSet = new Set(owned);
+
+  const candidates = catalog
+    .filter((aug) => {
+      if (!donatable.has(aug.faction)) return false;
+      if (aug.name !== NEUROFLUX_GOVERNOR && ownedSet.has(aug.name)) return false;
+      if (!aug.prereqs.every((prereq) => ownedSet.has(prereq))) return false;
+      return (reps[aug.faction] ?? 0) < aug.repReq;
+    })
+    .map((aug) => ({ aug, amount: donationForRep(aug.repReq - (reps[aug.faction] ?? 0)) }))
+    .filter(({ aug, amount }) => amount + aug.price <= budget);
+
+  if (candidates.length === 0) return { kind: "none" };
+
+  const best = candidates.reduce((a, b) =>
+    b.aug.price > a.aug.price || (b.aug.price === a.aug.price && b.amount < a.amount) ? b : a
+  );
+  return { kind: "donate", faction: best.aug.faction, augmentation: best.aug.name, amount: best.amount };
+}
+
 /** True once this tick found nothing left worth buying and something purchased-but-uninstalled is actually waiting to be installed. */
 export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAugmentations: string[]): boolean {
   return purchaseDecision.kind === "none" && pendingAugmentations.length > 0;

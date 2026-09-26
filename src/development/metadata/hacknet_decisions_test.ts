@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideNodeInvestment, pickHashUpgrade } from "development/metadata/hacknet_decisions";
+import { decideHashSpend, decideNodeInvestment, hashCapacityBound, pickHashUpgrade } from "development/metadata/hacknet_decisions";
 
 describe("decideNodeInvestment", () => {
   it("buys a new node when it's the cheapest affordable option", () => {
@@ -213,5 +213,75 @@ describe("pickHashUpgrade", () => {
 
   it("returns undefined for an empty priority list", () => {
     expect(pickHashUpgrade([], 100, { "Sell for Money": 4 })).toBeUndefined();
+  });
+});
+
+describe("decideHashSpend", () => {
+  const priority = ["Improve Studying", "Improve Gym Training"];
+  const costs = { "Improve Studying": 100, "Improve Gym Training": 60, "Sell for Money": 4 };
+
+  it("buys the first affordable priority upgrade", () => {
+    expect(decideHashSpend(priority, 150, 1000, costs, "Sell for Money", 0.9)).toEqual({ upgrade: "Improve Studying", reason: "priority" });
+  });
+
+  it("falls through to a cheaper priority upgrade", () => {
+    expect(decideHashSpend(priority, 80, 1000, costs, "Sell for Money", 0.9)).toEqual({ upgrade: "Improve Gym Training", reason: "priority" });
+  });
+
+  it("holds hashes below the drain threshold when no priority upgrade is affordable", () => {
+    expect(decideHashSpend(priority, 50, 1000, costs, "Sell for Money", 0.9)).toBeUndefined();
+  });
+
+  it("drains near capacity when no priority upgrade is affordable", () => {
+    const expensive = { ...costs, "Improve Studying": 5000, "Improve Gym Training": 5000 };
+    expect(decideHashSpend(priority, 950, 1000, expensive, "Sell for Money", 0.9)).toEqual({ upgrade: "Sell for Money", reason: "drain" });
+  });
+
+  it("never drains through the priority list, even if listed there", () => {
+    expect(decideHashSpend(["Sell for Money"], 50, 1000, costs, "Sell for Money", 0.9)).toBeUndefined();
+  });
+
+  it("does not drain without hash capacity", () => {
+    expect(decideHashSpend([], 50, 0, costs, "Sell for Money", 0)).toBeUndefined();
+  });
+});
+
+describe("hashCapacityBound", () => {
+  const priority = ["Improve Studying", "Improve Gym Training"];
+
+  it("is true when every priority upgrade costs more than the pre-drain threshold", () => {
+    expect(hashCapacityBound(priority, { "Improve Studying": 1000, "Improve Gym Training": 950 }, 1000, 0.9)).toBe(true);
+  });
+
+  it("is false when any priority upgrade still fits", () => {
+    expect(hashCapacityBound(priority, { "Improve Studying": 1000, "Improve Gym Training": 800 }, 1000, 0.9)).toBe(false);
+  });
+
+  it("is false with no recognized priority upgrades", () => {
+    expect(hashCapacityBound(priority, {}, 1000, 0.9)).toBe(false);
+  });
+});
+
+describe("decideNodeInvestment needCapacity", () => {
+  const nodes = [
+    { index: 0, level: 10, ram: 8, cores: 2, levelCost: 10, ramCost: 10, coreCost: 10, cacheCost: 500 },
+    { index: 1, level: 10, ram: 8, cores: 2, levelCost: 10, ramCost: 10, coreCost: 10, cacheCost: 300 },
+  ];
+  const gainRate = (level: number, ram: number, cores: number) => level * ram * cores;
+
+  it("buys the cheapest affordable cache upgrade over ROI picks", () => {
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, nodes, gainRate, true);
+    expect(decision).toEqual({ kind: "upgrade", index: 1, upgrade: "cache" });
+  });
+
+  it("falls back to the normal pick when no cache upgrade is affordable", () => {
+    const { decision } = decideNodeInvestment(200, 0, 1, Infinity, true, nodes, gainRate, true);
+    expect(decision.kind).toBe("upgrade");
+    expect(decision).not.toMatchObject({ upgrade: "cache" });
+  });
+
+  it("ignores cache upgrades in ROI mode when capacity isn't needed", () => {
+    const { decision } = decideNodeInvestment(1e6, 0, 1, Infinity, true, nodes, gainRate);
+    expect(decision).not.toMatchObject({ upgrade: "cache" });
   });
 });

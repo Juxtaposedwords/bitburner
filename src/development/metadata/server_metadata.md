@@ -396,8 +396,8 @@ see above).
   when `hashCapacity() > 0`, since the docs mark it Server-only and don't
   specify behavior against a plain Node), builds the `gainRate` closure
   above if `Formulas.exe` exists, executes whatever `decideNodeInvestment`
-  picks, and — only in a Server context — spends hashes on the first
-  affordable entry in `config.hashSpendPriority`. For the two
+  picks, and — only in a Server context — spends hashes (see "Hash
+  spending" below). For the two
   target-scoped upgrades ("Reduce Minimum Security", "Increase Maximum
   Money"), `config.hashSpendTargetOverride` wins if set, otherwise it
   resolves the *same* target `scheduler_daemon.ts` is currently attacking
@@ -421,6 +421,33 @@ candidate considered even if unaffordable), and both daemons run at
 mode or the cheapest-first fallback is active) — so a quiet daemon is always
 distinguishable from a stuck one by checking its own log file, not by
 comparing timestamps against other daemons' activity.
+
+### Hash spending
+
+Each tick, `hacknet_daemon.ts` calls `decideHashSpend` in a loop and re-queries `hashCost` after
+every purchase, since each upgrade's cost rises per level. It stops when nothing is affordable,
+or after 500 purchases. The first version bought one upgrade per tick. Production outran that,
+and hashes past `hashCapacity()` are lost.
+
+- **`hashSpendPriority`** (default `["Improve Studying", "Improve Gym Training"]`): bought first
+  to last, whenever affordable. The defaults suit BN9, where script hacking gives 5% of normal
+  experience and 1% of normal max money. University class experience isn't nerfed there, and
+  Improve Studying multiplies it, so hashes → studying is the practical route to hacking level.
+  In a BitNode where script hacking pays, "Reduce Minimum Security" / "Increase Maximum Money"
+  (which reuse the scheduler's target, above) belong back on this list.
+- **`hashDrainUpgrade`** (default "Sell for Money") and **`hashDrainAboveFraction`** (default
+  0.9): the drain only runs once hashes pass that fraction of capacity, and only when no
+  priority upgrade is affordable. Selling every tick would stop hashes building up for the
+  priority upgrades, whose costs keep climbing. The drain name is removed from the priority list
+  even if it's listed there.
+- **Capacity:** each hash upgrade costs more every level. Once all of them cost more than the
+  pre-drain threshold (`hashCapacityBound`), none can ever be bought again. When that happens,
+  `decideNodeInvestment` gets `needCapacity` and buys the cheapest affordable cache upgrade ahead
+  of its ROI pick. Without this, ROI mode never buys cache, since cache doesn't raise
+  production.
+- `/etc/hacknet.txt` values override defaults, so an existing file that already sets
+  `hashSpendPriority` keeps its old list until it's edited
+  (`run tools/set_config.js /etc/hacknet.txt --unset hashSpendPriority`).
 
 ## Purchased-server manager: `purchased_server_daemon.ts` (`ns.cloud`)
 
@@ -724,6 +751,28 @@ manual/scripted human decision via the tool above, not automatic. A future itera
 `stock_daemon.ts` itself flip it when a position gets large or risky, but that's real
 cross-daemon coordination logic not justified until the manual version proves worthwhile.
 
+## Grow-stats mode: `Approach.GROW_STATS` + `study_daemon.ts`
+
+`run tools/set_scheduler_approach.js GROW_STATS` switches the player from faction work to studying.
+`... HACK` switches back. Like STOCK_TARGETING, the approach is the one switch several daemons
+read over the `GetSchedulerConfig` RPC:
+
+- **`scheduler_daemon.ts`:** keeps running the same HWGW batch loop, so the fleet keeps earning.
+- **`study_daemon.ts`** (new, `ns.singularity`, launched only when `singularityAvailable`): keeps
+  the player in `course` at `university` (`/etc/study.txt`, defaults "Algorithms" at "ZB
+  Institute of Technology", the highest-experience pair). It travels to the university's city
+  first when needed, and never re-enrolls in a class already running. Pure logic lives in
+  `study_decisions.ts` (`decideStudyStep`).
+- **`faction_daemon.ts`:** gives up the work slot (no faction work, no eligibility work, no
+  city-faction travel), so the two daemons don't restart over each other every tick. It still
+  buys augmentations and donates, but **holds the install**, because an install resets hacking
+  experience and would undo the studying.
+- **`share_daemon.ts`:** drops to 0 threads, since share only boosts faction and company rep.
+
+Why it exists: in BN9, scripts earn 5% of normal hacking experience, but university classes
+aren't nerfed, and the "Improve Studying" hash upgrade multiplies them. That upgrade does nothing
+unless the player is actually in a class, which nothing did before this mode.
+
 ## Backdoor + Faction managers: the first steps toward actually finishing a BitNode
 
 Everything above grows money and hacking level forever but never moves
@@ -836,6 +885,39 @@ second caller.
   final step has no automation at all, by design, until there's a
   concrete reason to build it (i.e. this report showing everything else
   is actually ready).
+
+### Donations: buying an augmentation's missing reputation with money
+
+`ns.singularity.donateToFaction` converts money into reputation, but only at a faction where your
+favor has reached `ns.getFavorToDonate()` (150 by default, scaled by the BitNode). Favor only
+grows at install time, from the rep earned that run. The gang's own faction can never take
+donations. `tools/augmentation_report.js` shows each faction's favor, the favor it gains at the
+next install, and whether it can take donations. It also shows, per reputation-blocked
+augmentation, the donation that would unlock it.
+
+When nothing is purchasable outright, `faction_daemon.ts` runs `decideDonation`. It looks for
+an augmentation at a donatable faction where donating the rep gap **plus** the augmentation's
+price fits the spend budget, since a donation that leaves the augmentation unaffordable would
+just burn money. It picks the most expensive one, the same price-inflation reasoning as
+`decideAugmentationPurchase`. NeuroFlux Governor is offered by several factions at the same
+price, so ties go to the smallest donation, i.e. the faction already closest to the requirement.
+The daemon donates exactly that amount; the normal purchase path buys the augmentation next
+tick. The amount comes from `ns.formulas.reputation.donationForRep` (0 GB, needs Formulas.exe)
+plus 0.1%, so float rounding can't leave the rep a hair short. Nothing is hardcoded from the
+game's formula (`amount / $1M × faction_rep mult × BitNode FactionWorkRepGain`, per
+`Faction/formulas/donation.ts`).
+
+- **Config:** `autoDonate` (default **true**), which only acts when `autoPurchaseAugmentations`
+  is also on, since a donation only ever happens to make an augmentation buyable.
+  `donationSpendFraction` (default 0.9) is the donation's own budget fraction, separate from
+  `maxSpendFraction`: a donation-unlocked augmentation usually costs far more in donation than
+  in price, so the normal fraction would rarely let one through.
+- **Pre-install:** the same whole-balance rule as `decidePreInstall` applies. With nothing left to
+  buy outright, a donation that fits the *entire* remaining cash is made before installing,
+  because the install is about to wipe that cash anyway.
+- **What it can't do:** unique augmentations at factions below the favor threshold (e.g.
+  BitRunners at favor ~102, gaining ~2 per install) still need rep grinding, which
+  `share_daemon.ts` speeds up (see "Share manager" below).
 
 ### Active faction eligibility: city, company, and criminal factions
 
@@ -1193,3 +1275,24 @@ augmentation was bought, and exactly when); this answers "what's the trend."
   - No custom per-daemon series yet (e.g. batches fired per minute). Adding one later means that
     daemon writes its own file under its own `<kind>/`, which keeps the single-writer-per-file
     rule.
+
+## Share manager: `share_daemon.ts` + `share_worker.ts`
+
+`ns.share()` raises the reputation gain of all faction work while it runs, by
+`1 + ln(threads) / 25` (100 threads ≈ +18%, 1,000 ≈ +28%, 10,000 ≈ +37%). It's the lever for
+augmentations at factions that can't take donations yet (see "Donations" above).
+
+- **`share_worker.ts`** is just `while (true) await ns.share();` (about 4 GB per thread).
+- **`share_daemon.ts`** ticks every 30s. It keeps `fleetFraction` of the worker fleet's total RAM
+  running share threads. The fleet is the scheduler's host pool: rooted, not `home`, not Hacknet
+  servers, which run for hashes. It launches onto the hosts with the most free RAM first, and a
+  partial placement is fine, unlike an HWGW batch. When over target (after lowering the fraction
+  or setting `enabled: false`), it kills the smallest processes first. The scheduler already
+  works from live free RAM, so it simply batches with whatever is left.
+- **Config** `/etc/share.txt`: `enabled` (default true), `fleetFraction` (default **0.5**). Half
+  the fleet suits BN9, where HWGW batches earn almost nothing. Where hacking pays, about 0.1 fits
+  better.
+- **GROW_STATS:** the target drops to 0 while the scheduler approach is GROW_STATS (see
+  "Grow-stats mode"), since the player isn't doing rep work then.
+- **Diagnosability:** every tick logs fleet size, target, running threads, the predicted bonus,
+  and the game's actual `ns.getSharePower()`.
