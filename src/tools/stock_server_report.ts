@@ -17,6 +17,10 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
 export async function main(ns: NS): Promise<void> {
   const lines: string[] = [];
 
+  if (!ns.stock.hasTixApiAccess()) {
+    ns.tprint("[StockServerReport] No TIX API access yet - buy it first (ns.stock calls throw without it).");
+    return;
+  }
   const symbols = ns.stock.getSymbols();
   const orgToSymbol = new Map<string, string>();
   for (const sym of symbols) orgToSymbol.set(ns.stock.getOrganization(sym), sym);

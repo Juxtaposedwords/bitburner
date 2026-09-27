@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { createLogger, LOG_LEVEL } from "development/libraries/logs";
+import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { effectiveReserve, readSavings } from "development/libraries/savings";
 
 /**
@@ -14,6 +14,9 @@ import { effectiveReserve, readSavings } from "development/libraries/savings";
  * launches whatever didn't fit before (it's idempotent - see boot.ts).
  * Formulas.exe matters because a new BitNode takes it away and much of the
  * code falls back to cruder logic without it (training costs, exact rates).
+ *
+ * Also bootstrap.ts's buyer: it runs this with `--once` when cash covers a
+ * purchase, so bootstrap itself needn't carry these calls' 7 GB (see main).
  *
  * One of a small set of files allowed to reference ns.singularity.* - each
  * kept isolated so its RAM cost (2-32 GB per function depending on
@@ -42,43 +45,66 @@ export function shouldUpgradeHomeRam(cost: number, money: number, reserve: numbe
   return cost <= Math.min(money - reserve, money * spendFraction);
 }
 
+/**
+ * One pass over everything worth buying; true if home RAM was upgraded.
+ * `spendFraction` caps each home RAM upgrade's share of cash; with
+ * `repeatRam`, keeps upgrading while affordable instead of once per pass.
+ */
+async function purchasePass(ns: NS, log: Logger, spendFraction: number, repeatRam: boolean): Promise<boolean> {
+  // Idempotent - returns true if already owned, so this is safe to call every pass.
+  ns.singularity.purchaseTor();
+
+  const reserve = effectiveReserve(0, readSavings(ns));
+  const spendable = (): number => ns.getServerMoneyAvailable("home") - reserve;
+
+  for (const program of PORT_OPENER_PROGRAMS) {
+    // 0 = already owned, -1 = no TOR yet. Either way, nothing to buy.
+    const cost = ns.singularity.getDarkwebProgramCost(program);
+    if (cost > 0 && cost <= spendable()) {
+      if (ns.singularity.purchaseProgram(program)) {
+        await log.info(`[ProgramShopper] Purchased ${program} for $${cost.toLocaleString()}.`);
+      }
+    }
+  }
+
+  let upgraded = false;
+  do {
+    const ramCost = ns.singularity.getUpgradeHomeRamCost();
+    if (!shouldUpgradeHomeRam(ramCost, ns.getServerMoneyAvailable("home"), reserve, spendFraction) || !ns.singularity.upgradeHomeRam()) break;
+    upgraded = true;
+    await log.info(`[ProgramShopper] Upgraded home RAM to ${ns.getServerMaxRam("home")} GB for $${ramCost.toLocaleString()}.`);
+  } while (repeatRam);
+
+  const formulasCost = ns.singularity.getDarkwebProgramCost(FORMULAS);
+  if (formulasCost > 0 && formulasCost <= spendable()) {
+    if (ns.singularity.purchaseProgram(FORMULAS)) {
+      await log.info(`[ProgramShopper] Purchased ${FORMULAS} for $${formulasCost.toLocaleString()}.`);
+    }
+  }
+  return upgraded;
+}
+
+/**
+ * Normally a daemon: a purchase pass every POLL_INTERVAL_MS, re-running
+ * boot.js after each home RAM upgrade. With `--once` (bootstrap.ts's hand
+ * off): a single pass spending all cash - home RAM as far as it goes, since
+ * that's the way out of bootstrap - then boot.js, then exit.
+ */
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "ProgramShopper", LOG_LEVEL.INFO);
 
+  if (ns.args.includes("--once")) {
+    await purchasePass(ns, log, 1, true);
+    ns.run(BOOT_SCRIPT);
+    return;
+  }
+
   while (true) {
-    // Idempotent - returns true if already owned, so this is safe to call every tick.
-    ns.singularity.purchaseTor();
-
-    const reserve = effectiveReserve(0, readSavings(ns));
-    const spendable = (): number => ns.getServerMoneyAvailable("home") - reserve;
-
-    for (const program of PORT_OPENER_PROGRAMS) {
-      // 0 = already owned, -1 = no TOR yet. Either way, nothing to buy.
-      const cost = ns.singularity.getDarkwebProgramCost(program);
-      if (cost > 0 && cost <= spendable()) {
-        if (ns.singularity.purchaseProgram(program)) {
-          await log.info(`[ProgramShopper] Purchased ${program} for $${cost.toLocaleString()}.`);
-        }
-      }
-    }
-
-    const ramCost = ns.singularity.getUpgradeHomeRamCost();
-    if (shouldUpgradeHomeRam(ramCost, ns.getServerMoneyAvailable("home"), reserve, HOME_RAM_SPEND_FRACTION)) {
-      if (ns.singularity.upgradeHomeRam()) {
-        await log.info(`[ProgramShopper] Upgraded home RAM to ${ns.getServerMaxRam("home")} GB for $${ramCost.toLocaleString()}.`);
-        // Launch whatever boot couldn't fit before; boot skips anything running.
-        if (!ns.scriptRunning(BOOT_SCRIPT, "home")) ns.run(BOOT_SCRIPT);
-      }
-    }
-
-    const formulasCost = ns.singularity.getDarkwebProgramCost(FORMULAS);
-    if (formulasCost > 0 && formulasCost <= spendable()) {
-      if (ns.singularity.purchaseProgram(FORMULAS)) {
-        await log.info(`[ProgramShopper] Purchased ${FORMULAS} for $${formulasCost.toLocaleString()}.`);
-      }
-    }
-
+    // Launch whatever boot couldn't fit before; boot skips anything running.
+    // No scriptRunning check first (1 GB): ns.run already refuses a second
+    // copy of a running script with the same args.
+    if (await purchasePass(ns, log, HOME_RAM_SPEND_FRACTION, false)) ns.run(BOOT_SCRIPT);
     await ns.asleep(POLL_INTERVAL_MS);
   }
 }

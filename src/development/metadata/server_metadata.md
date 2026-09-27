@@ -215,11 +215,38 @@ current player context without paying for their own `ns.getPlayer()` call
 
 ## Cold start (`boot.ts`)
 
+**Low-RAM startup: `bootstrap.ts`.** The full system (supervisor RPC, scheduler, faction daemon, …)
+is built for a big home. When home RAM is below `requiredHomeRam`, boot runs `bootstrap.js`
+*instead* of anything else. `requiredHomeRam` is the summed `getScriptRam` of `CORE_SCRIPTS` plus
+a 16 GB margin (`development/libraries/bootstrap_plan.ts`), so it follows the code rather than
+being a fixed number. Boot only does this when the supervisor isn't already running: a boot
+re-run after a RAM upgrade must not start bootstrap beside the full system.
+
+Bootstrap uses no RPC, no generated code and no config, just direct calls (~15 GB, mostly the
+singularity crime call). Every 10s it:
+1. **Commits a crime** (Mug) while the player is idle. That's the only income that works at
+   hacking level ~1, and a fresh BN10 sat at −$80k without it.
+2. **Roots** everything the owned port openers allow.
+3. **Runs `bootstrap_worker.js`** on every rooted server and on spare home RAM. It's a
+   self-balancing weaken/grow/hack loop, about 2.4 GB per thread, aimed at the richest rooted
+   server needing at most half your hacking level (`pickBootstrapTarget`).
+4. **Hands off to the shopper** once cash covers TOR, an unowned port opener or the next home RAM
+   upgrade (`shouldHandOffToShopper`). It stops its workers, runs `program_shopper.js --once`, and
+   exits. The shopper spends all cash (as many RAM upgrades as it can), runs `boot.js`, and exits.
+   Boot then picks bootstrap again or, once home is big enough, the full system. The purchase calls
+   (7 GB) live only in the shopper, so bootstrap has more room for workers, and the two never
+   compete for RAM. The player's crime continues across the switch.
+5. **Hands back:** once home fits the core, it stops its workers, runs `boot.js`, and exits.
+
 **Launch order is priority order.** A fresh BitNode starts with a small home, and whatever launches
 last just doesn't fit. After the one-shots and the capability detector, boot launches: the scheduler
 (income), the program shopper, the faction and gang daemons, Hacknet, study, backdoor, then the
 stock, purchased-server, monitoring and share daemons. The first BN10 boot had started study and
 backdoor ahead of the scheduler, so nothing earned money.
+It's **strict**: once one doesn't fit, nothing after it is launched. Otherwise a smaller,
+lower-priority daemon takes the RAM the one that didn't fit needs. In BN10 the backdoor daemon took
+the program shopper's RAM, so nothing bought RAM or programs. The program shopper re-runs boot after
+each home RAM upgrade, which carries on down the list.
 
 **Paid training needs cash.** The study daemon and the faction daemon's gym workouts first check
 `canAffordTraining` (`study_decisions.ts`): cash must cover 10 minutes of the formula's cost, or

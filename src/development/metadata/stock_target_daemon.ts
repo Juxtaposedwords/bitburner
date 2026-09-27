@@ -66,9 +66,16 @@ export function computeStockTargetWeights(
     .sort((a, b) => b.weight - a.weight);
 }
 
-/** organization -> cost basis, for every stock currently held long - queried live, no persisted portfolio (mirrors stock_daemon.ts's own gatherPositions). */
+/**
+ * organization -> cost basis, for every stock currently held long - queried
+ * live, no persisted portfolio (mirrors stock_daemon.ts's own
+ * gatherPositions). Empty without TIX API access: every other ns.stock call
+ * throws then, and a new BitNode starts without it (the first BN10 run
+ * crashed here) - with nothing held there's nothing to defend anyway.
+ */
 function gatherLongPositionCostBasisByOrganization(ns: NS): Map<string, number> {
   const costBasisByOrg = new Map<string, number>();
+  if (!ns.stock.hasTixApiAccess()) return costBasisByOrg;
   for (const sym of ns.stock.getSymbols()) {
     const [sharesLong, avgLongPrice] = ns.stock.getPosition(sym);
     if (sharesLong > 0) costBasisByOrg.set(ns.stock.getOrganization(sym), sharesLong * avgLongPrice);

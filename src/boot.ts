@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { CORE_SCRIPTS, requiredHomeRam } from "development/libraries/bootstrap_plan";
 import * as rpc from "development/libraries/rpc";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
@@ -16,6 +17,8 @@ const STOCK_SCRIPT = "development/metadata/stock_daemon.js";
 const STOCK_TARGET_SCRIPT = "development/metadata/stock_target_daemon.js";
 const MONITORING_SCRIPT = "development/metadata/monitoring_daemon.js";
 const SHARE_SCRIPT = "development/metadata/share_daemon.js";
+const BOOTSTRAP_SCRIPT = "bootstrap.js";
+const SUPERVISOR_SCRIPT = "development/metadata/supervisor.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -50,10 +53,11 @@ const ONE_SHOT = [
 
 const ONE_SHOT_TIMEOUT_MS = 60_000;
 
-function launchIfNotRunning(ns: NS, script: string): void {
+/** Launches `script` unless it's already running; true if it's running afterwards. */
+function launchIfNotRunning(ns: NS, script: string): boolean {
   if (ns.scriptRunning(script)) {
     ns.tprint(`[Boot] ${script} already running, skipping.`);
-    return;
+    return true;
   }
 
   const pid = ns.run(script);
@@ -62,6 +66,7 @@ function launchIfNotRunning(ns: NS, script: string): void {
       ? `[Boot] ERROR: failed to launch ${script} (insufficient RAM?).`
       : `[Boot] Launched ${script} (pid ${pid}).`
   );
+  return pid !== 0;
 }
 
 async function launchAndWait(ns: NS, script: string, timeoutMs: number): Promise<void> {
@@ -74,6 +79,20 @@ async function launchAndWait(ns: NS, script: string, timeoutMs: number): Promise
 }
 
 export async function main(ns: NS): Promise<void> {
+  // Low-RAM startup: while home can't hold the full system's core
+  // (bootstrap_plan.ts), run the self-contained bootstrap.js instead of
+  // starting daemons that won't fit - it hands back to boot.js once home is
+  // big enough. Only when the full system isn't already up: a boot re-run
+  // after a RAM upgrade must not start bootstrap beside it (bootstrap stops
+  // every worker on its servers).
+  const requiredRam = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, "home")));
+  const homeRam = ns.getServerMaxRam("home");
+  if (homeRam < requiredRam && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
+    ns.tprint(`[Boot] Home has ${homeRam} GB; the full system needs ${requiredRam.toFixed(1)}. Starting ${BOOTSTRAP_SCRIPT} instead.`);
+    launchIfNotRunning(ns, BOOTSTRAP_SCRIPT);
+    return;
+  }
+
   for (const script of DAEMONS) {
     launchIfNotRunning(ns, script);
   }
@@ -125,7 +144,16 @@ export async function main(ns: NS): Promise<void> {
     [MONITORING_SCRIPT, true],
     [SHARE_SCRIPT, true],
   ];
+  // Strict priority: once one doesn't fit, nothing after it is launched -
+  // a smaller, lower-priority daemon would otherwise take RAM the one that
+  // didn't fit needs (in BN10 the backdoor daemon took the program
+  // shopper's RAM, so nothing bought RAM or programs). The program shopper
+  // re-runs boot after each home RAM upgrade, which picks up from here.
   for (const [script, available] of ordered) {
-    if (available) launchIfNotRunning(ns, script);
+    if (!available) continue;
+    if (!launchIfNotRunning(ns, script)) {
+      ns.tprint(`[Boot] Holding off on everything after ${script} until home has more RAM.`);
+      break;
+    }
   }
 }
