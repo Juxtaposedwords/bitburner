@@ -11,6 +11,7 @@ export enum Approach {
     GROW_STATS = 1,
     CRIME = 2,
     STOCK_TARGETING = 3,
+    AUGMENTS = 4,
 }
 
 export interface GetSchedulerConfigRequest {

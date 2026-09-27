@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
@@ -78,7 +79,8 @@ export async function main(ns: NS): Promise<void> {
 
       const { decision, budget, buyNewCandidate, upgradeCandidate } = decideServerInvestment(
         money,
-        config.reserveMoney,
+        // The shared savings target (savings.ts) counts as a reserve too.
+        effectiveReserve(config.reserveMoney, readSavings(ns)),
         config.maxSpendFraction,
         ramLimit,
         atServerLimit,

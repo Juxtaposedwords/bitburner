@@ -15,6 +15,17 @@ const baseInputs = {
 };
 
 describe("computeBatchPlan", () => {
+  it("shifts every delay later when actions are too fast for hack's delay to stay non-negative", () => {
+    const fast = { ...baseInputs, hackTime: 5, growTime: 16, weakenTime: 20 };
+    const plan = computeBatchPlan(fast, 200);
+    const delays = [plan.hackDelayMs, plan.weaken1DelayMs, plan.growDelayMs, plan.weaken2DelayMs];
+    expect(Math.min(...delays)).toBe(0);
+    // Completion times keep order and 200ms spacing.
+    const ends = [plan.hackDelayMs + 5, plan.weaken1DelayMs + 20, plan.growDelayMs + 16, plan.weaken2DelayMs + 20];
+    expect(ends).toEqual([ends[0], ends[0] + 200, ends[0] + 400, ends[0] + 600]);
+    expect(plan.totalDurationMs).toBe(ends[3]);
+  });
+
   it("rounds fractional thread counts up (partial threads aren't launchable)", () => {
     const plan = computeBatchPlan(baseInputs, 200);
 

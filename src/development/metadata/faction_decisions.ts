@@ -19,6 +19,7 @@
  * already reflected in `catalog` by the time the next decision runs.
  */
 import type { PlayerRequirement } from "@ns";
+import { matchesFocus } from "development/libraries/skill_progress";
 
 export const NEUROFLUX_GOVERNOR = "NeuroFlux Governor";
 // Installing it reveals w0r1d_d43m0n - the BitNode's finish line.
@@ -33,6 +34,12 @@ export const RED_PILL = "The Red Pill";
 export const FACTION_REPS_PATH = "/var/faction_reps.txt";
 export type FactionRepsFile = {
   reps: Record<string, number>;
+  // See favorPlan: factions being worked up to donation favor, and whether
+  // all of them are there (time to install).
+  favorPlan?: FavorPlanEntry[];
+  favorPlanReady?: boolean;
+  // What the work slot is doing to earn a wanted invite (wantedInviteFactions), if anything.
+  inviteAction?: string;
   workTarget?: string;
   workType?: string;
   // Rep/min for each work type the work target offers, by formula (see
@@ -79,6 +86,94 @@ export function decideFactionsToJoin(invitations: string[], alreadyJoined: strin
 }
 
 /**
+ * The catalog for each purpose, with NeuroFlux Governor decided in one
+ * place. It's repeatable and always somewhat affordable, so before this it
+ * got bought through every path - normal purchases, 90%-of-cash donations,
+ * rep grinding at whichever faction had the smallest NeuroFlux gap - and
+ * each purchase multiplied every other augmentation's price by 1.9 for the
+ * rest of the cycle, QLink's included. Now it may only be bought when both:
+ * 1. an install is about to happen (the `preInstall` catalog - so it's
+ *    always the last thing bought, after every real augmentation), and
+ * 2. its faction offers nothing else still wanted (not owned, not
+ *    NeuroFlux) - so it never competes with, say, QLink at Illuminati.
+ * `regular` (normal purchases, donations, what to work for) never has it.
+ * `owned` should include pending purchases (getOwnedAugmentations(true)).
+ */
+export function catalogsFor(catalog: AugmentationInfo[], owned: string[]): { regular: AugmentationInfo[]; preInstall: AugmentationInfo[] } {
+  const ownedSet = new Set(owned);
+  const regular = catalog.filter((aug) => aug.name !== NEUROFLUX_GOVERNOR);
+  const factionsWithOthers = new Set(regular.filter((aug) => !ownedSet.has(aug.name)).map((aug) => aug.faction));
+  const lastResort = catalog.filter((aug) => aug.name === NEUROFLUX_GOVERNOR && !factionsWithOthers.has(aug.faction));
+  return { regular, preInstall: [...regular, ...lastResort] };
+}
+
+/** Not owned, and not the repeatable NeuroFlux Governor - an augmentation worth a faction's rep or favor. */
+function isWanted(aug: AugmentationInfo, ownedSet: Set<string>): boolean {
+  return aug.name !== NEUROFLUX_GOVERNOR && !ownedSet.has(aug.name);
+}
+
+/**
+ * Rep to earn this run for a faction's favor to reach `targetFavor` at the
+ * next install. Favor after an install comes from total rep ever earned
+ * there, so this is the rep equivalent of the target minus that of today's
+ * favor. `favorToRep` is ns.formulas.reputation.calculateFavorToRep.
+ */
+export function repForFavor(currentFavor: number, targetFavor: number, favorToRep: (favor: number) => number): number {
+  return Math.max(0, favorToRep(targetFavor) - favorToRep(currentFavor));
+}
+
+export type FavorPlanEntry = { faction: string; augmentation: string; rep: number; target: number };
+
+/**
+ * Factions where building favor beats grinding: joined, below
+ * `targetFavor` (ns.getFavorToDonate()), and selling a wanted augmentation
+ * whose rep requirement is more than reaching that favor takes. Earning
+ * just `target` rep, installing, and buying the rest with a donation is
+ * then faster - what BN9's Daedalus/Red Pill run did by hand (462k rep
+ * instead of 2.5M). `augmentation` is the one with the largest requirement.
+ */
+export function favorPlan(
+  joinedFactions: string[],
+  reps: Record<string, number>,
+  favors: Record<string, number>,
+  catalog: AugmentationInfo[],
+  owned: string[],
+  targetFavor: number,
+  favorToRep: (favor: number) => number
+): FavorPlanEntry[] {
+  const ownedSet = new Set(owned);
+  const plan: FavorPlanEntry[] = [];
+  for (const faction of joinedFactions) {
+    const favor = favors[faction] ?? 0;
+    if (favor >= targetFavor) continue;
+    const target = repForFavor(favor, targetFavor, favorToRep);
+    const worthIt = catalog.filter((aug) => aug.faction === faction && isWanted(aug, ownedSet) && aug.repReq > target);
+    if (worthIt.length === 0) continue;
+    const biggest = worthIt.reduce((a, b) => (b.repReq > a.repReq ? b : a));
+    plan.push({ faction, augmentation: biggest.name, rep: reps[faction] ?? 0, target });
+  }
+  return plan;
+}
+
+/** Every planned faction has reached its favor target - installing now banks the favor. False for an empty plan. */
+export function favorPlanReady(plan: FavorPlanEntry[]): boolean {
+  return plan.length > 0 && plan.every((entry) => entry.rep >= entry.target);
+}
+
+/**
+ * Factions from `candidates` (config) worth joining: not joined yet, and
+ * offering at least one wanted augmentation. `offered` maps each faction to
+ * ns.singularity.getAugmentationsFromFaction - it works for unjoined
+ * factions too.
+ */
+export function wantedInviteFactions(candidates: string[], joinedFactions: string[], offered: Record<string, string[]>, owned: string[]): string[] {
+  const ownedSet = new Set(owned);
+  return candidates.filter(
+    (faction) => !joinedFactions.includes(faction) && (offered[faction] ?? []).some((name) => name !== NEUROFLUX_GOVERNOR && !ownedSet.has(name))
+  );
+}
+
+/**
  * Which joined faction to work for right now: whichever has the smallest
  * positive reputation gap to its next still-wanted augmentation - working
  * there finishes something soonest, rather than spreading effort thin
@@ -89,12 +184,17 @@ export function decideFactionsToJoin(invitations: string[], alreadyJoined: strin
  * it isn't owned, and its rep isn't there yet, that faction wins outright -
  * finishing the BitNode outranks every other augmentation, and a nearly-
  * reached NeuroFlux Governor elsewhere would otherwise keep winning on gap.
+ *
+ * Then `plan` (favorPlan): a faction still short of its favor target wins
+ * next, the closest one first, so each gets worked only as far as the favor
+ * needs and the work slot moves on.
  */
 export function decideWorkTarget(
   joinedFactions: string[],
   reps: Record<string, number>,
   catalog: AugmentationInfo[],
-  owned: string[]
+  owned: string[],
+  plan: FavorPlanEntry[] = []
 ): string | undefined {
   const ownedSet = new Set(owned);
 
@@ -102,6 +202,9 @@ export function decideWorkTarget(
     (aug) => aug.name === RED_PILL && joinedFactions.includes(aug.faction) && !ownedSet.has(aug.name) && (reps[aug.faction] ?? 0) < aug.repReq
   );
   if (redPill) return redPill.faction;
+
+  const unfinished = plan.filter((entry) => entry.rep < entry.target && joinedFactions.includes(entry.faction));
+  if (unfinished.length > 0) return unfinished.reduce((a, b) => (b.target - b.rep < a.target - a.rep ? b : a)).faction;
 
   let best: { faction: string; gap: number } | undefined;
   for (const faction of joinedFactions) {
@@ -239,6 +342,41 @@ export function redPillFocus(
 ): AugmentationInfo | undefined {
   if (owned.includes(RED_PILL)) return undefined;
   return catalog.find((aug) => aug.name === RED_PILL && ((reps[aug.faction] ?? 0) >= aug.repReq || donatable.has(aug.faction)));
+}
+
+/**
+ * The one augmentation to save for and buy in Approach.AUGMENTS: The Red
+ * Pill if redPillFocus picks it, else the most EXPENSIVE wanted augmentation
+ * (not owned, not NeuroFlux, prereqs owned) that raises a multiplier in
+ * `focus` and is reachable this install cycle - rep already met, or its
+ * faction takes donations. Most expensive first for the same 1.9x
+ * price-inflation reason as decideAugmentationPurchase, but *held*: nothing
+ * cheaper gets bought while it's unaffordable, because each purchase would
+ * make it 1.9x dearer (QLink at $25T became ~$90T behind two cheap buys).
+ * Unreachable augmentations don't hold anything - they can't be bought
+ * before the next install resets the inflation anyway. An empty `focus`
+ * means only The Red Pill counts.
+ */
+export function priorityFocus(
+  catalog: AugmentationInfo[],
+  reps: Record<string, number>,
+  owned: string[],
+  donatable: Set<string>,
+  focus: string[]
+): AugmentationInfo | undefined {
+  const redPill = redPillFocus(catalog, reps, owned, donatable);
+  if (redPill || focus.length === 0) return redPill;
+
+  const ownedSet = new Set(owned);
+  const reachable = catalog.filter(
+    (aug) =>
+      isWanted(aug, ownedSet) &&
+      matchesFocus(aug.stats, focus) &&
+      aug.prereqs.every((prereq) => ownedSet.has(prereq)) &&
+      ((reps[aug.faction] ?? 0) >= aug.repReq || donatable.has(aug.faction))
+  );
+  if (reachable.length === 0) return undefined;
+  return reachable.reduce((a, b) => (b.price > a.price ? b : a));
 }
 
 /**
@@ -524,6 +662,22 @@ export function findBlockingRequirement(requirements: PlayerRequirement[], snaps
   }
 
   return unsatisfied[0];
+}
+
+/**
+ * The largest unmet cash requirement in an invite's requirement list (0 if
+ * none) - top level and everyCondition only, same scope as the rest of this
+ * engine's AND handling. Money isn't something requirementToAction can act
+ * on, so faction_daemon.ts turns this into a savings target instead (in
+ * Approach.AUGMENTS), rather than letting other spending keep cash below it.
+ */
+export function unmetMoneyRequirement(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): number {
+  let needed = 0;
+  for (const req of requirements) {
+    if (req.type === "money" && snapshot.money < req.money) needed = Math.max(needed, req.money);
+    if (req.type === "everyCondition") needed = Math.max(needed, unmetMoneyRequirement(req.conditions, snapshot));
+  }
+  return needed;
 }
 
 /**

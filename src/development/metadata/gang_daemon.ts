@@ -1,5 +1,6 @@
 import { GangGenInfo, NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
+import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { GangPosture } from "development/metadata/gang";
 import {
@@ -223,11 +224,9 @@ async function manageTerritoryEngagement(
   config: GangConfig,
   gang: GangGenInfo,
   territoryWarfareCount: number,
-  standDown: boolean
+  standDown: boolean,
+  rivalPowers: number[]
 ): Promise<void> {
-  const rivalPowers = Object.values(ns.gang.getAllGangInformation())
-    .filter((rival) => rival.territory > 0)
-    .map((rival) => rival.power);
   const worstWinChance = worstClashWinChance(gang.power, rivalPowers);
   const strongestRivalPower = Math.max(0, ...rivalPowers);
 
@@ -274,7 +273,8 @@ async function purchaseEquipmentIfAffordable(ns: NS, log: Logger, config: GangCo
     }
   }
 
-  const purchase = decideEquipmentPurchase(money, config.reserveMoney, config.maxSpendFraction, candidates);
+  // The shared savings target (savings.ts) counts as a reserve too.
+  const purchase = decideEquipmentPurchase(money, effectiveReserve(config.reserveMoney, readSavings(ns)), config.maxSpendFraction, candidates);
   if (purchase && ns.gang.purchaseEquipment(purchase.member, purchase.name)) {
     await log.info(`[Gang] Purchased ${purchase.name} for ${purchase.member} ($${purchase.cost.toFixed(0)}).`);
   }
@@ -361,7 +361,19 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
 
   const posture = parsePosture(config.posture);
   const gang = ns.gang.getGangInformation();
-  const territoryWarfareCount = decideTerritoryWarfareAssignment(posture, standDown, memberNames.length, config.territoryWarfareMembers);
+  // getAllGangInformation includes our own gang - once we hold territory it
+  // passed the territory filter, and our odds against ourselves (always 50%)
+  // became the "worst", flipping warfare off below minClashWinChance.
+  const rivalPowers = Object.entries(ns.gang.getAllGangInformation())
+    .filter(([name, rival]) => name !== gang.faction && rival.territory > 0)
+    .map(([, rival]) => rival.power);
+  const territoryWarfareCount = decideTerritoryWarfareAssignment(
+    posture,
+    standDown,
+    memberNames.length,
+    config.territoryWarfareMembers,
+    rivalPowers.length > 0
+  );
   const territoryMembers = memberNames.slice(0, territoryWarfareCount);
   const remainingMembers = memberNames.slice(territoryWarfareCount);
 
@@ -371,7 +383,7 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
   await purchaseEquipmentIfAffordable(ns, log, config, memberNames);
   await ascendIfWorthwhile(ns, log, config, memberNames);
 
-  await manageTerritoryEngagement(ns, log, config, gang, territoryWarfareCount, standDown);
+  await manageTerritoryEngagement(ns, log, config, gang, territoryWarfareCount, standDown, rivalPowers);
 
   await log.debug(
     `[Gang] tick: members=${memberNames.length} respect=${gang.respect.toFixed(0)} wantedPenalty=${gang.wantedPenalty.toFixed(3)} ` +

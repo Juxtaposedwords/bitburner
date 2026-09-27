@@ -1,6 +1,7 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { isInstallPendingActive, readInstallPending } from "development/libraries/install_handshake";
+import { effectiveReserve, readSavings, shouldLiquidateForSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { BuyCandidate, decideStocksToSell, decideStockToBuy, StockPosition } from "development/metadata/stock_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
@@ -170,6 +171,22 @@ async function tick(ns: NS, log: Logger, config: StockConfig): Promise<void> {
   }
 
   const positions = gatherPositions(ns);
+  const savings = readSavings(ns);
+  // Cost basis, not market value: close enough to decide whether selling
+  // closes the gap, and it avoids adding ns.stock.getBidPrice's RAM here.
+  const stockValue = positions.reduce((sum, p) => sum + p.costBasis, 0);
+
+  // Saving for an augmentation (savings.ts): once selling would close the
+  // gap, sell everything - only cash buys augmentations - and buy nothing.
+  if (shouldLiquidateForSavings(savings, money, stockValue)) {
+    await executeSells(
+      ns,
+      log,
+      positions.map((p) => ({ sym: p.sym, shares: p.shares }))
+    );
+    await log.info(`[Stock] Sold ${positions.length} position(s) toward the savings target ($${((savings?.amount ?? 0) / 1e9).toFixed(1)}B for ${savings?.reason}).`);
+    return;
+  }
 
   // Pre-install wind-down (see development/libraries/install_handshake.ts):
   // an augmentation install deletes every position with no refund, so sell
@@ -207,7 +224,14 @@ async function tick(ns: NS, log: Logger, config: StockConfig): Promise<void> {
   };
 
   const investedCostBasis = positions.reduce((sum, p) => sum + p.costBasis, 0);
-  const evaluation = decideStockToBuy(candidates, money, investedCostBasis, config, affordable);
+  // The shared savings target counts as a reserve too.
+  const evaluation = decideStockToBuy(
+    candidates,
+    money,
+    investedCostBasis,
+    { ...config, reserveMoney: effectiveReserve(config.reserveMoney, savings) },
+    affordable
+  );
 
   await log.debug(
     `[Stock] tick: money=$${money.toFixed(0)} invested=$${investedCostBasis.toFixed(0)} positions=${positions.length} sold=${sells.length} ` +

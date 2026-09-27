@@ -228,6 +228,10 @@ describe("decideTerritoryWarfareAssignment", () => {
   it("clamps the desired count to the roster size", () => {
     expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 1, 2)).toBe(1);
   });
+
+  it("assigns nobody once no rival holds territory", () => {
+    expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 12, 6, false)).toBe(0);
+  });
 });
 
 describe("decideTerritoryReadiness", () => {

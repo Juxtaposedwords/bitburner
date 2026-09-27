@@ -172,28 +172,22 @@ export function selectBestAscensionCandidate(candidates: AscensionCandidate[], m
  * GROWING or the casualty circuit breaker has tripped - see
  * decideStandDown below and gang_daemon.ts's module doc for why
  * standDown overrides posture at runtime without touching the config
- * file the user set it in.
+ * file the user set it in. Also zero once no rival holds any territory
+ * (100% ours): there's nobody left to clash with, so power training would
+ * only take members off earning.
  */
 export function decideTerritoryWarfareAssignment(
   posture: GangPosture,
   standDown: boolean,
   totalMembers: number,
-  desiredCount: number
+  desiredCount: number,
+  rivalsHoldTerritory = true
 ): number {
-  if (posture !== GangPosture.GROWING || standDown) return 0;
+  if (posture !== GangPosture.GROWING || standDown || !rivalsHoldTerritory) return 0;
 
   return Math.min(desiredCount, totalMembers);
 }
 
-/**
- * True only if our power favors us against EVERY rival gang currently
- * holding territory (the toughest rival gates readiness, not the
- * average - one bad matchup is enough to lose territory back even while
- * winning against everyone else). Win chance matches
- * ns.gang.getChanceToWinClash's real formula: myPower / (myPower +
- * theirPower) (confirmed against Bitburner's AllGangs.ts). Trivially
- * true if no rival holds any territory - nothing to be unready for.
- */
 /**
  * Written by gang_daemon.ts every tick; monitoring_daemon.ts turns it into
  * gauge/gang_* series. Going through a file keeps ns.gang's RAM cost off
@@ -217,6 +211,15 @@ export function worstClashWinChance(myPower: number, rivalPowers: number[]): num
   return rivalPowers.reduce((worst, rivalPower) => Math.min(worst, myPower / (myPower + rivalPower)), 1);
 }
 
+/**
+ * True only if our power favors us against EVERY rival gang currently
+ * holding territory (the toughest rival gates readiness, not the
+ * average - one bad matchup is enough to lose territory back even while
+ * winning against everyone else). Win chance matches
+ * ns.gang.getChanceToWinClash's real formula: myPower / (myPower +
+ * theirPower) (confirmed against Bitburner's AllGangs.ts). Trivially
+ * true if no rival holds any territory - nothing to be unready for.
+ */
 export function decideTerritoryReadiness(myPower: number, rivalPowers: number[], minClashWinChance: number): boolean {
   return rivalPowers.every((rivalPower) => myPower / (myPower + rivalPower) >= minClashWinChance);
 }

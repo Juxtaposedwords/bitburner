@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { applyDefined } from "development/libraries/merge";
@@ -60,7 +61,9 @@ const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
  * stored as its numeric enum value (0 = HACK, 3 = STOCK_TARGETING) -
  * tools/set_scheduler_approach.js is the readable way to change it.
  */
-export const CONFIG_PATH = "/etc/scheduler.txt";
+// Shared with approach.ts, which lets other daemons read the approach from
+// this file instead of over RPC.
+export const CONFIG_PATH = SCHEDULER_CONFIG_PATH;
 
 export function loadConfig(ns: NS): scheduler_pb.SchedulerConfig {
   return loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
@@ -387,15 +390,17 @@ export async function main(ns: NS): Promise<void> {
       await prep(ns, log, target, state.config);
     }
 
-    // HACK, STOCK_TARGETING and GROW_STATS all run the identical HWGW batch
-    // loop. STOCK_TARGETING only changes which target resolveTarget() picks;
-    // GROW_STATS changes what the *player* does (study_daemon.ts puts them in
-    // a university class), and the fleet keeps earning meanwhile.
+    // HACK, STOCK_TARGETING, GROW_STATS and AUGMENTS all run the identical
+    // HWGW batch loop. STOCK_TARGETING only changes which target
+    // resolveTarget() picks; GROW_STATS changes what the *player* does
+    // (study_daemon.ts puts them in a university class); AUGMENTS changes how
+    // money is spent (faction_daemon.ts). The fleet keeps earning in all four.
     const approach = state.config.approach;
     if (
       approach === scheduler_pb.Approach.HACK ||
       approach === scheduler_pb.Approach.STOCK_TARGETING ||
-      approach === scheduler_pb.Approach.GROW_STATS
+      approach === scheduler_pb.Approach.GROW_STATS ||
+      approach === scheduler_pb.Approach.AUGMENTS
     ) {
       await fireBatchIfRoom(ns, log, target, state.config);
     }

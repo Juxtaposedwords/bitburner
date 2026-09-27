@@ -1,8 +1,8 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
-import { Approach, NewSchedulerServiceClient } from "development/metadata/scheduler";
+import { readApproach } from "development/libraries/approach";
+import { Approach } from "development/metadata/scheduler";
 import {
   Activity,
   ACTIVITY_PATH,
@@ -94,8 +94,7 @@ function pickGym(ns: NS, config: StudyConfig): { need: CombatNeed; hackingMinute
 }
 
 async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
-  const res = await NewSchedulerServiceClient(ns).GetSchedulerConfig({});
-  const active = res.status === Codes.OK && res.data?.config?.approach === Approach.GROW_STATS;
+  const active = readApproach(ns) === Approach.GROW_STATS;
 
   const gym = active ? pickGym(ns, config) : undefined;
   const activity: Activity = gym

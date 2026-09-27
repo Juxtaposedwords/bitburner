@@ -8,6 +8,13 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  catalogsFor,
+  unmetMoneyRequirement,
+  priorityFocus,
+  favorPlan,
+  favorPlanReady,
+  repForFavor,
+  wantedInviteFactions,
   redPillFocus,
   pendingAugmentations,
   bestWorkType,
@@ -556,5 +563,171 @@ describe("redPillFocus", () => {
     const focus = redPillFocus(catalog, { Daedalus: 1000, "Sector-12": 0 }, [], new Set(["Daedalus", "Sector-12"]));
     const decision = decideDonation(1e13, 0, 0.9, { Daedalus: 1000, "Sector-12": 0 }, focus ? [focus] : catalog, [], new Set(["Daedalus", "Sector-12"]), (rep) => rep * 258e3);
     expect(decision).toMatchObject({ kind: "donate", faction: "Daedalus", augmentation: "The Red Pill" });
+  });
+});
+
+// Bitburner's favor curve: rep for `favor` = 25,000 * (1.02^favor - 1).
+const favorToRep = (favor: number): number => 25000 * (Math.pow(1.02, favor) - 1);
+
+describe("repForFavor", () => {
+  it("is the rep between today's favor and the target", () => {
+    expect(repForFavor(0, 150, favorToRep)).toBeCloseTo(favorToRep(150));
+    expect(repForFavor(100, 150, favorToRep)).toBeCloseTo(favorToRep(150) - favorToRep(100));
+  });
+
+  it("is 0 once the favor is already there", () => {
+    expect(repForFavor(160, 150, favorToRep)).toBe(0);
+  });
+});
+
+describe("favorPlan", () => {
+  const catalog = [
+    aug({ name: "QLink", faction: "Illuminati", repReq: 1.875e6 }),
+    aug({ name: "SPTN-97 Gene Modification", faction: "The Covenant", repReq: 1.25e6 }),
+    aug({ name: "Cheap", faction: "CyberSec", repReq: 10000 }),
+    aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 2.5e6 }),
+  ];
+  const joined = ["Illuminati", "The Covenant", "CyberSec", "Sector-12"];
+  const favors = { Illuminati: 0, "The Covenant": 0, CyberSec: 0, "Sector-12": 0 };
+
+  it("plans favor where the augmentation needs more rep than favor does", () => {
+    const plan = favorPlan(joined, { Illuminati: 1000, "The Covenant": 500000 }, favors, catalog, [], 150, favorToRep);
+    expect(plan.map((e) => e.faction)).toEqual(["Illuminati", "The Covenant"]);
+    expect(plan[0]).toMatchObject({ augmentation: "QLink", rep: 1000 });
+    expect(plan[0].target).toBeCloseTo(favorToRep(150));
+  });
+
+  it("skips cheap augmentations, NeuroFlux, owned ones, and factions already at donation favor", () => {
+    const plan = favorPlan(joined, {}, { ...favors, Illuminati: 150 }, catalog, ["SPTN-97 Gene Modification"], 150, favorToRep);
+    expect(plan).toEqual([]);
+  });
+
+  it("is ready only once every planned faction reached its target", () => {
+    const plan = favorPlan(joined, { Illuminati: 500000, "The Covenant": 100 }, favors, catalog, [], 150, favorToRep);
+    expect(favorPlanReady(plan)).toBe(false);
+    expect(favorPlanReady(plan.map((e) => ({ ...e, rep: e.target })))).toBe(true);
+    expect(favorPlanReady([])).toBe(false);
+  });
+});
+
+describe("decideWorkTarget with a favor plan", () => {
+  const catalog = [
+    aug({ name: "QLink", faction: "Illuminati", repReq: 1.875e6 }),
+    aug({ name: "SPTN-97 Gene Modification", faction: "The Covenant", repReq: 1.25e6 }),
+    aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }),
+  ];
+  const joined = ["Illuminati", "The Covenant", "Sector-12"];
+
+  it("works the planned faction closest to its target, ahead of a smaller gap elsewhere", () => {
+    const plan = [
+      { faction: "Illuminati", augmentation: "QLink", rep: 100000, target: 462000 },
+      { faction: "The Covenant", augmentation: "SPTN-97 Gene Modification", rep: 400000, target: 462000 },
+    ];
+    expect(decideWorkTarget(joined, { "Sector-12": 990 }, catalog, [], plan)).toBe("The Covenant");
+  });
+
+  it("moves on once a planned faction reaches its target", () => {
+    const plan = [
+      { faction: "Illuminati", augmentation: "QLink", rep: 100000, target: 462000 },
+      { faction: "The Covenant", augmentation: "SPTN-97 Gene Modification", rep: 462000, target: 462000 },
+    ];
+    expect(decideWorkTarget(joined, { "Sector-12": 990 }, catalog, [], plan)).toBe("Illuminati");
+  });
+});
+
+describe("wantedInviteFactions", () => {
+  const offered = {
+    Illuminati: ["QLink", "NeuroFlux Governor"],
+    "The Covenant": ["SPTN-97 Gene Modification"],
+    Daedalus: ["The Red Pill", "NeuroFlux Governor"],
+  };
+
+  it("lists unjoined factions still selling something wanted", () => {
+    expect(wantedInviteFactions(["Illuminati", "The Covenant", "Daedalus"], ["The Covenant"], offered, ["The Red Pill"])).toEqual(["Illuminati"]);
+  });
+
+  it("ignores a faction offering only NeuroFlux and owned augmentations", () => {
+    expect(wantedInviteFactions(["Daedalus"], [], offered, ["The Red Pill"])).toEqual([]);
+  });
+});
+
+describe("priorityFocus", () => {
+  const qlink = aug({ name: "QLink", faction: "Illuminati", price: 25e12, repReq: 1.875e6, stats: { hacking: 1.75 } });
+  const sptn = aug({ name: "SPTN-97 Gene Modification", faction: "The Covenant", price: 4.9e9, repReq: 1.25e6, stats: { hacking: 1.15 } });
+  const combat = aug({ name: "Graphene Bone Lacings", faction: "The Covenant", price: 30e12, repReq: 1e6, stats: { strength: 1.7 } });
+  const nfg = aug({ name: "NeuroFlux Governor", faction: "Sector-12", price: 3.7e9, repReq: 2.5e6, stats: { hacking: 1.01 } });
+  const catalog = [qlink, sptn, combat, nfg];
+  const focus = ["hacking", "hacking_exp"];
+  const donatable = new Set(["Illuminati", "The Covenant", "Sector-12"]);
+
+  it("picks the most expensive reachable augmentation in focus, holding cheaper ones", () => {
+    expect(priorityFocus(catalog, {}, [], donatable, focus)?.name).toBe("QLink");
+  });
+
+  it("moves to the next once it's owned", () => {
+    expect(priorityFocus(catalog, {}, ["QLink"], donatable, focus)?.name).toBe("SPTN-97 Gene Modification");
+  });
+
+  it("skips augmentations that are unreachable this cycle", () => {
+    expect(priorityFocus(catalog, { "The Covenant": 1.25e6 }, [], new Set(), focus)?.name).toBe("SPTN-97 Gene Modification");
+  });
+
+  it("never holds for NeuroFlux, and ignores augmentations outside the focus", () => {
+    expect(priorityFocus(catalog, {}, ["QLink", "SPTN-97 Gene Modification"], donatable, focus)).toBeUndefined();
+  });
+
+  it("puts The Red Pill first", () => {
+    const redPill = aug({ name: "The Red Pill", faction: "Daedalus", price: 0, repReq: 2.5e6 });
+    expect(priorityFocus([...catalog, redPill], {}, [], new Set([...donatable, "Daedalus"]), focus)?.name).toBe("The Red Pill");
+  });
+
+  it("with no focus, only The Red Pill counts", () => {
+    expect(priorityFocus(catalog, {}, [], donatable, [])).toBeUndefined();
+  });
+});
+
+describe("unmetMoneyRequirement", () => {
+  it("returns the largest unmet cash requirement, including inside everyCondition", () => {
+    const reqs: PlayerRequirement[] = [
+      { type: "money", money: 75e9 },
+      { type: "everyCondition", conditions: [{ type: "money", money: 150e9 }] },
+    ];
+    expect(unmetMoneyRequirement(reqs, snapshot({ money: 10e9 }))).toBe(150e9);
+  });
+
+  it("is 0 once cash covers it", () => {
+    expect(unmetMoneyRequirement([{ type: "money", money: 75e9 }], snapshot({ money: 80e9 }))).toBe(0);
+  });
+});
+
+describe("catalogsFor", () => {
+  const nfgS12 = aug({ name: "NeuroFlux Governor", faction: "Sector-12" });
+  const nfgIllum = aug({ name: "NeuroFlux Governor", faction: "Illuminati" });
+  const qlink = aug({ name: "QLink", faction: "Illuminati" });
+  const cashRoot = aug({ name: "CashRoot Starter Kit", faction: "Sector-12" });
+  const catalog = [nfgS12, nfgIllum, qlink, cashRoot];
+
+  it("never has NeuroFlux in regular buying, donating, or work targets", () => {
+    expect(catalogsFor(catalog, []).regular.map((a) => a.name)).toEqual(["QLink", "CashRoot Starter Kit"]);
+  });
+
+  it("allows NeuroFlux before an install only at factions with nothing else left", () => {
+    const { preInstall } = catalogsFor(catalog, ["CashRoot Starter Kit"]);
+    expect(preInstall.filter((a) => a.name === "NeuroFlux Governor").map((a) => a.faction)).toEqual(["Sector-12"]);
+  });
+
+  it("lets Illuminati's NeuroFlux in once QLink is owned", () => {
+    const { preInstall } = catalogsFor(catalog, ["CashRoot Starter Kit", "QLink"]);
+    expect(preInstall.filter((a) => a.name === "NeuroFlux Governor").map((a) => a.faction)).toEqual(["Sector-12", "Illuminati"]);
+  });
+
+  it("means normal buying never picks NeuroFlux, even when it's the only affordable one", () => {
+    const { regular } = catalogsFor([aug({ name: "NeuroFlux Governor", faction: "Sector-12", price: 1, repReq: 0 })], []);
+    expect(decideAugmentationPurchase(1e15, 0, 1, { "Sector-12": 1e9 }, regular, [])).toEqual({ kind: "none" });
+  });
+
+  it("means NeuroFlux rep gaps no longer pick the work target", () => {
+    const list = [aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }), aug({ name: "QLink", faction: "Illuminati", repReq: 1.875e6 })];
+    expect(decideWorkTarget(["Sector-12", "Illuminati"], { "Sector-12": 999 }, catalogsFor(list, []).regular, [])).toBe("Illuminati");
   });
 });

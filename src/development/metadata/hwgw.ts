@@ -42,18 +42,33 @@ export type BatchPlan = {
  * takes longer than them but started at the same instant; weaken2 only
  * needs to finish 2*spacingMs after weaken1, which the same base duration
  * accomplishes with a small positive delay.
+ *
+ * Except when actions are very fast: hackDelay = weakenTime - spacingMs -
+ * hackTime = 3*hackTime - spacingMs goes negative once hackTime drops below
+ * spacingMs / 3 (~67ms at 200ms spacing) - reachable at high hacking level
+ * against easy targets - and ns.hack rejects a negative additionalMsec
+ * ("additionalMsec must be non-negative"). So every delay is shifted later
+ * by the same amount until none is negative: completion order and spacing
+ * are unchanged, the whole batch just starts a little later.
  */
 export function computeBatchPlan(inputs: BatchInputs, spacingMs: number): BatchPlan {
+  const raw = {
+    hack: inputs.weakenTime - spacingMs - inputs.hackTime,
+    weaken1: 0,
+    grow: inputs.weakenTime + spacingMs - inputs.growTime,
+    weaken2: 2 * spacingMs,
+  };
+  const shift = Math.max(0, -Math.min(raw.hack, raw.weaken1, raw.grow, raw.weaken2));
   return {
     hackThreads: Math.ceil(inputs.hackThreads),
     weaken1Threads: Math.ceil(inputs.hackSecurityIncrease / inputs.weakenSecurityPerThread),
     growThreads: Math.ceil(inputs.growThreads),
     weaken2Threads: Math.ceil(inputs.growSecurityIncrease / inputs.weakenSecurityPerThread),
-    hackDelayMs: inputs.weakenTime - spacingMs - inputs.hackTime,
-    weaken1DelayMs: 0,
-    growDelayMs: inputs.weakenTime + spacingMs - inputs.growTime,
-    weaken2DelayMs: 2 * spacingMs,
-    totalDurationMs: inputs.weakenTime + 2 * spacingMs,
+    hackDelayMs: raw.hack + shift,
+    weaken1DelayMs: raw.weaken1 + shift,
+    growDelayMs: raw.grow + shift,
+    weaken2DelayMs: raw.weaken2 + shift,
+    totalDurationMs: inputs.weakenTime + 2 * spacingMs + shift,
   };
 }
 

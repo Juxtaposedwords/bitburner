@@ -243,6 +243,11 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   (referencing all three functions) regardless of which branch runs,
   vs. ~1.7–1.75 GB each separately — a delta that multiplies by thread
   count.
+- **Delays are never negative** (`computeBatchPlan`). The hack delay is
+  `weakenTime − spacingMs − hackTime` (= `3·hackTime − spacingMs`), which goes negative once
+  `hackTime` drops below `spacingMs / 3`. That's reachable at high hacking level against easy
+  targets, and `ns.hack` throws "additionalMsec must be non-negative". Every delay is shifted later
+  by the same amount, keeping completion order and spacing unchanged.
 - **Worker hosts: `home` and Hacknet servers reserved, with an early-game
   home fallback.** Hack/grow/weaken threads run on rooted servers other
   than `home` and `ServerKind.HACKNET` hosts (`listWorkerHosts`, via
@@ -836,6 +841,55 @@ manual/scripted human decision via the tool above, not automatic. A future itera
 `stock_daemon.ts` itself flip it when a position gets large or risky, but that's real
 cross-daemon coordination logic not justified until the manual version proves worthwhile.
 
+## Augments mode: `Approach.AUGMENTS` + the shared savings target
+
+**NeuroFlux Governor is decided in one place** (`catalogsFor`). It used to be bought through every
+path: normal purchases, 90%-of-cash donations and the pre-install spend-down, and its rep gaps
+picked the work target (grinding at Sector-12). Each purchase also raised QLink's price 1.9×. Now
+it may be bought only when **both** hold:
+1. **An install is about to happen.** It's only in the `preInstall` catalog, so it's always the
+   last thing bought.
+2. **Its faction offers nothing else still wanted,** so it never competes with, say, QLink at
+   Illuminati.
+
+The `regular` catalog (buying, donating, work targets) never has it. The remaining full-catalog
+uses (`favorPlan`, `priorityFocus`, `redPillFocus`) exclude it themselves.
+
+**Mode-aware daemons read the approach from `/etc/scheduler.txt`** (`development/libraries/approach.ts`),
+not over RPC. These are the faction, study and share daemons. The file is the source of truth,
+since `PatchSchedulerConfig` writes through to it, and reading it costs 0 GB. The RPC version
+treated a failed call as "not that mode". Right after an install, boot starts the scheduler last,
+so the call timed out and the faction daemon silently dropped AUGMENTS. It then bought NeuroFlux
+instead of saving for QLink, and each purchase raised QLink's price 1.9×.
+
+`run tools/set_scheduler_approach.js AUGMENTS` steers the whole system's spending toward good
+augmentations. The scheduler's batches and the player's work (favor plan, wanted invites, faction
+work) are the same as HACK.
+
+- **What "good" means** (`priorityFocus`): The Red Pill first. After that, the most **expensive**
+  wanted augmentation (not owned, not NeuroFlux, prereqs owned) that raises a multiplier in
+  `augmentationFocus` (default hacking and hacking_exp) and is reachable this install cycle,
+  meaning its rep is met or its faction takes donations.
+- **Held, not just preferred.** While that augmentation exists it's the only thing bought or
+  donated for, using all cash instead of `maxSpendFraction`. Each purchase raises every remaining
+  price by 1.9× within the batch: QLink at $25T would be about $90T after SPTN-97 and one
+  NeuroFlux. Unreachable augmentations hold nothing, since the next install resets the inflation
+  anyway. Outside AUGMENTS, only The Red Pill is held this way.
+- **The shared savings target** (`development/libraries/savings.ts`, `/var/savings.txt`). The
+  faction daemon writes the augmentation's price plus any donation still needed, every tick, and
+  removes it otherwise. Hacknet, gang, stock and purchased-server daemons spend only above
+  `max(reserveMoney, target)`. The stock daemon also sells everything once cash plus its
+  positions' cost basis covers the target. A target more than a minute old is ignored, so a dead
+  writer can't freeze every spender. Auto-install also waits while saving, because an install
+  would wipe the savings.
+- **Invite cash counts too.** A wanted invite (`pursueAugmentationFactions`) that's blocked only
+  on cash (Illuminati $150B, The Covenant $75B) sets the savings target to that amount
+  (`unmetMoneyRequirement`), and the faction daemon's own non-focus buying and donations stay
+  above it. Before this, NeuroFlux donations kept cash below the requirement, the invite never
+  came, and the work slot fell back to grinding NeuroFlux rep at Sector-12.
+  `/var/faction_reps.txt` shows `inviteAction: "<faction>: waiting for $…B cash"`.
+- This replaces the per-file `reserveMoney` edits used for BN9's Daedalus $100B wait.
+
 ## Grow-stats mode: `Approach.GROW_STATS` + `study_daemon.ts`
 
 `run tools/set_scheduler_approach.js GROW_STATS` switches the player from faction work to studying.
@@ -863,7 +917,7 @@ read over the `GetSchedulerConfig` RPC:
   exponent (`skill_progress.ts`). At x5.3, +10% level multiplier cuts the experience needed for
   hacking 2500 by about 4×, while +10% experience rate saves only 10%:
   - **Buys** (and donates for) only augmentations raising a multiplier in
-    `growStatsAugmentationFocus` (default `["hacking", "hacking_exp"]`; NeuroFlux qualifies).
+    `augmentationFocus` (default `["hacking", "hacking_exp"]`; NeuroFlux qualifies).
   - **Installs** only when `compareInstall` says installing reaches `growStatsHackingGoal`
     (0 = w0r1d_d43m0n's requirement, else Daedalus's 2500) sooner. It compares experience still
     needed now with experience needed from zero at the boosted multiplier, divided by the
@@ -1024,6 +1078,22 @@ game's formula (`amount / $1M × faction_rep mult × BitNode FactionWorkRepGain`
   lost to every repeatable ~$170B NeuroFlux donation elsewhere. Getting Daedalus to 150 favor
   means about 462k rep before one install (favor = ln(1 + rep/25,000) / ln(1.02)); then the rep
   can be bought.
+- **Favor plan** (`favorPlan`, `decideWorkTarget`'s `plan`). Donations need
+  `ns.getFavorToDonate()` favor, and favor only arrives at an install, from the rep earned before
+  it. When a joined faction's wanted augmentation (not owned, not NeuroFlux) needs more rep than
+  reaching that favor does, the cheaper route is to earn just the favor's rep, install, and donate
+  for the rest. BN9's Daedalus took 462k rep instead of 2.5M. The daemon works such factions,
+  closest first, only up to their target (`repForFavor`, from
+  `ns.formulas.reputation.calculateFavorToRep`), then moves on. `/var/faction_reps.txt` shows
+  the plan and `favorPlanReady`, and the log says so once. **Installing is still manual:** turn on
+  `autoInstall` with an augmentation pending.
+- **Wanted invites** (`pursueAugmentationFactions`, default Illuminati, The Covenant, Daedalus). An
+  install drops every faction, and these sell the big augmentations. While one of them isn't joined
+  and still sells something wanted (`wantedInviteFactions`), the daemon works toward its invite
+  before any faction work, using the criminal factions' requirement engine: a combat gap becomes
+  gym time, while money and hacking gaps are waited out. It never picks crime. Gym workouts now
+  travel to the gym's city first. The default `gymLocation` is Powerhouse Gym, the
+  highest-experience one.
 - **What it can't do:** unique augmentations at factions below the favor threshold (e.g.
   BitRunners at favor ~102, gaining ~2 per install) still need rep grinding, which
   `share_daemon.ts` speeds up (see "Share manager" below).
@@ -1277,7 +1347,10 @@ territory changing hands based on `getChanceToWinClash`'s `myPower/(myPower+thei
   spirit as `autoInstall`/`autoPurchaseAugmentations` defaulting off in `faction_daemon.ts`.
 - **`decideTerritoryWarfareAssignment`** (`gang_decisions.ts`) carves `config.territoryWarfareMembers`
   members off the front of the roster onto `"Territory Warfare"` whenever posture is `GROWING`
-  and the circuit breaker (below) hasn't tripped — zero otherwise. The remaining members still go
+  and the circuit breaker (below) hasn't tripped — zero otherwise, and also zero once no rival
+  holds territory (100% is ours, nobody left to clash with, so everyone earns and warfare is
+  switched off). Rivals exclude our own gang: `getAllGangInformation` includes it, and once we
+  held territory our 50% odds against ourselves became the "worst". The remaining members still go
   through the existing money/wanted-control logic (`assignTasks`), re-indexed within that
   remaining subset so the wanted-control reservation fraction stays meaningful.
 - **`decideTerritoryReadiness`** gates *engaging* clashes: true only if our power favors us

@@ -22,6 +22,12 @@ enum Approach {
   // that ranking when nothing qualifies. Deliberately a targeting-only
   // change, not a different batch strategy - see server_metadata.md.
   STOCK_TARGETING = 3;
+  // Same HWGW batch loop and player work as HACK, but spending is steered
+  // toward good augmentations: faction_daemon.ts saves for and buys only
+  // the most expensive reachable augmentation that is The Red Pill or
+  // raises a multiplier in its augmentationFocus, and every other spender
+  // treats that savings target as its reserve (development/libraries/savings.ts).
+  AUGMENTS = 4;
 }
 
 message SchedulerConfig {

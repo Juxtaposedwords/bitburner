@@ -2,7 +2,8 @@ import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
-import { Approach, NewSchedulerServiceClient } from "development/metadata/scheduler";
+import { readApproach } from "development/libraries/approach";
+import { Approach } from "development/metadata/scheduler";
 import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget } from "development/metadata/share_decisions";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
@@ -64,8 +65,7 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
   const totalRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0);
   // Share only boosts faction/company rep; during GROW_STATS the player is
   // studying instead (see study_daemon.ts), so the RAM goes back to batches.
-  const schedulerRes = await NewSchedulerServiceClient(ns).GetSchedulerConfig({});
-  const growingStats = schedulerRes.status === Codes.OK && schedulerRes.data?.config?.approach === Approach.GROW_STATS;
+  const growingStats = readApproach(ns) === Approach.GROW_STATS;
   const target = config.enabled && !growingStats ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);
