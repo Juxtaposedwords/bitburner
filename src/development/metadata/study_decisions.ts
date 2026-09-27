@@ -72,6 +72,26 @@ export function decideStudyStep(active: boolean, activity: Activity, playerCity:
   return { kind: "start" };
 }
 
+/**
+ * Whether paid training (a class or gym workout, both charged per second)
+ * can be afforded: cash covers `runwayMinutes` of it. `costPerMin` comes
+ * from ns.formulas.work.universityGains/gymGains (their `money` is negative
+ * - a cost - per 200ms cycle); without Formulas.exe it's unknown, and
+ * `fallbackMinCash` decides instead. Free training is always affordable.
+ * Nothing checked this before: the first boot of BN10 (starting cash
+ * ~$1,000, scheduler setting still GROW_STATS) went straight into ZB's
+ * Algorithms class and ran money negative.
+ */
+export function canAffordTraining(money: number, costPerMin: number | undefined, runwayMinutes: number, fallbackMinCash: number): boolean {
+  if (costPerMin === undefined) return money >= fallbackMinCash;
+  return costPerMin <= 0 || money >= costPerMin * runwayMinutes;
+}
+
+/** Cost per minute from a WorkStats-style per-cycle `money` (negative = cost). */
+export function trainingCostPerMin(perCycleMoney: number, cyclesPerMin: number): number {
+  return Math.max(0, -perCycleMoney) * cyclesPerMin;
+}
+
 /** Minutes of gym time one combat stat still needs (0 once there), with the gym that gets it there fastest. */
 export type CombatNeed = { stat: string; gymType: string; gym: string; minutes: number };
 

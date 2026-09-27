@@ -30,15 +30,18 @@ import {
   favorPlan,
   favorPlanReady,
   pendingAugmentations,
+  pickKarmaCrime,
   priorityFocus,
   PurchaseDecision,
   redPillFocus,
+  onlyCombatLeft,
   requirementToAction,
   unmetMoneyRequirement,
   wantedInviteFactions,
 } from "development/metadata/faction_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
-import { GYM_CITY } from "development/metadata/study_decisions";
+import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/gang_decisions";
+import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "development/metadata/study_decisions";
 import { readApproach } from "development/libraries/approach";
 import { Approach } from "development/metadata/scheduler";
 import {
@@ -68,10 +71,14 @@ type CompanyNameType = Parameters<NS["singularity"]["applyToCompany"]>[0];
 type JobFieldType = Parameters<NS["singularity"]["applyToCompany"]>[1];
 type CrimeTypeType = Parameters<NS["singularity"]["commitCrime"]>[0];
 type GymLocationNameType = Parameters<NS["singularity"]["gymWorkout"]>[0];
+type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 
 const WORLD_DAEMON = "w0r1d_d43m0n";
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
+// Same affordability rule as study_daemon.ts's paid training.
+const GYM_RUNWAY_MINUTES = 10;
+const GYM_FALLBACK_MIN_CASH = 1e9;
 
 /**
  * The third file allowed to import ns.singularity (after
@@ -381,6 +388,16 @@ function pursueCompanyFactions(ns: NS, config: FactionConfig, snapshot: Eligibil
 }
 
 /** Data-driven crime selection (see decideCrimeForKills's doc) over every live CrimeType - never a hardcoded "Homicide" string. */
+/** pickKarmaCrime over every live CrimeType's karma, time, and success chance. */
+function pickKarmaCrimeLive(ns: NS): string | undefined {
+  return pickKarmaCrime(
+    Object.values(ns.enums.CrimeType).map((crime) => {
+      const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+      return { crime, karma: stats.karma, timeMs: stats.time, successChance: ns.singularity.getCrimeChance(crime as CrimeTypeType) };
+    })
+  );
+}
+
 function pickCrimeForKills(ns: NS, minSuccessChance: number): string | undefined {
   const candidates = Object.values(ns.enums.CrimeType).map((crime) => ({
     crime,
@@ -472,6 +489,14 @@ async function decideEligibilityWorkSlotAction(
   return { kind: "none" };
 }
 
+/** Whether cash covers GYM_RUNWAY_MINUTES at `gymLocation` (canAffordTraining), costed by formula when Formulas.exe is owned. */
+function gymAffordable(ns: NS, gymType: GymTypeType, gymLocation: string): boolean {
+  const costPerMin = ns.fileExists("Formulas.exe", "home")
+    ? trainingCostPerMin(ns.formulas.work.gymGains(ns.getPlayer(), gymType, gymLocation as GymLocationNameType).money, CYCLES_PER_MIN)
+    : undefined;
+  return canAffordTraining(ns.getServerMoneyAvailable("home"), costPerMin, GYM_RUNWAY_MINUTES, GYM_FALLBACK_MIN_CASH);
+}
+
 /**
  * Generalizes isAlreadyWorking's discipline (never restart an
  * already-correct work action every tick) across every new action kind
@@ -532,6 +557,14 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
       if (gymCity && ns.getPlayer().city !== gymCity && ns.singularity.travelToCity(gymCity as CityNameType)) {
         await log.info(`[Faction] Traveled to ${gymCity} for ${gymLocation}.`);
       }
+      // The gym charges per second: only with cash for a runway of it, and
+      // stop a workout already running rather than go into debt.
+      if (!gymAffordable(ns, gymType, gymLocation)) {
+        if (current?.type === "CLASS" && current.location === gymLocation && ns.singularity.stopAction()) {
+          await log.warn(`[Faction] Stopped training ${action.stat}: cash doesn't cover ${GYM_RUNWAY_MINUTES} minutes at ${gymLocation}.`);
+        }
+        return false;
+      }
       if (!(current?.type === "CLASS" && current.location === gymLocation && current.classType === gymType)) {
         if (ns.singularity.gymWorkout(gymLocation as GymLocationNameType, gymType)) {
           await log.info(`[Faction] Training ${action.stat} at ${gymLocation}.`);
@@ -543,7 +576,7 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
     case "commitCrime":
       if (!(current?.type === "CRIME" && current.crimeType === action.crime)) {
         ns.singularity.commitCrime(action.crime as CrimeTypeType);
-        await log.info(`[Faction] Committing ${action.crime} (targeting a criminal faction's numPeopleKilled requirement).`);
+        await log.info(`[Faction] Committing ${action.crime}.`);
         return true;
       }
       return false;
@@ -578,7 +611,8 @@ function pursueWantedInvites(
     const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
     const money = unmetMoneyRequirement(requirements, snapshot);
     if (money > 0 && (!moneyNeeded || money > moneyNeeded.amount)) moneyNeeded = { faction, amount: money };
-    if (found) continue;
+    // Gym time only once combat is all that's left (onlyCombatLeft).
+    if (found || !onlyCombatLeft(requirements, snapshot)) continue;
     const blocking = findBlockingRequirement(requirements, snapshot);
     if (!blocking) continue;
     const action = requirementToAction(blocking, config.companyJobField, snapshot);
@@ -679,7 +713,22 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // grinding rep where we already are (pursueWantedInvites) - e.g. gym time
   // for Illuminati's combat requirement after an install dropped it.
   const snapshot = gatherEligibilitySnapshot(player);
-  const invite = growingStats ? undefined : pursueWantedInvites(ns, config, snapshot, joinedFactions, owned);
+
+  // GANG (scheduler.proto): until a gang exists, the work slot lowers karma
+  // with the fastest crime (pickKarmaCrime) - ahead of invites and faction
+  // work. gang_daemon.ts creates the gang once karma allows.
+  const gangAvailable = playerRes.data?.player?.gangAvailable === true;
+  const karmaCrime =
+    approach === Approach.GANG && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
+      ? pickKarmaCrimeLive(ns)
+      : undefined;
+  if (karmaCrime) {
+    // Not counted toward crimeAttempts - that circuit breaker bounds
+    // crime-for-kills, which this isn't.
+    await executeEligibilityAction(ns, log, { kind: "commitCrime", crime: karmaCrime }, config.gymLocation);
+  }
+
+  const invite = growingStats || karmaCrime ? undefined : pursueWantedInvites(ns, config, snapshot, joinedFactions, owned);
   const inviteAction: EligibilityAction = invite?.action?.action ?? { kind: "none" };
 
   // Favor plan (favorPlan): work each faction whose augmentation is cheaper
@@ -703,7 +752,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   favorPlanWasReady = planReady;
 
   const workTarget =
-    !growingStats && inviteAction.kind === "none" && joinedFactions.length > 0
+    !growingStats && !karmaCrime && inviteAction.kind === "none" && joinedFactions.length > 0
       ? decideWorkTarget(joinedFactions, reps, catalogs.regular, owned, plan)
       : undefined;
   const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
@@ -714,6 +763,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     workGains: work?.gains,
     favorPlan: plan,
     favorPlanReady: planReady,
+    karmaCrime: karmaCrime ? `${karmaCrime} (karma ${player.karma.toFixed(0)} / ${GANG_KARMA_REQUIREMENT})` : undefined,
     inviteAction: invite?.action
       ? `${invite.action.faction}: ${inviteAction.kind}${inviteAction.kind === "gymWorkout" ? ` ${inviteAction.stat}` : ""}`
       : invite?.moneyNeeded
@@ -748,7 +798,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Only tried when the work slot isn't already claimed by grinding rep
   // at an already-joined faction - see decideEligibilityWorkSlotAction's doc.
   const eligibilityAction: EligibilityAction =
-    workTarget || growingStats || inviteAction.kind !== "none"
+    workTarget || growingStats || karmaCrime || inviteAction.kind !== "none"
     ? { kind: "none" }
     : await decideEligibilityWorkSlotAction(ns, log, config, state, snapshot, joinedFactions);
   const crimeAttempted = await executeEligibilityAction(ns, log, eligibilityAction, config.gymLocation);

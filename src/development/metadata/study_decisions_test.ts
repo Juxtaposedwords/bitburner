@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Activity, chooseTraining, CombatNeed, decideStudyStep } from "development/metadata/study_decisions";
+import { Activity, canAffordTraining, chooseTraining, CombatNeed, decideStudyStep, trainingCostPerMin } from "development/metadata/study_decisions";
 
 describe("decideStudyStep", () => {
   const zb: Activity = { kind: "class", location: "ZB Institute of Technology", detail: "Algorithms" };
@@ -51,5 +51,28 @@ describe("chooseTraining", () => {
 
   it("studies once every combat stat is done", () => {
     expect(chooseTraining(3500, [need("strength", 0), need("defense", 0)], true)).toBeUndefined();
+  });
+});
+
+describe("canAffordTraining", () => {
+  it("needs cash for the whole runway", () => {
+    expect(canAffordTraining(1000, 6e6, 10, 1e9)).toBe(false);
+    expect(canAffordTraining(6e7, 6e6, 10, 1e9)).toBe(true);
+  });
+
+  it("always allows free training", () => {
+    expect(canAffordTraining(0, 0, 10, 1e9)).toBe(true);
+  });
+
+  it("falls back to a minimum cash without a known cost", () => {
+    expect(canAffordTraining(5e8, undefined, 10, 1e9)).toBe(false);
+    expect(canAffordTraining(2e9, undefined, 10, 1e9)).toBe(true);
+  });
+});
+
+describe("trainingCostPerMin", () => {
+  it("turns a negative per-cycle money into a per-minute cost", () => {
+    expect(trainingCostPerMin(-2000, 300)).toBe(600000);
+    expect(trainingCostPerMin(0, 300)).toBe(0);
   });
 });

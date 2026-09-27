@@ -8,12 +8,14 @@ import {
   ACTIVITY_PATH,
   ActivityFile,
   chooseTraining,
+  canAffordTraining,
   CombatNeed,
   CONFIG_PATH,
   decideStudyStep,
   DEFAULT_CONFIG,
   GYM_CITY,
   StudyConfig,
+  trainingCostPerMin,
 } from "development/metadata/study_decisions";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { COMBAT_SKILLS, DAEDALUS_COMBAT_LEVEL, DAEDALUS_HACKING_LEVEL, effectiveSkillMult, skillMultiplier } from "development/libraries/skill_progress";
@@ -44,6 +46,10 @@ const TICK_INTERVAL_MS = 10_000;
 type Skill = "hacking" | (typeof COMBAT_SKILLS)[number];
 
 const CYCLES_PER_MIN = 300; // ns.formulas.work.*Gains are per 200ms game cycle.
+// Paid training needs cash for this long; without Formulas.exe (no cost
+// estimate) it needs TRAINING_FALLBACK_MIN_CASH instead.
+const TRAINING_RUNWAY_MINUTES = 10;
+const TRAINING_FALLBACK_MIN_CASH = 1e9;
 const WORLD_DAEMON = "w0r1d_d43m0n";
 const DAEDALUS = "Daedalus";
 
@@ -93,6 +99,20 @@ function pickGym(ns: NS, config: StudyConfig): { need: CombatNeed; hackingMinute
   return need ? { need, hackingMinutes, combatMinutes } : undefined;
 }
 
+/** Whether cash covers TRAINING_RUNWAY_MINUTES of `activity` (canAffordTraining), costed by formula when Formulas.exe is owned. */
+function trainingAffordable(ns: NS, activity: Activity): boolean {
+  let costPerMin: number | undefined;
+  if (ns.fileExists("Formulas.exe", "home")) {
+    const player = ns.getPlayer();
+    const perCycle =
+      activity.kind === "class"
+        ? ns.formulas.work.universityGains(player, activity.detail as UniversityClassType, activity.location as LocationNameType).money
+        : ns.formulas.work.gymGains(player, activity.detail as GymTypeType, activity.location as LocationNameType).money;
+    costPerMin = trainingCostPerMin(perCycle, CYCLES_PER_MIN);
+  }
+  return canAffordTraining(ns.getServerMoneyAvailable("home"), costPerMin, TRAINING_RUNWAY_MINUTES, TRAINING_FALLBACK_MIN_CASH);
+}
+
 async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
   const active = readApproach(ns) === Approach.GROW_STATS;
 
@@ -101,10 +121,20 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
     ? { kind: "gym", location: gym.need.gym, detail: gym.need.gymType, stat: gym.need.stat }
     : { kind: "class", location: config.university, detail: config.course };
 
-  const activityFile: ActivityFile = { kind: active ? activity.kind : "none", writtenAt: Date.now() };
+  // Paid training only with cash for a runway of it (canAffordTraining);
+  // stop an unaffordable one already running rather than go into debt.
+  const affordable = !active || trainingAffordable(ns, activity);
+  if (active && !affordable) {
+    if (ns.singularity.getCurrentWork()?.type === "CLASS" && ns.singularity.stopAction()) {
+      await log.warn(`[Study] Stopped ${activity.kind === "class" ? "studying" : "training"}: cash doesn't cover ${TRAINING_RUNWAY_MINUTES} minutes of it.`);
+    }
+  }
+  const training = active && affordable;
+
+  const activityFile: ActivityFile = { kind: training ? activity.kind : "none", writtenAt: Date.now() };
   ns.write(ACTIVITY_PATH, JSON.stringify(activityFile), "w");
 
-  const step = decideStudyStep(active, activity, ns.getPlayer().city, ns.singularity.getCurrentWork());
+  const step = decideStudyStep(training, activity, ns.getPlayer().city, ns.singularity.getCurrentWork());
   switch (step.kind) {
     case "idle":
     case "busy":
@@ -130,7 +160,7 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
   }
 
   await log.debug(
-    `[Study] tick: growStats=${active} activity=${activity.kind}:${activity.location}/${activity.detail} step=${step.kind} hacking=${ns.getPlayer().skills.hacking}`
+    `[Study] tick: growStats=${active} affordable=${affordable} activity=${activity.kind}:${activity.location}/${activity.detail} step=${step.kind} hacking=${ns.getPlayer().skills.hacking}`
   );
 }
 

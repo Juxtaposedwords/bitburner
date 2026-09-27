@@ -215,6 +215,19 @@ current player context without paying for their own `ns.getPlayer()` call
 
 ## Cold start (`boot.ts`)
 
+**Launch order is priority order.** A fresh BitNode starts with a small home, and whatever launches
+last just doesn't fit. After the one-shots and the capability detector, boot launches: the scheduler
+(income), the program shopper, the faction and gang daemons, Hacknet, study, backdoor, then the
+stock, purchased-server, monitoring and share daemons. The first BN10 boot had started study and
+backdoor ahead of the scheduler, so nothing earned money.
+
+**Paid training needs cash.** The study daemon and the faction daemon's gym workouts first check
+`canAffordTraining` (`study_decisions.ts`): cash must cover 10 minutes of the formula's cost, or
+$1B without Formulas.exe. A workout already running is stopped if you can't afford it. Invite
+pursuit also waits until combat is all that's left of an invite (`onlyCombatLeft`). On that first
+BN10 boot, the study daemon, still set to BN9's GROW_STATS, had run cash negative in ZB's
+Algorithms class.
+
 The change-triggered dispatch above can't cover the very first observation
 — `changed()` requires a *previous* reading to compare against, and there
 isn't one at boot. So `boot.ts` still explicitly runs
@@ -319,6 +332,14 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   `tools/set_scheduler_approach.js` for the readable way to change it.
 
 ## Program purchasing: `ns.singularity`, gated by Source-File 4
+
+**Home RAM and Formulas.exe too.** After TOR and the port openers, `tools/program_shopper.ts`
+upgrades home RAM whenever the next upgrade costs at most half the cash above the savings target
+(`shouldUpgradeHomeRam`, so it never undercuts something being saved for). After each upgrade it
+re-runs `boot.js`, which launches whatever didn't fit before. It then buys Formulas.exe once
+affordable. Nothing bought home RAM before this. In a fresh BitNode home is small: the first BN10
+boot couldn't fit the scheduler, and every sleeve function costs 4 GB. Upgrades survive installs,
+and only a new BitNode resets them.
 
 Buying port-opener programs (`ns.singularity.purchaseTor`/
 `purchaseProgram`) requires Source-File 4 outside BitNode 4, and costs
@@ -840,6 +861,26 @@ scheduler "please support symbol X"; switching `Approach.STOCK_TARGETING` on/off
 manual/scripted human decision via the tool above, not automatic. A future iteration could have
 `stock_daemon.ts` itself flip it when a position gets large or risky, but that's real
 cross-daemon coordination logic not justified until the manual version proves worthwhile.
+
+## Gang mode: `Approach.GANG` — founding a gang (Source-File 2)
+
+`run tools/set_scheduler_approach.js GANG` sets up a gang in a BitNode that doesn't start with one.
+Outside BitNode 2, creating a gang needs karma at **−54,000** (`GANG_KARMA_REQUIREMENT`), and
+karma only drops by committing crimes.
+
+- **Faction daemon:** while not in a gang and karma still blocks one (`karmaBlocksGang`), the work
+  slot commits the crime that lowers karma fastest: karma per success × success chance ÷ time
+  (`pickKarmaCrime`, from `getCrimeStats`/`getCrimeChance`). This comes ahead of invites and
+  faction work. It isn't counted toward the crime-for-kills circuit breaker.
+  `/var/faction_reps.txt` shows `karmaCrime` with the current karma. Crimes also build the
+  combat stats for the Slum Snakes invite (combat 30, karma −9, $1M), which the auto-join accepts.
+- **Gang daemon:** once karma allows, it calls `createGang` with the first joined faction in
+  `gangFactionPriority` (combat gangs only; the task scoring assumes combat tasks). From then on
+  it manages the gang as before.
+- **Share daemon:** idle, since crime earns no rep. Scheduler batches run as in HACK. Once the gang
+  exists, player work goes back to normal even if the mode stays GANG.
+- **Speed:** Homicide is about −3 karma per ~3s success, so roughly 15 hours solo. Sleeve crimes
+  lower the player's karma too, which is the sleeve daemon's first job.
 
 ## Augments mode: `Approach.AUGMENTS` + the shared savings target
 

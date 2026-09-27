@@ -64,8 +64,10 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
   const hosts = await listWorkerHosts(ns);
   const totalRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0);
   // Share only boosts faction/company rep; during GROW_STATS the player is
-  // studying instead (see study_daemon.ts), so the RAM goes back to batches.
-  const growingStats = readApproach(ns) === Approach.GROW_STATS;
+  // studying, and during GANG committing crimes, so the RAM goes back to
+  // batches.
+  const approach = readApproach(ns);
+  const growingStats = approach === Approach.GROW_STATS || approach === Approach.GANG;
   const target = config.enabled && !growingStats ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);

@@ -28,6 +28,12 @@ enum Approach {
   // raises a multiplier in its augmentationFocus, and every other spender
   // treats that savings target as its reserve (development/libraries/savings.ts).
   AUGMENTS = 4;
+  // Sets up a gang (Source-File 2): while not in one, faction_daemon.ts
+  // spends the player's work slot on whichever crime lowers karma fastest
+  // until the gang karma requirement is met, and gang_daemon.ts creates the
+  // gang with the first preferred gang faction joined. Batches run as in
+  // HACK; once the gang exists, player work goes back to normal.
+  GANG = 5;
 }
 
 message SchedulerConfig {

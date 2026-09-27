@@ -1,5 +1,8 @@
 import { GangGenInfo, NS } from "@ns";
+import { readApproach } from "development/libraries/approach";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { loadJsonConfig } from "development/libraries/config";
+import { Approach } from "development/metadata/scheduler";
 import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { GangPosture } from "development/metadata/gang";
@@ -11,6 +14,8 @@ import {
   decideStandDown,
   decideTerritoryReadiness,
   GANG_STATUS_PATH,
+  karmaBlocksGang,
+  nextMemberName,
   GangStatusFile,
   worstClashWinChance,
   decideTerritoryWarfareAssignment,
@@ -24,11 +29,12 @@ import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 /**
- * Manages an *already-created* gang - task assignment, equipment
- * purchases, ascension, and recruiting. Doesn't automate creating the
- * gang itself (ns.gang.createGang), which needs sufficiently negative
- * karma outside BitNode 2 (i.e. automating crime) - out of scope here,
- * see server_metadata.md. `tick()` below simply idles until
+ * Manages a gang - task assignment, equipment purchases, ascension, and
+ * recruiting. Creating one (ns.gang.createGang) needs karma at
+ * GANG_KARMA_REQUIREMENT outside BitNode 2; in Approach.GANG the faction
+ * daemon commits crimes to get there, and `tick()` below creates the gang
+ * with the first joined faction in config.gangFactionPriority as soon as
+ * the game allows. Outside that mode it just idles until
  * ns.gang.inGang() is true.
  *
  * Unlike ns.singularity, ns.gang functions have normal fixed RAM costs
@@ -94,6 +100,13 @@ export type GangConfig = {
   // decideStandDown doc) is enough to stand down until the user
   // explicitly reviews and resets /var/gang_state.txt.
   maxCasualties: number;
+  // Approach.GANG creates the gang with the first of these the player has
+  // joined. Combat gangs only: the task scoring here assumes combat tasks,
+  // so hacking gangs (NiteSec, The Black Hand) are left out.
+  gangFactionPriority: string[];
+  // Recruits are named from this list in order (then Member-N) - Greek
+  // myth, matching the BN9 gang's hand-picked names.
+  memberNames: string[];
 };
 
 export const DEFAULT_CONFIG: GangConfig = {
@@ -108,6 +121,25 @@ export const DEFAULT_CONFIG: GangConfig = {
   territoryWarfareMembers: 2,
   minClashWinChance: 0.65,
   maxCasualties: 1,
+  gangFactionPriority: ["Slum Snakes", "Tetrads", "The Syndicate", "The Dark Army", "Speakers for the Dead"],
+  memberNames: [
+    "Clotho",
+    "Atropos",
+    "Lachesis",
+    "Achates",
+    "Acmon",
+    "Creusa",
+    "Ascanius",
+    "Lapyx",
+    "Lares",
+    "Mimas",
+    "Heracles",
+    "Hercules",
+    "Castor",
+    "Pollux",
+    "Theseus",
+    "Orion",
+  ],
 };
 
 export const CONFIG_PATH = "/etc/gang.txt";
@@ -128,17 +160,6 @@ function saveState(ns: NS, state: GangState): void {
 
 function parsePosture(posture: GangConfig["posture"]): GangPosture {
   return posture === "GROWING" ? GangPosture.GROWING : GangPosture.CONSOLIDATE;
-}
-
-/** First name of the form "Member-N" not already in use. */
-function nextMemberName(existing: Set<string>): string {
-  let index = existing.size;
-  let name = `Member-${index}`;
-  while (existing.has(name)) {
-    index++;
-    name = `Member-${index}`;
-  }
-  return name;
 }
 
 /**
@@ -316,26 +337,57 @@ async function logMemberSnapshot(ns: NS, log: Logger): Promise<void> {
   }
 }
 
-async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
-  if (!ns.gang.inGang()) {
-    await log.debug("[Gang] Not in a gang yet; idling.");
+/**
+ * In Approach.GANG, creates the gang once karma allows (karmaBlocksGang),
+ * with the first joined faction in config.gangFactionPriority. createGang
+ * refuses when not eligible, so trying each tick is harmless.
+ */
+async function tryCreateGang(ns: NS, log: Logger, config: GangConfig): Promise<void> {
+  const player = ns.getPlayer();
+  if (readApproach(ns) !== Approach.GANG || karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)) {
+    await log.debug(`[Gang] Not in a gang yet (karma ${player.karma.toFixed(0)}); idling.`);
     return;
   }
+  const faction = config.gangFactionPriority.find((name) => (player.factions as string[]).includes(name));
+  if (!faction) {
+    await log.debug(`[Gang] Karma is enough; waiting to join one of ${config.gangFactionPriority.join(", ")}.`);
+    return;
+  }
+  if (ns.gang.createGang(faction as Parameters<NS["gang"]["createGang"]>[0])) {
+    await log.info(`[Gang] Created a gang with ${faction}.`);
+  }
+}
 
-  if (!ns.fileExists("Formulas.exe", "home")) {
-    await log.warn("[Gang] Formulas.exe not owned; task scoring needs it. Idling.");
+async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
+  if (!ns.gang.inGang()) {
+    await tryCreateGang(ns, log, config);
     return;
   }
 
   const state = loadState(ns);
 
+  // Recruiting needs no formulas, so it happens even before Formulas.exe is
+  // owned - a gang founded early in a BitNode would otherwise sit empty
+  // until the program shopper can afford it.
   let recruitedThisTick = 0;
   if (ns.gang.canRecruitMember()) {
-    const name = nextMemberName(new Set(ns.gang.getMemberNames()));
+    const name = nextMemberName(new Set(ns.gang.getMemberNames()), config.memberNames);
     if (ns.gang.recruitMember(name)) {
       recruitedThisTick = 1;
       await log.info(`[Gang] Recruited ${name}.`);
     }
+  }
+
+  if (!ns.fileExists("Formulas.exe", "home")) {
+    // Keep the member count current, so a recruit made while idling isn't
+    // mistaken for anything by detectCasualties later.
+    const count = ns.gang.getMemberNames().length;
+    if (state.lastKnownMemberCount !== count) {
+      state.lastKnownMemberCount = count;
+      saveState(ns, state);
+    }
+    await log.warn("[Gang] Formulas.exe not owned; task scoring needs it. Recruiting only.");
+    return;
   }
 
   const memberNames = ns.gang.getMemberNames();

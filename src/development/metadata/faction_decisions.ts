@@ -38,6 +38,8 @@ export type FactionRepsFile = {
   // all of them are there (time to install).
   favorPlan?: FavorPlanEntry[];
   favorPlanReady?: boolean;
+  // The crime lowering karma for a gang (Approach.GANG), if any.
+  karmaCrime?: string;
   // What the work slot is doing to earn a wanted invite (wantedInviteFactions), if anything.
   inviteAction?: string;
   workTarget?: string;
@@ -665,6 +667,25 @@ export function findBlockingRequirement(requirements: PlayerRequirement[], snaps
 }
 
 /**
+ * Whether combat stats are all that's left for an invite: every other
+ * requirement (money, hacking level, augmentation count, ...) is already
+ * met. Invite pursuit only spends gym time then - training combat for
+ * Illuminati while its $150B and hacking 1500 are hours away is wasted (and,
+ * at a fresh BitNode's ~$1,000, unaffordable).
+ */
+export function onlyCombatLeft(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): boolean {
+  return requirements.every((req) => {
+    if (req.type === "everyCondition") return onlyCombatLeft(req.conditions, snapshot);
+    if (req.type === "skills") {
+      return Object.entries(req.skills)
+        .filter(([stat]) => !isCombatStat(stat))
+        .every(([stat, level]) => (snapshot.skills[stat as keyof EligibilitySnapshot["skills"]] ?? 0) >= (level ?? 0));
+    }
+    return evaluateRequirement(req, snapshot);
+  });
+}
+
+/**
  * The largest unmet cash requirement in an invite's requirement list (0 if
  * none) - top level and everyCondition only, same scope as the rest of this
  * engine's AND handling. Money isn't something requirementToAction can act
@@ -723,6 +744,21 @@ export function decideCrimeForKills(
   const eligible = candidates.filter((c) => c.kills > 0 && c.successChance >= minSuccessChance);
   if (eligible.length === 0) return undefined;
   return eligible.reduce((best, c) => (c.kills > best.kills ? c : best)).crime;
+}
+
+/**
+ * The crime that lowers karma fastest: karma per success x success chance
+ * / time (getCrimeStats' karma and time, getCrimeChance). Used by
+ * Approach.GANG to reach the gang karma requirement. Early on Homicide's
+ * big karma loses to safer crimes it can't yet succeed at; as combat stats
+ * rise (crimes build them) it takes over. undefined when nothing can
+ * succeed at all.
+ */
+export function pickKarmaCrime(candidates: { crime: string; karma: number; timeMs: number; successChance: number }[]): string | undefined {
+  const rate = (c: (typeof candidates)[number]): number => (c.timeMs > 0 ? (c.karma * c.successChance) / c.timeMs : 0);
+  const viable = candidates.filter((c) => rate(c) > 0);
+  if (viable.length === 0) return undefined;
+  return viable.reduce((best, c) => (rate(c) > rate(best) ? c : best)).crime;
 }
 
 /** Trivial mirror of gang_decisions.ts's decideStandDown - bounds crime-for-kills grinding via /var/faction_state.txt's crimeAttempts. */

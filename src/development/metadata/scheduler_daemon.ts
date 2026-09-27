@@ -400,7 +400,8 @@ export async function main(ns: NS): Promise<void> {
       approach === scheduler_pb.Approach.HACK ||
       approach === scheduler_pb.Approach.STOCK_TARGETING ||
       approach === scheduler_pb.Approach.GROW_STATS ||
-      approach === scheduler_pb.Approach.AUGMENTS
+      approach === scheduler_pb.Approach.AUGMENTS ||
+      approach === scheduler_pb.Approach.GANG
     ) {
       await fireBatchIfRoom(ns, log, target, state.config);
     }

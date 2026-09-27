@@ -189,6 +189,30 @@ export function decideTerritoryWarfareAssignment(
 }
 
 /**
+ * The next recruit's name: the first of `names` not already in the gang,
+ * then `Member-N` (first free N) once the list is used up - a replacement
+ * for a fallen member gets their free name back.
+ */
+export function nextMemberName(existing: Set<string>, names: string[]): string {
+  const fromList = names.find((name) => !existing.has(name));
+  if (fromList) return fromList;
+  let index = existing.size;
+  while (existing.has(`Member-${index}`)) index++;
+  return `Member-${index}`;
+}
+
+/**
+ * Karma needed to create a gang outside BitNode 2 (Source-File 2 unlocks
+ * gangs elsewhere, behind this). Karma only drops by committing crimes.
+ */
+export const GANG_KARMA_REQUIREMENT = -54000;
+
+/** Whether karma still blocks creating a gang in `node` (BitNode 2 has no karma requirement). */
+export function karmaBlocksGang(karma: number, node: number | undefined): boolean {
+  return node !== 2 && karma > GANG_KARMA_REQUIREMENT;
+}
+
+/**
  * Written by gang_daemon.ts every tick; monitoring_daemon.ts turns it into
  * gauge/gang_* series. Going through a file keeps ns.gang's RAM cost off
  * the sampler, the same way faction rep reaches it.

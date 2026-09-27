@@ -13,7 +13,7 @@ import {
   EquipmentOption,
   selectBestAscensionCandidate,
   TaskOption,
-  WantedPolicy, worstClashWinChance } from "development/metadata/gang_decisions";
+  WantedPolicy, worstClashWinChance, karmaBlocksGang, nextMemberName } from "development/metadata/gang_decisions";
 import { GangPosture } from "development/metadata/gang";
 
 const task = (overrides: Partial<TaskOption> = {}): TaskOption => ({
@@ -298,5 +298,31 @@ describe("worstClashWinChance", () => {
 
   it("is 1 with no rivals holding territory", () => {
     expect(worstClashWinChance(100, [])).toBe(1);
+  });
+});
+
+describe("karmaBlocksGang", () => {
+  it("needs karma -54000 outside BitNode 2", () => {
+    expect(karmaBlocksGang(-100, 10)).toBe(true);
+    expect(karmaBlocksGang(-54000, 10)).toBe(false);
+  });
+
+  it("never blocks in BitNode 2", () => {
+    expect(karmaBlocksGang(0, 2)).toBe(false);
+  });
+});
+
+describe("nextMemberName", () => {
+  it("takes the first unused name from the list", () => {
+    expect(nextMemberName(new Set(["Clotho"]), ["Clotho", "Atropos"])).toBe("Atropos");
+  });
+
+  it("gives a fallen member's name to their replacement", () => {
+    expect(nextMemberName(new Set(["Atropos"]), ["Clotho", "Atropos"])).toBe("Clotho");
+  });
+
+  it("falls back to Member-N once the list is used up", () => {
+    expect(nextMemberName(new Set(["Clotho", "Atropos"]), ["Clotho", "Atropos"])).toBe("Member-2");
+    expect(nextMemberName(new Set(["Clotho", "Member-1"]), ["Clotho"])).toBe("Member-2");
   });
 });

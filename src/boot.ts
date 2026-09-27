@@ -94,41 +94,38 @@ export async function main(ns: NS): Promise<void> {
   await launchAndWait(ns, CAPABILITY_DETECTOR_SCRIPT, ONE_SHOT_TIMEOUT_MS);
   const playerRes = await playerClient.GetPlayerMetadata({});
 
-  if (playerRes.data?.player?.singularityAvailable) {
-    launchIfNotRunning(ns, PROGRAM_SHOPPER_SCRIPT);
-    launchIfNotRunning(ns, BACKDOOR_SCRIPT);
-    launchIfNotRunning(ns, FACTION_SCRIPT);
-    launchIfNotRunning(ns, STUDY_SCRIPT);
+  // Launched in priority order, because in a fresh BitNode home is small
+  // and whatever comes last simply doesn't fit ("insufficient RAM?"). The
+  // first BN10 boot started study/backdoor ahead of the scheduler, so
+  // nothing earned money - and the study daemon, still on BN9's GROW_STATS,
+  // put the player in a paid class at ~$1,000 cash.
+  //
+  // 1. Income and access first: the scheduler (everything it needs - a
+  //    rooted network, a ranked target - is done by now) and the program
+  //    shopper (port openers mean more rooted servers to run on).
+  // 2. Then progression: factions and, with Source-File 2, the gang.
+  // 3. Then optional growth and tooling, cheapest-value last. The daemons
+  //    here have no dependencies; the stock ones are tiny processes kept
+  //    apart so ns.stock.* never grows the scheduler's footprint (see
+  //    server_metadata.md). Anything that didn't fit can be started by
+  //    re-running boot.js once home has more RAM.
+  const singularity = playerRes.data?.player?.singularityAvailable === true;
+  const gang = playerRes.data?.player?.gangAvailable === true;
+  const ordered: [string, boolean][] = [
+    [SCHEDULER_SCRIPT, true],
+    [PROGRAM_SHOPPER_SCRIPT, singularity],
+    [FACTION_SCRIPT, singularity],
+    [GANG_SCRIPT, gang],
+    [HACKNET_SCRIPT, true],
+    [STUDY_SCRIPT, singularity],
+    [BACKDOOR_SCRIPT, singularity],
+    [STOCK_SCRIPT, true],
+    [STOCK_TARGET_SCRIPT, true],
+    [PURCHASED_SERVER_SCRIPT, true],
+    [MONITORING_SCRIPT, true],
+    [SHARE_SCRIPT, true],
+  ];
+  for (const [script, available] of ordered) {
+    if (available) launchIfNotRunning(ns, script);
   }
-
-  // Independent capability from singularityAvailable - gated by
-  // Source-File 2, not 4 - so checked and launched separately.
-  if (playerRes.data?.player?.gangAvailable) {
-    launchIfNotRunning(ns, GANG_SCRIPT);
-  }
-
-  // Last: everything it depends on (a rooted network, a ranked target) is
-  // already up by this point, and it's no longer competing with anything
-  // else for home's RAM. hacknet_daemon.js/purchased_server_daemon.js/
-  // stock_daemon.js/stock_target_daemon.js have no such dependency (none
-  // needs a rooted network or a target to start growing its
-  // fleet/portfolio/ranking), but their RAM cost is comparable to the
-  // scheduler's, so they get the same low-priority placement rather than
-  // competing with bootstrap-critical one-shots above. None of the four
-  // needs a capability gate the way singularityAvailable/gangAvailable-gated
-  // daemons above do - stock_target_daemon.js in particular is kept as its
-  // own tiny process specifically so its ns.stock.* references never grow
-  // scheduler_daemon.js's own already-large (~8.6 GB) footprint (see
-  // server_metadata.md).
-  launchIfNotRunning(ns, SCHEDULER_SCRIPT);
-  launchIfNotRunning(ns, HACKNET_SCRIPT);
-  launchIfNotRunning(ns, PURCHASED_SERVER_SCRIPT);
-  launchIfNotRunning(ns, STOCK_SCRIPT);
-  launchIfNotRunning(ns, STOCK_TARGET_SCRIPT);
-  // ~10 GB (mostly ns.stock.* for portfolio value), no dependencies - same
-  // low-priority placement as the growth daemons above.
-  launchIfNotRunning(ns, MONITORING_SCRIPT);
-  // Small, no dependencies; its share workers fill whatever fleet RAM
-  // the scheduler isn't using at the moment it tops up.
-  launchIfNotRunning(ns, SHARE_SCRIPT);
 }

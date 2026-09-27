@@ -8,6 +8,8 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  pickKarmaCrime,
+  onlyCombatLeft,
   catalogsFor,
   unmetMoneyRequirement,
   priorityFocus,
@@ -729,5 +731,40 @@ describe("catalogsFor", () => {
   it("means NeuroFlux rep gaps no longer pick the work target", () => {
     const list = [aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }), aug({ name: "QLink", faction: "Illuminati", repReq: 1.875e6 })];
     expect(decideWorkTarget(["Sector-12", "Illuminati"], { "Sector-12": 999 }, catalogsFor(list, []).regular, [])).toBe("Illuminati");
+  });
+});
+
+describe("onlyCombatLeft", () => {
+  const reqs: PlayerRequirement[] = [
+    { type: "money", money: 150e9 },
+    { type: "skills", skills: { hacking: 1500 } },
+    { type: "skills", skills: { strength: 1200 } },
+  ];
+
+  it("is false while money or hacking are still short", () => {
+    expect(onlyCombatLeft(reqs, snapshot({ money: 1000 }))).toBe(false);
+  });
+
+  it("is true once only combat is short", () => {
+    const s = snapshot({ money: 200e9 });
+    s.skills.hacking = 2000;
+    expect(onlyCombatLeft(reqs, s)).toBe(true);
+  });
+});
+
+describe("pickKarmaCrime", () => {
+  const homicide = { crime: "Homicide", karma: 3, timeMs: 3000 };
+  const mug = { crime: "Mug", karma: 0.25, timeMs: 4000 };
+
+  it("prefers a safer crime while the big one mostly fails", () => {
+    expect(pickKarmaCrime([{ ...homicide, successChance: 0.05 }, { ...mug, successChance: 0.9 }])).toBe("Mug");
+  });
+
+  it("switches to Homicide once it succeeds often enough", () => {
+    expect(pickKarmaCrime([{ ...homicide, successChance: 0.6 }, { ...mug, successChance: 1 }])).toBe("Homicide");
+  });
+
+  it("is undefined when nothing can succeed", () => {
+    expect(pickKarmaCrime([{ ...homicide, successChance: 0 }])).toBeUndefined();
   });
 });
