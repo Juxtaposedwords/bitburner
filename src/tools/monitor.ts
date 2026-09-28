@@ -27,7 +27,7 @@ const OVERLAY_FLAG = "--overlay";
 const STACK_FLAG = "--stack";
 
 // Gauges that aren't money - shown as plain integers.
-const NON_MONEY_GAUGES = new Set(["gauge/hacking_level", "gauge/hacking_exp", "gauge/hacknet_nodes", "gauge/hash_rate", "gauge/hashes", "gauge/hash_capacity"]);
+const NON_MONEY_GAUGES = new Set(["gauge/hacking_level", "gauge/hacking_exp", "gauge/karma", "gauge/hacknet_nodes", "gauge/hash_rate", "gauge/hashes", "gauge/hash_capacity"]);
 // One per joined faction (monitoring_daemon.ts's recordReps) - only the ones
 // actually changing are worth a summary line.
 const REP_GAUGE_PREFIX = "gauge/rep_";

@@ -9,6 +9,7 @@ import {
   bestWorkType,
   catalogsFor,
   CITY_FACTION_NAMES,
+  CombatStat,
   COMPANY_FACTION_EMPLOYER,
   COMPANY_FACTION_NAMES,
   CRIMINAL_FACTION_NAMES,
@@ -29,8 +30,10 @@ import {
   hasAnyCityFaction,
   favorPlan,
   favorPlanReady,
+  gangTrainingStat,
   pendingAugmentations,
   pickKarmaCrime,
+  trainingPaysOff,
   priorityFocus,
   PurchaseDecision,
   redPillFocus,
@@ -182,6 +185,10 @@ export type FactionConfig = {
   // not owned yet - even ahead of faction work. Invites are lost at every
   // install, and these end-game factions sell the big augmentations.
   pursueAugmentationFactions: string[];
+  // Without Formulas.exe, Approach.GANG trains combat at the gym while the
+  // karma crime's success chance is below this; with it, trainingPaysOff
+  // decides instead (see decideGangTraining).
+  gangCrimeMinChance: number;
 
   // What makes an augmentation "good" (multiplier keys from
   // getAugmentationStats). In Approach.GROW_STATS and Approach.AUGMENTS only
@@ -226,6 +233,7 @@ export const DEFAULT_CONFIG: FactionConfig = {
   // The highest-experience gym (see skill_eta.js's gym comparison).
   gymLocation: "Powerhouse Gym",
   pursueAugmentationFactions: ["Illuminati", "The Covenant", "Daedalus"],
+  gangCrimeMinChance: 0.8,
 
   augmentationFocus: ["hacking", "hacking_exp"],
   growStatsHackingGoal: 0,
@@ -388,6 +396,56 @@ function pursueCompanyFactions(ns: NS, config: FactionConfig, snapshot: Eligibil
 }
 
 /** Data-driven crime selection (see decideCrimeForKills's doc) over every live CrimeType - never a hardcoded "Homicide" string. */
+// How far each stat is raised when comparing which one helps a crime most.
+const TRAINING_PROBE_LEVELS = 10;
+
+/**
+ * `crime`'s success chance with one combat stat raised by
+ * TRAINING_PROBE_LEVELS, by formula (ns.formulas.work.crimeSuccessChance,
+ * 0 GB) - for gangTrainingStat's choice. undefined without Formulas.exe.
+ */
+function crimeChanceWithBoost(ns: NS, player: ReturnType<NS["getPlayer"]>, crime: string): ((stat: CombatStat) => number) | undefined {
+  if (!ns.fileExists("Formulas.exe", "home")) return undefined;
+  return (stat) => {
+    const person = { ...player, skills: { ...player.skills, [stat]: player.skills[stat] + TRAINING_PROBE_LEVELS } };
+    return ns.formulas.work.crimeSuccessChance(person, crime as CrimeTypeType);
+  };
+}
+
+/**
+ * The combat stat to train instead of committing `crime`, or undefined to
+ * commit it. With Formulas.exe: the stat whose small raise helps the chance
+ * most (gangTrainingStat), trained only if trainingPaysOff says the gym time
+ * is won back. Without it: gangTrainingStat's fixed-threshold fallback.
+ */
+function decideGangTraining(
+  ns: NS,
+  config: FactionConfig,
+  player: ReturnType<NS["getPlayer"]>,
+  crime: string,
+  chanceNow: number,
+  snapshot: EligibilitySnapshot
+): CombatStat | undefined {
+  const boost = crimeChanceWithBoost(ns, player, crime);
+  if (!boost) return gangTrainingStat(chanceNow, config.gangCrimeMinChance, snapshot.skills);
+
+  const stat = gangTrainingStat(chanceNow, 1, snapshot.skills, boost);
+  if (!stat) return undefined;
+  const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+  const gymType = ns.enums.GymType[stat];
+  const expPerMin =
+    ns.formulas.work.gymGains(player, gymType, config.gymLocation as GymLocationNameType)[`${gymType}Exp` as "strExp" | "defExp" | "dexExp" | "agiExp"] *
+    CYCLES_PER_MIN;
+  const { mult } = skillMultiplier(stat, player.mults[stat], readBitNodeInfo(ns)?.multipliers, () =>
+    effectiveSkillMult(player.skills[stat], (m) => ns.formulas.skills.calculateSkill(player.exp[stat], m))
+  );
+  if (mult === undefined || !(expPerMin > 0)) return undefined;
+  const expNeeded = ns.formulas.skills.calculateExp(player.skills[stat] + TRAINING_PROBE_LEVELS, mult) - player.exp[stat];
+  const trainMs = (Math.max(0, expNeeded) / expPerMin) * 60_000;
+  const remainingKarma = player.karma - GANG_KARMA_REQUIREMENT;
+  return trainingPaysOff(remainingKarma, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? stat : undefined;
+}
+
 /** pickKarmaCrime over every live CrimeType's karma, time, and success chance. */
 function pickKarmaCrimeLive(ns: NS): string | undefined {
   return pickKarmaCrime(
@@ -722,10 +780,20 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     approach === Approach.GANG && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
       ? pickKarmaCrimeLive(ns)
       : undefined;
-  if (karmaCrime) {
+  // Gym instead of the crime only while that reaches the karma requirement
+  // sooner (trainingPaysOff, by formula); without Formulas.exe, while the
+  // chance is below gangCrimeMinChance. Only if the gym is affordable.
+  const karmaCrimeChance = karmaCrime ? ns.singularity.getCrimeChance(karmaCrime as CrimeTypeType) : 0;
+  const trainStat = karmaCrime ? decideGangTraining(ns, config, player, karmaCrime, karmaCrimeChance, snapshot) : undefined;
+  const karmaAction: EligibilityAction | undefined = !karmaCrime
+    ? undefined
+    : trainStat && gymAffordable(ns, ns.enums.GymType[trainStat], config.gymLocation)
+      ? { kind: "gymWorkout", stat: trainStat }
+      : { kind: "commitCrime", crime: karmaCrime };
+  if (karmaAction) {
     // Not counted toward crimeAttempts - that circuit breaker bounds
     // crime-for-kills, which this isn't.
-    await executeEligibilityAction(ns, log, { kind: "commitCrime", crime: karmaCrime }, config.gymLocation);
+    await executeEligibilityAction(ns, log, karmaAction, config.gymLocation);
   }
 
   const invite = growingStats || karmaCrime ? undefined : pursueWantedInvites(ns, config, snapshot, joinedFactions, owned);
@@ -763,7 +831,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     workGains: work?.gains,
     favorPlan: plan,
     favorPlanReady: planReady,
-    karmaCrime: karmaCrime ? `${karmaCrime} (karma ${player.karma.toFixed(0)} / ${GANG_KARMA_REQUIREMENT})` : undefined,
+    karmaCrime: karmaCrime
+      ? `${karmaAction?.kind === "gymWorkout" ? `training ${karmaAction.stat} for ` : ""}${karmaCrime} ` +
+        `(${(karmaCrimeChance * 100).toFixed(0)}% success, karma ${player.karma.toFixed(0)} / ${GANG_KARMA_REQUIREMENT})`
+      : undefined,
     inviteAction: invite?.action
       ? `${invite.action.faction}: ${inviteAction.kind}${inviteAction.kind === "gymWorkout" ? ` ${inviteAction.stat}` : ""}`
       : invite?.moneyNeeded

@@ -134,6 +134,8 @@ export async function main(ns: NS): Promise<void> {
     record(ns, "gauge/hacking_level", t, playerRes.data?.player?.hackingLevel ?? 0);
     const hackingExp = playerRes.data?.player?.hackingExp;
     if (hackingExp !== undefined) record(ns, "gauge/hacking_exp", t, hackingExp);
+    const karma = playerRes.data?.player?.karma;
+    if (karma !== undefined) record(ns, "gauge/karma", t, karma);
 
     const stock = stockValue(ns);
     if (stock !== undefined) record(ns, "gauge/stock_value", t, stock);

@@ -34,6 +34,10 @@ message PlayerMetadata {
   // logarithmically with it, so monitoring_daemon.ts records this to show
   // how fast studying/Improve Studying are actually adding up.
   optional double hacking_exp = 12;
+  // ns.getPlayer().karma - only ever falls, by committing crimes; a gang
+  // needs it at -54000 outside BitNode 2 (see gang_decisions.ts).
+  // monitoring_daemon.ts records it so skill_eta.js can time the gang.
+  optional double karma = 13;
 }
 
 message GetPlayerMetadataRequest {}

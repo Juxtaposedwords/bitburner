@@ -8,6 +8,8 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  trainingPaysOff,
+  gangTrainingStat,
   pickKarmaCrime,
   onlyCombatLeft,
   catalogsFor,
@@ -766,5 +768,37 @@ describe("pickKarmaCrime", () => {
 
   it("is undefined when nothing can succeed", () => {
     expect(pickKarmaCrime([{ ...homicide, successChance: 0 }])).toBeUndefined();
+  });
+});
+
+describe("gangTrainingStat", () => {
+  const skills = { hacking: 100, strength: 40, defense: 55, dexterity: 30, agility: 45, charisma: 1, intelligence: 0 };
+
+  it("trains the weakest combat stat while the crime fails too often", () => {
+    expect(gangTrainingStat(0.5, 0.8, skills)).toBe("dexterity");
+  });
+
+  it("goes back to crime once the chance is high enough", () => {
+    expect(gangTrainingStat(0.85, 0.8, skills)).toBeUndefined();
+  });
+
+  it("with the formulas, trains the stat that raises the chance most, not the weakest", () => {
+    const boosted = { strength: 0.62, defense: 0.6, dexterity: 0.52, agility: 0.51 };
+    expect(gangTrainingStat(0.5, 0.8, skills, (stat) => boosted[stat])).toBe("strength");
+  });
+});
+
+describe("trainingPaysOff", () => {
+  // Homicide: 3 karma per success, 3s.
+  it("trains when a short stint raises the rate a lot", () => {
+    expect(trainingPaysOff(53000, 3, 3000, 0.5, 0.6, 10 * 60_000)).toBe(true);
+  });
+
+  it("commits the crime when training takes longer than it saves", () => {
+    expect(trainingPaysOff(53000, 3, 3000, 0.5, 0.51, 10 * 60 * 60_000)).toBe(false);
+  });
+
+  it("commits the crime once the goal is close", () => {
+    expect(trainingPaysOff(100, 3, 3000, 0.5, 0.6, 10 * 60_000)).toBe(false);
   });
 });

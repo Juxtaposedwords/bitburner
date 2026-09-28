@@ -267,17 +267,28 @@ async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.Sc
  * retries, no pre-computed concurrent-batch depth needed. The four actions
  * don't need to land on the same host as each other, or as the target.
  */
-async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<void> {
+async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<"ok" | "drifted"> {
   const hackFraction = config.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1;
   const spacingMs = config.spacingMs ?? DEFAULT_CONFIG.spacingMs ?? 200;
 
   const maxMoney = ns.getServerMaxMoney(target);
   const hackThreadsRaw = ns.hackAnalyzeThreads(target, maxMoney * hackFraction);
-  // -1 means unhackable right now (e.g. money below the requested amount,
-  // hacking level too low) - not an error, just not batchable this tick.
+  // -1 means unhackable right now: money below the requested amount, or
+  // hacking level too low. If the target has drifted off its min-security/
+  // max-money baseline, say so - the caller re-preps it. Prep used to run
+  // only on retarget, so a drained target stayed unbatchable forever (BN10:
+  // phantasy skipped every tick with zero hacking running).
   if (hackThreadsRaw <= 0) {
+    const drifted =
+      decidePrepAction(
+        ns.getServerSecurityLevel(target),
+        ns.getServerMinSecurityLevel(target),
+        ns.getServerMoneyAvailable(target),
+        maxMoney
+      ) !== "done";
+    if (drifted) return "drifted";
     await log.warn(`[Scheduler] ${target} not hackable for hackFraction ${hackFraction} right now (hackAnalyzeThreads returned ${hackThreadsRaw}); skipping tick.`);
-    return;
+    return "ok";
   }
 
   const hackThreads = Math.ceil(hackThreadsRaw);
@@ -286,9 +297,14 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
   const plan = computeBatchPlan(
     {
       hackThreads,
-      hackSecurityIncrease: ns.hackAnalyzeSecurity(hackThreads, target),
+      // No `target` for either: with a host, the game caps the threads to
+      // what reaching max money (grow) or taking all money (hack) needs. The
+      // plan is made at max money, so growthAnalyzeSecurity(threads, target)
+      // returned 0 - every batch fired with no second weaken (the "/W0" in
+      // BN10's logs), security climbed, and the target drained.
+      hackSecurityIncrease: ns.hackAnalyzeSecurity(hackThreads),
       growThreads,
-      growSecurityIncrease: ns.growthAnalyzeSecurity(growThreads, target),
+      growSecurityIncrease: ns.growthAnalyzeSecurity(growThreads),
       weakenSecurityPerThread: ns.weakenAnalyze(1),
       hackTime: ns.getHackTime(target),
       growTime: ns.getGrowTime(target),
@@ -308,7 +324,7 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
     await log.warn(
       `[Scheduler] One or more worker scripts missing on home (hackRam=${hackRam} growRam=${growRam} weakenRam=${weakenRam}); skipping tick.`
     );
-    return;
+    return "ok";
   }
 
   const capacities = await getWorkerCapacities(ns, config);
@@ -327,7 +343,7 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
         `needs ${neededGb.toFixed(2)} GB total) doesn't fit across ${capacities.length} worker host(s) ` +
         `(${availableGb.toFixed(2)} GB free total, see homeFallbackHackingLevel/homeReservedRamGb); skipping tick.`
     );
-    return;
+    return "ok";
   }
 
   const [hack, weaken1, grow, weaken2] = placements;
@@ -355,6 +371,7 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
   await log.info(
     `[Scheduler] Fired batch on ${target}: H${summarize(hack)}/W${summarize(weaken1)}/G${summarize(grow)}/W${summarize(weaken2)}.`
   );
+  return "ok";
 }
 
 export async function main(ns: NS): Promise<void> {
@@ -403,7 +420,10 @@ export async function main(ns: NS): Promise<void> {
       approach === scheduler_pb.Approach.AUGMENTS ||
       approach === scheduler_pb.Approach.GANG
     ) {
-      await fireBatchIfRoom(ns, log, target, state.config);
+      if ((await fireBatchIfRoom(ns, log, target, state.config)) === "drifted") {
+        await log.warn(`[Scheduler] ${target} drifted off min-security/max-money; re-prepping before more batches.`);
+        await prep(ns, log, target, state.config);
+      }
     }
     // CRIME: defined in the schema, not implemented yet (see scheduler.proto).
   }, BATCH_CHECK_INTERVAL_MS);

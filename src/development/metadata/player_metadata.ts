@@ -33,6 +33,7 @@ export interface PlayerMetadata {
     money?: number;
     gangAvailable?: boolean;
     hackingExp?: number;
+    karma?: number;
 }
 
 export interface PlayerServiceHandlers {

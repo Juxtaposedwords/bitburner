@@ -283,6 +283,16 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   (referencing all three functions) regardless of which branch runs,
   vs. ~1.7–1.75 GB each separately — a delta that multiplies by thread
   count.
+- **Security estimates never pass the target.** `growthAnalyzeSecurity(threads, host)` limits the
+  increase to the threads needed to reach max money, and batches are planned *at* max money, so it
+  returned 0. Every batch fired with no second weaken (`/W0` in the logs), security climbed, and the
+  target drained. The scheduler calls `growthAnalyzeSecurity(threads)` and
+  `hackAnalyzeSecurity(threads)` without a host.
+- **A drifted target is re-prepped.** When a batch can't be sized (`hackAnalyzeThreads` −1) and
+  the target is off its min-security/max-money baseline (`decidePrepAction`), the scheduler runs
+  `prep` again. Prep used to run only on retarget, so a drained target stayed unbatchable forever:
+  BN10's phantasy logged "not hackable" every tick with zero hacking running. A −1 at baseline
+  (e.g. hacking level too low) still just warns and skips.
 - **Delays are never negative** (`computeBatchPlan`). The hack delay is
   `weakenTime − spacingMs − hackTime` (= `3·hackTime − spacingMs`), which goes negative once
   `hackTime` drops below `spacingMs / 3`. That's reachable at high hacking level against easy
@@ -532,6 +542,11 @@ territory and income rising.
 scale with hacking level alone; field work uses every stat, so with combat stats trained up it can
 win. The file above also carries `workType` and each type's rep/min (`workGains`), so
 `cat /var/faction_reps.txt` shows the comparison. Without Formulas.exe it still prefers hacking.
+
+**Karma** is recorded too: `gauge/karma`, via PlayerService's `karma`. While karma still blocks a
+gang, `skill_eta` shows a **Gang karma** section with the measured karma rate and the time to
+−54,000. ETAs past 1,000 years print as "unreachable", and so do install comparisons where both
+sides are. At BN10's start (hacking ×0.513) hacking 2500 printed as 9.8e57 years.
 
 `run tools/skill_eta.js [hacking-target] [--window 1h]` compares both routes to a Daedalus
 invite:
@@ -899,7 +914,12 @@ karma only drops by committing crimes.
   slot commits the crime that lowers karma fastest: karma per success × success chance ÷ time
   (`pickKarmaCrime`, from `getCrimeStats`/`getCrimeChance`). This comes ahead of invites and
   faction work. It isn't counted toward the crime-for-kills circuit breaker.
-  `/var/faction_reps.txt` shows `karmaCrime` with the current karma. Crimes also build the
+  `/var/faction_reps.txt` shows `karmaCrime` with the success chance and current karma.
+- **Gym first while the crime fails too often** (`gangTrainingStat`). If the karma crime's success
+  chance (`getCrimeChance`) is below `gangCrimeMinChance` (default 0.8), the work slot trains the
+  weakest combat stat at the gym instead, if affordable, since each failure wastes the crime's full
+  time. The first BN10 run measured ~0.5 karma/s at ~50% Homicide success, about half the
+  full-success rate, and the gym raises combat stats far faster than crimes do. Crimes also build the
   combat stats for the Slum Snakes invite (combat 30, karma −9, $1M), which the auto-join accepts.
 - **Gang daemon:** once karma allows, it calls `createGang` with the first joined faction in
   `gangFactionPriority` (combat gangs only; the task scoring assumes combat tasks). From then on

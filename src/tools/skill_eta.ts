@@ -12,6 +12,7 @@ import {
   PendingBoost,
 } from "development/libraries/skill_progress";
 import { parseWindow, readSeries, windowPoints } from "development/libraries/timeseries";
+import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/gang_decisions";
 import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULTS } from "development/metadata/study_decisions";
 
 /**
@@ -50,7 +51,10 @@ export function minutesToExp(exp: number, targetExp: number, expPerMin: number):
   return (targetExp - exp) / expPerMin;
 }
 
-/** "45m", "7.5h", "3.2d", "12.0y", "3.4e+9y"; "never" for undefined. */
+// Anything past this is reported as unreachable rather than as 1e57 years.
+const UNREACHABLE_MINUTES = 1000 * 365 * 24 * 60;
+
+/** "45m", "7.5h", "3.2d", "12.0y"; "unreachable" past 1000 years; "never" for undefined. */
 export function formatDuration(minutes: number | undefined): string {
   if (minutes === undefined || !Number.isFinite(minutes)) return "never";
   if (minutes < 60) return `${Math.ceil(minutes)}m`;
@@ -59,7 +63,7 @@ export function formatDuration(minutes: number | undefined): string {
   const days = hours / 24;
   if (days < 365) return `${days.toFixed(1)}d`;
   const years = days / 365;
-  return `${years < 1000 ? years.toFixed(1) : years.toExponential(1)}y`;
+  return years < 1000 ? `${years.toFixed(1)}y` : "unreachable";
 }
 
 /** Levels to show between current and target: round steps of at least 100, then the target itself. */
@@ -81,6 +85,31 @@ function formatExp(n: number): string {
 export function sinceLastReset<T extends { v: number }>(points: T[]): T[] {
   for (let i = points.length - 1; i > 0; i--) if (points[i].v < points[i - 1].v) return points.slice(i);
   return points;
+}
+
+/**
+ * Karma lost per minute over the window (positive), since the last jump
+ * back up (a new BitNode resets karma). undefined without 2+ points.
+ */
+function measuredKarmaRate(ns: NS, windowSec: number): { perMin: number; minutes: number } | undefined {
+  const series = readSeries(ns, "gauge/karma");
+  if (!series) return undefined;
+  const now = Math.floor(Date.now() / 1000);
+  const all = windowPoints(series, now, windowSec).filter((p): p is { t: number; v: number } => p.v !== null);
+  // Mirror of sinceLastReset for a value that only falls: keep points after the last rise.
+  let start = 0;
+  for (let i = all.length - 1; i > 0; i--) {
+    if (all[i].v > all[i - 1].v) {
+      start = i;
+      break;
+    }
+  }
+  const points = all.slice(start);
+  if (points.length < 2) return undefined;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const minutes = (last.t - first.t) / 60;
+  return { perMin: (first.v - last.v) / minutes, minutes };
 }
 
 function measuredExpRate(ns: NS, windowSec: number): { perMin: number; minutes: number } | undefined {
@@ -106,8 +135,10 @@ function readPendingBoost(ns: NS): PendingBoost | undefined {
   }
 }
 
-function installVerdict(ratio: number): string {
+function installVerdict(ratio: number, stayMinutes = 0): string {
   if (!Number.isFinite(ratio)) return "goal already reached";
+  // Comparing two impossible times says nothing useful.
+  if (stayMinutes > UNREACHABLE_MINUTES && ratio * stayMinutes > UNREACHABLE_MINUTES) return "unreachable either way at these multipliers";
   return ratio < 1 ? `INSTALL NOW - reaches it ${(1 / ratio).toFixed(1)}x sooner` : `keep going - installing is ${ratio.toFixed(1)}x slower`;
 }
 
@@ -165,17 +196,31 @@ export async function main(ns: NS): Promise<void> {
         `${study.course} at ${study.university} gives ${formatExp(classRate)}/min by formula` +
         `${measured ? "" : " (used below)"}`
     );
-    lines.push(`${"level".padEnd(8)}${"exp needed".padStart(12)}${"eta".padStart(10)}`);
+    lines.push(`${"level".padEnd(8)}${"exp needed".padStart(12)}${"eta".padStart(13)}`);
     for (const lvl of milestones(level, goal)) {
       const needed = expFor(lvl, mult);
-      lines.push(`${String(lvl).padEnd(8)}${formatExp(needed).padStart(12)}${formatDuration(minutesToExp(exp, needed, rate)).padStart(10)}`);
+      lines.push(`${String(lvl).padEnd(8)}${formatExp(needed).padStart(12)}${formatDuration(minutesToExp(exp, needed, rate)).padStart(13)}`);
     }
     const levelBoost = boost.hacking ?? 1;
     const expBoost = boost.hacking_exp ?? 1;
     const c = compareInstall(goal, exp, mult, levelBoost, expBoost, expFor);
     lines.push(
       `install now (${pendingCount} pending: level x${levelBoost.toFixed(3)}, exp x${expBoost.toFixed(3)}): ` +
-        `${formatDuration(c.installExp / rate)} from zero vs ${formatDuration(c.stayExp / rate)} staying -> ${installVerdict(c.ratio)}`
+        `${formatDuration(c.installExp / rate)} from zero vs ${formatDuration(c.stayExp / rate)} staying -> ${installVerdict(c.ratio, c.stayExp / rate)}`
+    );
+  }
+
+  // ---- Gang karma ----
+  // Only while karma still blocks creating a gang (see gang_decisions.ts).
+  if (karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)) {
+    const remaining = player.karma - GANG_KARMA_REQUIREMENT;
+    const karmaRate = measuredKarmaRate(ns, windowSec);
+    lines.push("", `=== Gang karma: ${GANG_KARMA_REQUIREMENT} ===`);
+    lines.push(
+      `karma ${player.karma.toFixed(0)}, ${remaining.toFixed(0)} to go; ` +
+        (karmaRate
+          ? `measured ${karmaRate.perMin.toFixed(1)}/min over ${Math.round(karmaRate.minutes)}m -> ${formatDuration(minutesToExp(0, remaining, karmaRate.perMin))}`
+          : "no measured karma data yet (monitoring_daemon.js samples once a minute)")
     );
   }
 
@@ -188,7 +233,7 @@ export async function main(ns: NS): Promise<void> {
   } else {
     const gyms = Object.values(ns.enums.LocationName).filter((name) => name.endsWith("Gym"));
     lines.push("", `=== Combat route: ${DAEDALUS_COMBAT_LEVEL} in every combat stat ===`);
-    lines.push(`${"stat".padEnd(10)}${"level".padStart(6)}${"mult".padStart(8)}${"exp needed".padStart(12)}${"rate/min".padStart(11)}  ${"best gym".padEnd(22)}${"eta".padStart(8)}${"if installed".padStart(14)}`);
+    lines.push(`${"stat".padEnd(10)}${"level".padStart(6)}${"mult".padStart(8)}${"exp needed".padStart(12)}${"rate/min".padStart(11)}  ${"best gym".padEnd(22)}${"eta".padStart(13)}${"if installed".padStart(14)}`);
     let stayTotal = 0;
     let installTotal = 0;
     for (const stat of COMBAT_SKILLS) {
@@ -213,12 +258,12 @@ export async function main(ns: NS): Promise<void> {
       installTotal += installMin;
       lines.push(
         `${stat.padEnd(10)}${String(statLevel).padStart(6)}${("x" + statMult.toFixed(2)).padStart(8)}${formatExp(c.stayExp).padStart(12)}` +
-          `${formatExp(best.perMin).padStart(11)}  ${best.gym.padEnd(22)}${formatDuration(stayMin).padStart(8)}${formatDuration(installMin).padStart(14)}`
+          `${formatExp(best.perMin).padStart(11)}  ${best.gym.padEnd(22)}${formatDuration(stayMin).padStart(13)}${formatDuration(installMin).padStart(14)}`
       );
     }
     lines.push(
       `total, one stat at a time: ${formatDuration(stayTotal)} (${formatDuration(installTotal)} if the ${pendingCount} pending were installed first) -> ` +
-        installVerdict(stayTotal > 0 ? installTotal / stayTotal : Infinity)
+        installVerdict(stayTotal > 0 ? installTotal / stayTotal : Infinity, stayTotal)
     );
   }
 

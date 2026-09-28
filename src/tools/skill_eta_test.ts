@@ -21,7 +21,7 @@ describe("formatDuration", () => {
     expect(formatDuration(450)).toBe("7.5h");
     expect(formatDuration(60 * 24 * 3.2)).toBe("3.2d");
     expect(formatDuration(60 * 24 * 365 * 12)).toBe("12.0y");
-    expect(formatDuration(60 * 24 * 365 * 3.4e9)).toBe("3.4e+9y");
+    expect(formatDuration(60 * 24 * 365 * 3.4e9)).toBe("unreachable");
     expect(formatDuration(undefined)).toBe("never");
   });
 });

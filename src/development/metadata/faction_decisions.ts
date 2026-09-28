@@ -761,6 +761,52 @@ export function pickKarmaCrime(candidates: { crime: string; karma: number; timeM
   return viable.reduce((best, c) => (rate(c) > rate(best) ? c : best)).crime;
 }
 
+/**
+ * Whether to train at the gym instead of committing the karma crime, and
+ * which stat: the weakest combat stat while the crime's success chance is
+ * below `minChance`. Each failure costs the crime's full time for no karma,
+ * and the gym raises combat stats far faster than crimes do - BN10's first
+ * gang run measured ~0.5 karma/s at ~50% Homicide success, about half the
+ * rate at full success. The chance only rises while training, so this
+ * doesn't flip back and forth.
+ */
+export function gangTrainingStat(
+  crimeChance: number,
+  minChance: number,
+  skills: EligibilitySnapshot["skills"],
+  chanceWithBoost?: (stat: CombatStat) => number
+): CombatStat | undefined {
+  if (crimeChance >= minChance) return undefined;
+  // With the formulas (chanceWithBoost: the crime's success chance with that
+  // stat raised a little), train whichever stat raises the chance most - the
+  // crime weights the four stats differently, so the weakest can be the one
+  // that helps least. Without them, the weakest.
+  if (chanceWithBoost) return COMBAT_STATS.reduce((best, stat) => (chanceWithBoost(stat) > chanceWithBoost(best) ? stat : best));
+  return COMBAT_STATS.reduce((weakest, stat) => (skills[stat] < skills[weakest] ? stat : weakest));
+}
+
+/**
+ * Whether a stretch of gym training reaches the gang karma requirement
+ * sooner than committing the crime now: time at today's karma rate versus
+ * the training time plus the time at the improved rate. Rate = karma per
+ * success x success chance / crime time. Replaces a fixed "train below 80%"
+ * rule, which in BN10 (combat levels x0.4) meant hours of gym at 64 in every
+ * stat with no karma progress.
+ */
+export function trainingPaysOff(
+  remainingKarma: number,
+  karmaPerSuccess: number,
+  crimeTimeMs: number,
+  chanceNow: number,
+  chanceAfter: number,
+  trainMs: number
+): boolean {
+  const rate = (chance: number): number => (karmaPerSuccess * chance) / crimeTimeMs;
+  if (!(rate(chanceAfter) > 0) || !Number.isFinite(trainMs)) return false;
+  if (!(rate(chanceNow) > 0)) return true;
+  return remainingKarma / rate(chanceNow) > trainMs + remainingKarma / rate(chanceAfter);
+}
+
 /** Trivial mirror of gang_decisions.ts's decideStandDown - bounds crime-for-kills grinding via /var/faction_state.txt's crimeAttempts. */
 export function decideEligibilityStandDown(attempts: number, maxAttempts: number): boolean {
   return attempts >= maxAttempts;
