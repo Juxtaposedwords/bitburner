@@ -904,6 +904,36 @@ manual/scripted human decision via the tool above, not automatic. A future itera
 `stock_daemon.ts` itself flip it when a position gets large or risky, but that's real
 cross-daemon coordination logic not justified until the manual version proves worthwhile.
 
+## Sleeves: `sleeve_daemon.ts` (BitNode 10 / Source-File 10)
+
+Sleeves are extra workers running beside the player. A sleeve's crimes lower the **player's** karma.
+The experience it earns is shared with the player, scaled by its shock (lower is better) and sync
+(higher is better). It can also do faction work, one worker per faction. Each sleeve gets one goal
+per tick (`decideSleeveGoals`), in priority order:
+
+1. **Gang karma:** in `Approach.GANG`, while karma still blocks a gang, the crime that lowers
+   karma fastest for *that sleeve's* stats (`bestCrimeBy`, using `formulas.work.crimeSuccessChance`
+   on the sleeve).
+   A sleeve's crime karma is scaled by its sync (karma × sync / 100, as far as the game's code goes),
+   so a low-sync sleeve adds little: BN10's one sleeve at sync 25 barely moved the rate. So in this
+   phase a sleeve first **synchronizes if that reaches −54,000 sooner** (`syncPaysOff`). It compares
+   the time at today's rate against syncing to 100 and finishing at the full rate, with the player's
+   own crime counted on both sides. The sync rate is measured, not assumed (`updateSyncRate`,
+   readings ≥1 minute apart while syncing). While it's unknown the sleeve syncs briefly to measure
+   it. The rate is kept in `/var/sleeve_state.txt` and shown in `/var/sleeves.txt` as `syncPerMin`.
+2. **Recovery:** shock recovery down to `maxShock`, then synchronize up to `minSync`
+   (`/etc/sleeve.txt`, defaults 0 and 100).
+3. **Faction rep:** work at a joined faction still short of a rep target. The faction daemon
+   publishes these as `repTargets` in `/var/faction_reps.txt`: the favor-plan target, else the
+   largest wanted augmentation's requirement. One sleeve per faction, never the player's, closest
+   target first, with the work type chosen by formula for that sleeve.
+4. **Otherwise,** the crime earning the most money.
+
+A task already matching the goal is never restarted (`taskMatchesGoal`). If the game refuses a
+faction (e.g. the player just took it), the sleeve does money crime until the next tick. Status is
+written to `/var/sleeves.txt`. Boot launches it right after the gang daemon, only when sleeves exist
+(`sleevesAvailable`). Buying sleeves, memory and sleeve augmentations is left for later.
+
 ## Gang mode: `Approach.GANG` — founding a gang (Source-File 2)
 
 `run tools/set_scheduler_approach.js GANG` sets up a gang in a BitNode that doesn't start with one.

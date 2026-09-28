@@ -40,6 +40,9 @@ export type FactionRepsFile = {
   favorPlanReady?: boolean;
   // The crime lowering karma for a gang (Approach.GANG), if any.
   karmaCrime?: string;
+  // Rep still worth earning per joined faction (see repTargets) - what
+  // sleeve_daemon.ts's sleeves work toward.
+  repTargets?: Record<string, number>;
   // What the work slot is doing to earn a wanted invite (wantedInviteFactions), if anything.
   inviteAction?: string;
   workTarget?: string;
@@ -783,6 +786,32 @@ export function gangTrainingStat(
   // that helps least. Without them, the weakest.
   if (chanceWithBoost) return COMBAT_STATS.reduce((best, stat) => (chanceWithBoost(stat) > chanceWithBoost(best) ? stat : best));
   return COMBAT_STATS.reduce((weakest, stat) => (skills[stat] < skills[weakest] ? stat : weakest));
+}
+
+/**
+ * Rep worth reaching at each joined faction: its favor-plan target while
+ * that's unmet (see favorPlan), otherwise the largest requirement among its
+ * wanted augmentations (not owned, not NeuroFlux). Only factions still
+ * short of it are listed. Published for sleeve_daemon.ts, so sleeves earn
+ * rep where it buys something, without re-deriving the faction logic.
+ */
+export function repTargets(
+  joinedFactions: string[],
+  reps: Record<string, number>,
+  catalog: AugmentationInfo[],
+  owned: string[],
+  plan: FavorPlanEntry[]
+): Record<string, number> {
+  const ownedSet = new Set(owned);
+  const targets: Record<string, number> = {};
+  for (const faction of joinedFactions) {
+    const rep = reps[faction] ?? 0;
+    const planned = plan.find((entry) => entry.faction === faction && entry.rep < entry.target);
+    const wanted = catalog.filter((aug) => aug.faction === faction && isWanted(aug, ownedSet)).map((aug) => aug.repReq);
+    const target = planned ? planned.target : wanted.length > 0 ? Math.max(...wanted) : 0;
+    if (target > rep) targets[faction] = target;
+  }
+  return targets;
 }
 
 /**

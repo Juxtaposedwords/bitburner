@@ -1,6 +1,8 @@
 import { NS } from "@ns";
 import { CORE_SCRIPTS, requiredHomeRam } from "development/libraries/bootstrap_plan";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import * as rpc from "development/libraries/rpc";
+import { sleevesAvailable } from "development/metadata/sleeve_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
@@ -18,6 +20,7 @@ const STOCK_TARGET_SCRIPT = "development/metadata/stock_target_daemon.js";
 const MONITORING_SCRIPT = "development/metadata/monitoring_daemon.js";
 const SHARE_SCRIPT = "development/metadata/share_daemon.js";
 const BOOTSTRAP_SCRIPT = "bootstrap.js";
+const SLEEVE_SCRIPT = "development/metadata/sleeve_daemon.js";
 const SUPERVISOR_SCRIPT = "development/metadata/supervisor.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
@@ -130,11 +133,15 @@ export async function main(ns: NS): Promise<void> {
   //    re-running boot.js once home has more RAM.
   const singularity = playerRes.data?.player?.singularityAvailable === true;
   const gang = playerRes.data?.player?.gangAvailable === true;
+  // From the file detect_capabilities.js just wrote (BitNode 10 or SF10).
+  const bitNode = readBitNodeInfo(ns);
+  const sleeves = sleevesAvailable(bitNode?.node, bitNode?.sourceFiles);
   const ordered: [string, boolean][] = [
     [SCHEDULER_SCRIPT, true],
     [PROGRAM_SHOPPER_SCRIPT, singularity],
     [FACTION_SCRIPT, singularity],
     [GANG_SCRIPT, gang],
+    [SLEEVE_SCRIPT, sleeves],
     [HACKNET_SCRIPT, true],
     [STUDY_SCRIPT, singularity],
     [BACKDOOR_SCRIPT, singularity],

@@ -38,6 +38,7 @@ import {
   PurchaseDecision,
   redPillFocus,
   onlyCombatLeft,
+  repTargets,
   requirementToAction,
   unmetMoneyRequirement,
   wantedInviteFactions,
@@ -826,6 +827,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
   const repsFile: FactionRepsFile = {
     reps,
+    repTargets: repTargets(joinedFactions, reps, catalogs.regular, owned, plan),
     workTarget,
     workType: work?.type,
     workGains: work?.gains,

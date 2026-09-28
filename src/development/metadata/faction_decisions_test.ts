@@ -8,6 +8,7 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  repTargets,
   trainingPaysOff,
   gangTrainingStat,
   pickKarmaCrime,
@@ -800,5 +801,27 @@ describe("trainingPaysOff", () => {
 
   it("commits the crime once the goal is close", () => {
     expect(trainingPaysOff(100, 3, 3000, 0.5, 0.6, 10 * 60_000)).toBe(false);
+  });
+});
+
+describe("repTargets", () => {
+  const catalog = [
+    aug({ name: "QLink", faction: "Illuminati", repReq: 1.875e6 }),
+    aug({ name: "SPTN-97 Gene Modification", faction: "The Covenant", repReq: 1.25e6 }),
+    aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 5e6 }),
+    aug({ name: "Owned", faction: "CyberSec", repReq: 1e5 }),
+  ];
+  const joined = ["Illuminati", "The Covenant", "Sector-12", "CyberSec"];
+
+  it("uses the favor-plan target while it's unmet, else the biggest wanted requirement", () => {
+    const plan = [{ faction: "Illuminati", augmentation: "QLink", rep: 1000, target: 462000 }];
+    expect(repTargets(joined, { Illuminati: 1000, "The Covenant": 5000 }, catalog, ["Owned"], plan)).toEqual({
+      Illuminati: 462000,
+      "The Covenant": 1.25e6,
+    });
+  });
+
+  it("skips NeuroFlux-only, fully owned, and already-reached factions", () => {
+    expect(repTargets(joined, { "The Covenant": 1.3e6 }, catalog, ["Owned", "QLink"], [])).toEqual({});
   });
 });
