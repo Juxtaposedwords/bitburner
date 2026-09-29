@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateAcrossHosts, computeBatchPlan, decidePrepAction } from "development/metadata/hwgw";
+import { allocateAcrossHosts, computeBatchPlan, decidePrepAction, nextHackFraction } from "development/metadata/hwgw";
 
 // hackTime = 1000ms, growTime = 3.2x, weakenTime = 4x — the fixed ratios
 // Bitburner uses for a given security/hacking-level snapshot.
@@ -187,5 +187,25 @@ describe("allocateAcrossHosts", () => {
 
   it("treats a zero-thread request as trivially satisfied with an empty placement list", () => {
     expect(allocateAcrossHosts([{ host: "a", freeRam: 10 }], [{ threads: 0, ramPerThread: 2 }])).toEqual([[]]);
+  });
+});
+
+describe("nextHackFraction", () => {
+  it("raises the fraction while worker RAM is under the target", () => {
+    expect(nextHackFraction(0.2, 0.5, false, 0.85)).toBeCloseTo(0.25);
+  });
+
+  it("lowers it when batches stopped fitting or the fleet is full", () => {
+    expect(nextHackFraction(0.2, 0.5, true, 0.85)).toBeCloseTo(0.17);
+    expect(nextHackFraction(0.2, 0.97, false, 0.85)).toBeCloseTo(0.17);
+  });
+
+  it("holds it between the target and full", () => {
+    expect(nextHackFraction(0.2, 0.9, false, 0.85)).toBe(0.2);
+  });
+
+  it("stays within bounds", () => {
+    expect(nextHackFraction(0.85, 0.1, false, 0.85)).toBe(0.9);
+    expect(nextHackFraction(0.01, 0.99, true, 0.85)).toBe(0.01);
   });
 });

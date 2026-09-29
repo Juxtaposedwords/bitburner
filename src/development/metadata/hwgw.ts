@@ -149,3 +149,34 @@ export function allocateAcrossHosts(candidates: HostCapacity[], requests: Thread
 
   return result;
 }
+
+export const MIN_HACK_FRACTION = 0.01;
+// Above this grow threads explode (regrowing from almost nothing) - cap it.
+export const DEFAULT_MAX_HACK_FRACTION = 0.9;
+const RAISE_FACTOR = 1.25;
+const LOWER_FACTOR = 0.85;
+// Treat the fleet as full above this even if batches still fit.
+const FULL_UTILIZATION = 0.95;
+
+/**
+ * The next hackFraction for the scheduler's auto-scaling (called once per
+ * adjustment interval, at least a weaken time apart so a change has shown
+ * up in RAM use before the next one): lower it by 15% when batches stopped
+ * fitting or worker RAM use is above 95%; raise it by 25% while use is
+ * below `targetUtilization`; otherwise keep it. Bounded to
+ * [MIN_HACK_FRACTION, maxFraction]. Bigger batches steal more per batch
+ * and use proportionally more RAM - BN10's fixed 5% left half the fleet
+ * idle and earned ~6x less than 25% on the same target.
+ */
+export function nextHackFraction(
+  current: number,
+  utilization: number,
+  batchesDidntFit: boolean,
+  targetUtilization: number,
+  maxFraction = DEFAULT_MAX_HACK_FRACTION
+): number {
+  const clamp = (f: number): number => Math.min(maxFraction, Math.max(MIN_HACK_FRACTION, f));
+  if (batchesDidntFit || utilization > FULL_UTILIZATION) return clamp(current * LOWER_FACTOR);
+  if (utilization < targetUtilization) return clamp(current * RAISE_FACTOR);
+  return clamp(current);
+}

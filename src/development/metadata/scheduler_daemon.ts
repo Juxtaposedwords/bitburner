@@ -5,7 +5,15 @@ import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { applyDefined } from "development/libraries/merge";
 import * as rpc from "development/libraries/rpc";
 import { Codes } from "development/libraries/status";
-import { allocateAcrossHosts, Allocation, computeBatchPlan, decidePrepAction, HostCapacity } from "development/metadata/hwgw";
+import {
+  allocateAcrossHosts,
+  Allocation,
+  computeBatchPlan,
+  decidePrepAction,
+  DEFAULT_MAX_HACK_FRACTION,
+  HostCapacity,
+  nextHackFraction,
+} from "development/metadata/hwgw";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as scheduler_pb from "development/metadata/scheduler";
 import * as server_metadata_pb from "development/metadata/server_metadata";
@@ -33,6 +41,11 @@ const BATCH_CHECK_INTERVAL_MS = 1000;
 
 const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
   approach: scheduler_pb.Approach.HACK,
+  // hackFraction below is only the starting point while this is on - see
+  // adjustHackFraction.
+  autoHackFraction: true,
+  targetUtilization: 0.85,
+  maxHackFraction: DEFAULT_MAX_HACK_FRACTION,
   // Raised from 0.02 now that the fleet has grown substantially since
   // that value was set (crawler/rooter keep finding more servers as
   // hacking level climbs) - bigger batches mean more threads, and
@@ -189,6 +202,55 @@ async function getWorkerCapacities(ns: NS, config: scheduler_pb.SchedulerConfig)
   return capacities.filter((c) => c.freeRam > 0).sort((a, b) => b.freeRam - a.freeRam);
 }
 
+// --- hackFraction auto-scaling --------------------------------------------
+
+/** Where the live, auto-scaled hackFraction is kept (config's value is only the start). */
+export const SCHEDULER_STATE_PATH = "/var/scheduler_state.txt";
+const MIN_ADJUST_INTERVAL_MS = 60_000;
+
+type Tuning = { hackFraction: number; lastAdjustMs: number; noFitSinceAdjust: boolean };
+
+function readTunedFraction(ns: NS): number | undefined {
+  try {
+    const value = (JSON.parse(ns.read(SCHEDULER_STATE_PATH) || "{}") as { hackFraction?: number }).hackFraction;
+    return typeof value === "number" && value > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Once per interval - at least a minute, and at least one weaken time so the
+ * last change has fully shown up in RAM use - moves hackFraction toward
+ * config.targetUtilization of the worker hosts' RAM (nextHackFraction).
+ */
+async function adjustHackFraction(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig, tuning: Tuning): Promise<void> {
+  const now = Date.now();
+  if (now - tuning.lastAdjustMs < Math.max(MIN_ADJUST_INTERVAL_MS, ns.getWeakenTime(target))) return;
+
+  const hosts = await listWorkerHosts(ns);
+  const maxRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0);
+  const usedRam = hosts.reduce((sum, host) => sum + ns.getServerUsedRam(host), 0);
+  const utilization = maxRam > 0 ? usedRam / maxRam : 1;
+  const next = nextHackFraction(
+    tuning.hackFraction,
+    utilization,
+    tuning.noFitSinceAdjust,
+    config.targetUtilization ?? DEFAULT_CONFIG.targetUtilization ?? 0.85,
+    config.maxHackFraction ?? DEFAULT_CONFIG.maxHackFraction ?? DEFAULT_MAX_HACK_FRACTION
+  );
+  if (next !== tuning.hackFraction) {
+    await log.info(
+      `[Scheduler] hackFraction ${tuning.hackFraction.toFixed(3)} -> ${next.toFixed(3)} ` +
+        `(worker RAM ${(utilization * 100).toFixed(0)}% used${tuning.noFitSinceAdjust ? ", batches didn't fit" : ""}).`
+    );
+  }
+  tuning.hackFraction = next;
+  tuning.lastAdjustMs = now;
+  tuning.noFitSinceAdjust = false;
+  ns.write(SCHEDULER_STATE_PATH, JSON.stringify({ hackFraction: next, utilization, updatedAt: now }), "w");
+}
+
 // --- Prep and batch firing ----------------------------------------------
 
 /**
@@ -267,7 +329,7 @@ async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.Sc
  * retries, no pre-computed concurrent-batch depth needed. The four actions
  * don't need to land on the same host as each other, or as the target.
  */
-async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<"ok" | "drifted"> {
+async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<"ok" | "drifted" | "noFit"> {
   const hackFraction = config.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1;
   const spacingMs = config.spacingMs ?? DEFAULT_CONFIG.spacingMs ?? 200;
 
@@ -343,7 +405,7 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
         `needs ${neededGb.toFixed(2)} GB total) doesn't fit across ${capacities.length} worker host(s) ` +
         `(${availableGb.toFixed(2)} GB free total, see homeFallbackHackingLevel/homeReservedRamGb); skipping tick.`
     );
-    return "ok";
+    return "noFit";
   }
 
   const [hack, weaken1, grow, weaken2] = placements;
@@ -388,6 +450,13 @@ export async function main(ns: NS): Promise<void> {
   scheduler_pb.RegisterSchedulerService(server, handlers);
 
   let currentTarget: string | undefined;
+  // Auto-scaled hackFraction (adjustHackFraction), starting from the saved
+  // value, else the config's.
+  const tuning: Tuning = {
+    hackFraction: readTunedFraction(ns) ?? state.config.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.05,
+    lastAdjustMs: Date.now(),
+    noFitSinceAdjust: false,
+  };
 
   server.addBackgroundTask(async () => {
     // Re-read so hand-edits to /etc/scheduler.txt take effect without a
@@ -420,10 +489,15 @@ export async function main(ns: NS): Promise<void> {
       approach === scheduler_pb.Approach.AUGMENTS ||
       approach === scheduler_pb.Approach.GANG
     ) {
-      if ((await fireBatchIfRoom(ns, log, target, state.config)) === "drifted") {
+      const auto = state.config.autoHackFraction ?? DEFAULT_CONFIG.autoHackFraction;
+      const batchConfig = auto ? { ...state.config, hackFraction: tuning.hackFraction } : state.config;
+      const result = await fireBatchIfRoom(ns, log, target, batchConfig);
+      if (result === "drifted") {
         await log.warn(`[Scheduler] ${target} drifted off min-security/max-money; re-prepping before more batches.`);
         await prep(ns, log, target, state.config);
       }
+      if (result === "noFit") tuning.noFitSinceAdjust = true;
+      if (auto) await adjustHackFraction(ns, log, target, state.config, tuning);
     }
     // CRIME: defined in the schema, not implemented yet (see scheduler.proto).
   }, BATCH_CHECK_INTERVAL_MS);

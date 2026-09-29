@@ -289,6 +289,13 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   (referencing all three functions) regardless of which branch runs,
   vs. ~1.7–1.75 GB each separately — a delta that multiplies by thread
   count.
+- **`hackFraction` scales itself** (`autoHackFraction`, default on; `nextHackFraction`). Once per
+  interval (≥1 minute and ≥1 weaken time, so a change has shown up in RAM use), the scheduler
+  measures its worker hosts' RAM use. Below `targetUtilization` (0.85) with every batch fitting, it
+  raises the fraction 25%. When batches didn't fit or use is above 95%, it lowers it 15%. It stays
+  within 1% to `maxHackFraction` (0.9). The config's `hackFraction` is only the starting value; the
+  live one is in `/var/scheduler_state.txt`, and `tools/status.js` shows it. In BN10 a fixed 5% had
+  left half the fleet idle: raising it to 25% by hand took hacking income from $447M to $2.9B/min.
 - **Security estimates never pass the target.** `growthAnalyzeSecurity(threads, host)` limits the
   increase to the threads needed to reach max money, and batches are planned *at* max money, so it
   returned 0. Every batch fired with no second weaken (`/W0` in the logs), security climbed, and the
@@ -1533,6 +1540,41 @@ territory changing hands based on `getChanceToWinClash`'s `myPower/(myPower+thei
   exactly how to resume (edit `/var/gang_state.txt`'s `casualties` back down, or delete the file).
   Nothing auto-clears it; same "a permanent loss requires an explicit human decision to retry"
   principle as `autoInstall`/`autoPurchaseAugmentations`.
+
+## Reloader: `reloader.ts`
+
+New builds reach the game as changed files through bitburner-filesync, but a running script keeps
+the code it started with. `reloader.js` starts with the first daemons in `boot.ts`. Every 10s it
+fingerprints each managed daemon on home (`MANAGED_DAEMONS`): the daemon's file plus everything it
+imports, transitively (`fingerprint`, `importedScripts`). When a fingerprint changes and then holds
+for one more check (`decideReloads`, so a restart never lands mid-sync), it kills that daemon and
+runs it again with the same threads and arguments. Workers, one-shot tools, bootstrap and the
+reloader itself are never restarted. A change to the reloader still needs a manual restart.
+
+## Health check: `tools/status.ts`
+
+`run tools/status.js [--window 10m]` prints problems first, then a one-screen summary: mode, cash
+and income rates, savings target, what the player is doing, rep targets, gang, sleeves, and any
+pending install. It reads only what daemons already publish (status files, monitoring series, the
+scheduler's log) plus home's process list, so it's cheap and can't disturb anything.
+
+The checks (`tools/status_checks.ts`, pure and tested) each cover a stall that once went unnoticed
+for hours:
+- core daemons not running; optional ones missing;
+- status files gone stale;
+- batches with no second weaken (`/W0`);
+- a scheduler stuck on "not hackable", or showing no batches or prep;
+- no hacking income;
+- a savings target more than a day away;
+- the gang stand-down;
+- gang odds good but territory warfare not engaged;
+- no gang equipment bought despite cash;
+- working a faction with no useful rep target left;
+- idle sleeves;
+- an install pending for over 30 minutes.
+
+Karma progress is reported with an ETA. New checks belong there whenever a new silent failure
+turns up.
 
 ## Monitoring: `monitoring_daemon.ts` + `tools/monitor.ts` (`/var/monitoring/`)
 

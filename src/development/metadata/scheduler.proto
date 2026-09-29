@@ -54,6 +54,15 @@ message SchedulerConfig {
   // How much of home's RAM stays off-limits even while the fallback
   // above is active, so there's always headroom left for development.
   optional double home_reserved_ram_gb = 6;
+  // Let the scheduler tune hack_fraction itself (see hwgw.ts's
+  // nextHackFraction): up while worker RAM use is below
+  // target_utilization, down when batches stop fitting. hack_fraction is
+  // then only the starting point; the live value is kept in
+  // /var/scheduler_state.txt. A fixed 5% had left half the fleet idle and
+  // earned ~6x less than 25% on the same target.
+  optional bool auto_hack_fraction = 7;
+  optional double target_utilization = 8;
+  optional double max_hack_fraction = 9;
 }
 
 message GetSchedulerConfigRequest {}

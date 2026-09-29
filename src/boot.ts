@@ -36,7 +36,14 @@ const SUPERVISOR_SCRIPT = "development/metadata/supervisor.js";
 // just delaying the scheduler. It's launched last (see main()), after every
 // bootstrap-critical one-shot script has already had priority access to
 // whatever RAM home actually has.
-const DAEMONS = ["development/metadata/supervisor.js", "tools/log_rotator.js", "development/metadata/player.js"];
+// reloader.js restarts any of the managed daemons when their code changes
+// (see reload_plan.ts) - small, so it starts with the first daemons.
+const DAEMONS = [
+  "development/metadata/supervisor.js",
+  "tools/log_rotator.js",
+  "development/metadata/player.js",
+  "development/metadata/reloader.js",
+];
 
 // Run once and exit, in order — each one is a prerequisite for the next, not
 // just "launched earlier": rooter.js needs crawl_servers.js to have

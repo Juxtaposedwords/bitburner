@@ -36,6 +36,9 @@ export interface SchedulerConfig {
     targetOverride?: string;
     homeFallbackHackingLevel?: number;
     homeReservedRamGb?: number;
+    autoHackFraction?: boolean;
+    targetUtilization?: number;
+    maxHackFraction?: number;
 }
 
 export interface SchedulerServiceHandlers {
