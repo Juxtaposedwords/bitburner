@@ -7,7 +7,14 @@ import {
   gatherReps,
   getPendingAugmentations,
 } from "development/metadata/faction_daemon";
-import { decideAugmentationPurchase, decideDonation, decideInstallReady, NEUROFLUX_GOVERNOR } from "development/metadata/faction_decisions";
+import {
+  catalogsFor,
+  decideAugmentationPurchase,
+  decideDonation,
+  decideInstallReady,
+  NEUROFLUX_GOVERNOR,
+  usefulCatalog,
+} from "development/metadata/faction_decisions";
 import {
   CONFIG_PATH as GANG_CONFIG_PATH,
   DEFAULT_CONFIG as GANG_DEFAULT_CONFIG,
@@ -116,12 +123,17 @@ export async function main(ns: NS): Promise<void> {
   if (pending.length > 0) lines.push(pending.join(", "));
   lines.push("");
 
+  // The daemon's regular buying never includes NeuroFlux (catalogsFor) -
+  // this used to predict "buy NeuroFlux Governor" the daemon wouldn't make.
+  // Still approximate: AUGMENTS mode's priority focus and savings aren't
+  // modeled here; the faction daemon's log is authoritative.
+  const regular = catalogsFor(usefulCatalog(catalog, factionConfig.usefulAugmentationStats), owned).regular;
   const purchaseDecision = decideAugmentationPurchase(
     player.money,
     factionConfig.reserveMoney,
     factionConfig.maxSpendFraction,
     reps,
-    catalog,
+    regular,
     owned
   );
   const installReady = decideInstallReady(purchaseDecision, pending, factionConfig.reserveMoney);
@@ -130,7 +142,7 @@ export async function main(ns: NS): Promise<void> {
   lines.push(`purchase -> ${purchaseDecision.kind === "buy" ? `buy ${purchaseDecision.augmentation} from ${purchaseDecision.faction}` : "none"}`);
   const donationDecision =
     purchaseDecision.kind === "none" && hasFormulas && factionConfig.autoDonate && donatable.size > 0
-      ? decideDonation(player.money, factionConfig.reserveMoney, factionConfig.donationSpendFraction, reps, catalog, owned, donatable, donationForRep)
+      ? decideDonation(player.money, factionConfig.reserveMoney, factionConfig.donationSpendFraction, reps, regular, owned, donatable, donationForRep)
       : { kind: "none" as const };
   lines.push(
     `donation -> ${

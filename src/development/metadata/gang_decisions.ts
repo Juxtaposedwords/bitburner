@@ -58,7 +58,9 @@ export function decideMemberTask(
     : options.reduce((best, o) => (o.moneyGain > best.moneyGain ? o : best)).name;
 }
 
-export type EquipmentOption = { member: string; name: string; cost: number };
+// `augmentation`: a gang augmentation (ns.gang.getEquipmentType ===
+// "Augmentation") - kept through ascension, unlike regular equipment.
+export type EquipmentOption = { member: string; name: string; cost: number; augmentation?: boolean };
 
 /**
  * Cheapest affordable equipment not already owned by its member - same
@@ -74,13 +76,39 @@ export function decideEquipmentPurchase(
   money: number,
   reserveMoney: number,
   maxSpendFraction: number,
-  candidates: EquipmentOption[]
+  candidates: EquipmentOption[],
+  maxItemCost = Infinity
 ): EquipmentOption | undefined {
   const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
-  const affordable = candidates.filter((c) => c.cost <= budget);
+  const affordable = candidates.filter((c) => c.cost <= budget && c.cost <= maxItemCost);
   if (affordable.length === 0) return undefined;
 
-  return affordable.reduce((best, c) => (c.cost < best.cost ? c : best));
+  // Gang augmentations first (they survive ascension), then equipment;
+  // cheapest first within each.
+  const augmentations = affordable.filter((c) => c.augmentation);
+  const pool = augmentations.length > 0 ? augmentations : affordable;
+  return pool.reduce((best, c) => (c.cost < best.cost ? c : best));
+}
+
+/**
+ * Leaves out regular equipment for members about to ascend (`ascending`):
+ * ascension throws their weapons/armor/vehicles/rootkits away, so buy those
+ * after it. Their augmentations stay - those survive ascension.
+ */
+export function skipEquipmentBeforeAscension(candidates: EquipmentOption[], ascending: Set<string>): EquipmentOption[] {
+  return candidates.filter((c) => c.augmentation || !ascending.has(c.member));
+}
+
+/**
+ * The ascension bar for this tick: `normal` once the gang has all
+ * `fullGangSize` members, `early` (much higher) before that. Ascending
+ * costs the member's share of gang respect, and new members come from
+ * respect - BN10's new gang sat at 10 of 12 with ~177K respect, where
+ * routine ascensions would delay the last recruits. An exceptional gain
+ * still clears `early`.
+ */
+export function ascensionThreshold(memberCount: number, fullGangSize: number, normal: number, early: number): number {
+  return memberCount >= fullGangSize ? normal : Math.max(normal, early);
 }
 
 export type AscensionResult = { hack: number; str: number; def: number; dex: number; agi: number; cha: number };
@@ -246,6 +274,24 @@ export function worstClashWinChance(myPower: number, rivalPowers: number[]): num
  */
 export function decideTerritoryReadiness(myPower: number, rivalPowers: number[], minClashWinChance: number): boolean {
   return rivalPowers.every((rivalPower) => myPower / (myPower + rivalPower) >= minClashWinChance);
+}
+
+/**
+ * The gang state to use in the current BitNode. /var/gang_state.txt
+ * survives a BitNode change, so BN9's 12-member count met BN10's new, small
+ * gang and detectCasualties counted the difference as 12 deaths - tripping
+ * the stand-down that disables territory warfare. State belongs to the
+ * BitNode it was written in (`nodeReset`, ns.getResetInfo().lastNodeReset);
+ * from any other one - or with none recorded - it starts fresh at the
+ * current member count. An unknown current node keeps the state as is.
+ */
+export function stateForNode<T extends { lastKnownMemberCount: number; casualties: number; nodeReset?: number }>(
+  state: T,
+  currentNodeReset: number | undefined,
+  currentMemberCount: number
+): T {
+  if (currentNodeReset === undefined || state.nodeReset === currentNodeReset) return state;
+  return { ...state, lastKnownMemberCount: currentMemberCount, casualties: 0, nodeReset: currentNodeReset };
 }
 
 /**

@@ -396,14 +396,17 @@ type Drawing = {
   text: (x: number, y: number, content: string, extra?: Record<string, unknown>) => ReactNamespace.ReactElement;
 };
 
-const PLOT_LEFT = 76;
-const PLOT_WIDTH = 560;
+// Sized for readability in the terminal: ~1.6x the first version's
+// 560px-wide, 110-220px-tall panels with 11px text.
+const PLOT_LEFT = 92;
+const PLOT_WIDTH = 900;
+const FONT_SIZE = 13;
 
 function newDrawing(React: ReactLib, title: string): Drawing {
   const h = React.createElement;
   const text = (x: number, y: number, content: string, extra: Record<string, unknown> = {}) =>
-    h("text", { x, y, fill: "#bbb", fontSize: 11, fontFamily: "monospace", ...extra }, content);
-  return { h, text, children: [text(0, 16, title, { fontSize: 14, fill: "#eee" })] };
+    h("text", { x, y, fill: "#bbb", fontSize: FONT_SIZE, fontFamily: "monospace", ...extra }, content);
+  return { h, text, children: [text(0, 18, title, { fontSize: FONT_SIZE + 3, fill: "#eee" })] };
 }
 
 /** Frame, y gridlines + tick labels, x gridlines + time labels for one panel whose top edge is at y0. */
@@ -439,7 +442,7 @@ function drawAxes(
  */
 export function buildChart(React: ReactLib, title: string, series: ChartSeries[], opts: ChartOptions): ReactNamespace.ReactElement {
   const d = newDrawing(React, title);
-  const panelH = opts.overlay ? 200 : 110;
+  const panelH = opts.overlay ? 320 : 180;
   const panelGap = 40;
   const top = 30;
   const groups: number[][] = opts.overlay ? [series.map((_, i) => i)] : series.map((_, i) => [i]);
@@ -452,8 +455,8 @@ export function buildChart(React: ReactLib, title: string, series: ChartSeries[]
     // Panel heading: the series name(s), in their line colors.
     let hx = PLOT_LEFT;
     for (const i of members) {
-      d.children.push(d.text(hx, y0 - 6, series[i].label, { fill: SVG_COLORS[i], fontSize: 12 }));
-      hx += series[i].label.length * 7.5 + 18;
+      d.children.push(d.text(hx, y0 - 6, series[i].label, { fill: SVG_COLORS[i], fontSize: FONT_SIZE + 1 }));
+      hx += series[i].label.length * (FONT_SIZE + 1) * 0.62 + 18;
     }
 
     drawAxes(d, y0, panelH, range, series[members[0]].format, [opts.x0, opts.x1]);
@@ -488,7 +491,7 @@ export function buildChart(React: ReactLib, title: string, series: ChartSeries[]
  */
 export function buildStackedChart(React: ReactLib, title: string, series: ChartSeries[], opts: ChartOptions): ReactNamespace.ReactElement {
   const d = newDrawing(React, title);
-  const panelH = 220;
+  const panelH = 340;
   const y0 = 46;
   const { times, layers } = stackBands(series, opts.x0, opts.x1);
   const tops = layers.length > 0 ? layers[layers.length - 1].upper : [];
@@ -522,7 +525,7 @@ export function buildStackedChart(React: ReactLib, title: string, series: ChartS
     d.children.push(d.text(legendX + 16, ly, `${series[layer.index].label} ${share}%`, { fill: "#ddd" }));
   });
 
-  return d.h("svg", { width: legendX + 190, height: y0 + panelH + 30, style: { display: "block" } }, ...d.children);
+  return d.h("svg", { width: legendX + 230, height: y0 + panelH + 34, style: { display: "block" } }, ...d.children);
 }
 
 // --- CLI ----------------------------------------------------------------

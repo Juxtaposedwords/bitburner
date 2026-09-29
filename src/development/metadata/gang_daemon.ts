@@ -1,9 +1,9 @@
 import { GangGenInfo, NS } from "@ns";
 import { readApproach } from "development/libraries/approach";
+import { isSpendDownActive, readInstallPending } from "development/libraries/install_handshake";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { loadJsonConfig } from "development/libraries/config";
 import { Approach } from "development/metadata/scheduler";
-import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { GangPosture } from "development/metadata/gang";
 import {
@@ -11,11 +11,15 @@ import {
   averageMultiplier,
   decideEquipmentPurchase,
   decideMemberTask,
+  ascensionThreshold,
+  decideAscension,
   decideStandDown,
   decideTerritoryReadiness,
   GANG_STATUS_PATH,
   karmaBlocksGang,
   nextMemberName,
+  skipEquipmentBeforeAscension,
+  stateForNode,
   GangStatusFile,
   worstClashWinChance,
   decideTerritoryWarfareAssignment,
@@ -80,6 +84,11 @@ export type GangConfig = {
   minWantedPenalty: number;
   wantedReductionFraction: number;
   minAscensionGainMultiplier: number;
+  // While the gang has fewer than fullGangSize members, ascensions need this
+  // bigger gain instead - ascending costs respect, and recruits come from
+  // respect (see ascensionThreshold).
+  earlyAscensionGainMultiplier: number;
+  fullGangSize: number;
   // Once a member's average trained-stat gain is within this fraction of
   // minAscensionGainMultiplier (e.g. 0.95 * 1.1 = 1.045), they're pulled
   // into a dedicated training task (0 money/respect/wanted, 100% stat
@@ -107,6 +116,12 @@ export type GangConfig = {
   // Recruits are named from this list in order (then Member-N) - Greek
   // myth, matching the BN9 gang's hand-picked names.
   memberNames: string[];
+  // Equipment costing up to this is bought for everyone, as many items per
+  // tick as cash allows (still within reserve/maxSpendFraction; not the
+  // shared savings target - see purchaseEquipmentIfAffordable).
+  // Regular equipment is lost on ascension (gang augmentations aren't),
+  // which is acceptable at this price next to gang income.
+  maxEquipmentCost: number;
 };
 
 export const DEFAULT_CONFIG: GangConfig = {
@@ -116,11 +131,15 @@ export const DEFAULT_CONFIG: GangConfig = {
   minWantedPenalty: 0.9,
   wantedReductionFraction: 0.2,
   minAscensionGainMultiplier: 1.1,
+  earlyAscensionGainMultiplier: 2,
+  // The game's gang member cap.
+  fullGangSize: 12,
   trainingReadyMargin: 0.95,
   posture: "CONSOLIDATE",
   territoryWarfareMembers: 2,
   minClashWinChance: 0.65,
   maxCasualties: 1,
+  maxEquipmentCost: 4e9,
   gangFactionPriority: ["Slum Snakes", "Tetrads", "The Syndicate", "The Dark Army", "Speakers for the Dead"],
   memberNames: [
     "Clotho",
@@ -147,11 +166,17 @@ const STATE_PATH = "/var/gang_state.txt";
 const TICK_INTERVAL_MS = 5000;
 const TERRITORY_WARFARE_TASK = "Territory Warfare";
 
-export type GangState = { lastKnownMemberCount: number; casualties: number };
+// nodeReset: the BitNode this state belongs to (see stateForNode).
+export type GangState = { lastKnownMemberCount: number; casualties: number; nodeReset?: number };
 const DEFAULT_STATE: GangState = { lastKnownMemberCount: 0, casualties: 0 };
 
+/** The saved state, reset if it was written in another BitNode (stateForNode). */
 export function loadState(ns: NS): GangState {
-  return loadJsonConfig(ns, STATE_PATH, DEFAULT_STATE);
+  const saved = loadJsonConfig(ns, STATE_PATH, DEFAULT_STATE);
+  const memberCount = ns.gang.inGang() ? ns.gang.getMemberNames().length : 0;
+  const state = stateForNode(saved, readBitNodeInfo(ns)?.lastNodeReset, memberCount);
+  if (state !== saved) saveState(ns, state);
+  return state;
 }
 
 function saveState(ns: NS, state: GangState): void {
@@ -290,15 +315,54 @@ async function purchaseEquipmentIfAffordable(ns: NS, log: Logger, config: GangCo
     const member = ns.gang.getMemberInformation(name);
     for (const equipName of equipmentNames) {
       if (member.upgrades.includes(equipName) || member.augmentations.includes(equipName)) continue;
-      candidates.push({ member: name, name: equipName, cost: ns.gang.getEquipmentCost(equipName) });
+      candidates.push({
+        member: name,
+        name: equipName,
+        cost: ns.gang.getEquipmentCost(equipName),
+        augmentation: ns.gang.getEquipmentType(equipName) === "Augmentation",
+      });
     }
   }
+  // Members who already qualify for ascension will ascend on a coming tick
+  // (one per tick) - no regular equipment for them until then.
+  const ascending = new Set(
+    memberNames.filter((member) => decideAscension(ns.gang.getAscensionResult(member), config.minAscensionGainMultiplier))
+  );
+  candidates.splice(0, candidates.length, ...skipEquipmentBeforeAscension(candidates, ascending));
 
-  // The shared savings target (savings.ts) counts as a reserve too.
-  const purchase = decideEquipmentPurchase(money, effectiveReserve(config.reserveMoney, readSavings(ns)), config.maxSpendFraction, candidates);
-  if (purchase && ns.gang.purchaseEquipment(purchase.member, purchase.name)) {
-    await log.info(`[Gang] Purchased ${purchase.name} for ${purchase.member} ($${purchase.cost.toFixed(0)}).`);
+  // Pre-install spend-down (install_handshake.ts): the cash is about to be
+  // wiped and the gang keeps its equipment, so spend all of it, as many
+  // items per tick as it covers.
+  if (isSpendDownActive(readInstallPending(ns), Math.floor(Date.now() / 1000))) {
+    let remaining = [...candidates];
+    for (let i = 0; i < 500; i++) {
+      const pick = decideEquipmentPurchase(ns.getServerMoneyAvailable("home"), 0, 1, remaining);
+      if (!pick || !ns.gang.purchaseEquipment(pick.member, pick.name)) break;
+      await log.info(`[Gang] Pre-install: purchased ${pick.name} for ${pick.member} ($${pick.cost.toFixed(0)}).`);
+      remaining = remaining.filter((c) => !(c.member === pick.member && c.name === pick.name));
+    }
+    return;
   }
+
+  // Everything affordable up to maxEquipmentCost, cheapest first, as many
+  // per tick as fit - one item per 5s tick took ~30 minutes to equip a
+  // full gang, and gang income comes from member stats. Each purchase still
+  // respects the gang's own reserve and maxSpendFraction, with live cash
+  // re-read after every buy - but NOT the shared savings target: equipment
+  // raises the gang income that fills the savings, so holding it back made
+  // saving slower (BN10: a $5.26T target blocked every purchase).
+  const reserve = config.reserveMoney;
+  let remaining = [...candidates];
+  let bought = 0;
+  for (let i = 0; i < 500; i++) {
+    const cash = i === 0 ? money : ns.getServerMoneyAvailable("home");
+    const pick = decideEquipmentPurchase(cash, reserve, config.maxSpendFraction, remaining, config.maxEquipmentCost);
+    if (!pick || !ns.gang.purchaseEquipment(pick.member, pick.name)) break;
+    remaining = remaining.filter((c) => !(c.member === pick.member && c.name === pick.name));
+    bought++;
+    await log.debug(`[Gang] Purchased ${pick.name} for ${pick.member} ($${pick.cost.toFixed(0)}).`);
+  }
+  if (bought > 0) await log.info(`[Gang] Purchased ${bought} equipment item(s) this tick.`);
 }
 
 async function ascendIfWorthwhile(ns: NS, log: Logger, config: GangConfig, memberNames: string[]): Promise<void> {
@@ -391,6 +455,17 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
   }
 
   const memberNames = ns.gang.getMemberNames();
+  // Until the gang is full, only exceptional ascensions (ascensionThreshold);
+  // every use below (training, equipment, ascending) sees this bar.
+  config = {
+    ...config,
+    minAscensionGainMultiplier: ascensionThreshold(
+      memberNames.length,
+      config.fullGangSize,
+      config.minAscensionGainMultiplier,
+      config.earlyAscensionGainMultiplier
+    ),
+  };
   if (memberNames.length === 0) return;
 
   const newCasualties = detectCasualties(state.lastKnownMemberCount, memberNames.length, recruitedThisTick);
@@ -432,8 +507,10 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
   assignTerritoryWarfare(ns, territoryMembers);
   const trainableRemaining = assignTraining(ns, gang, config, remainingMembers);
   assignTasks(ns, gang, config, trainableRemaining);
-  await purchaseEquipmentIfAffordable(ns, log, config, memberNames);
+  // Ascend before buying: ascension throws regular equipment away, so a
+  // same-tick purchase for that member would be wasted.
   await ascendIfWorthwhile(ns, log, config, memberNames);
+  await purchaseEquipmentIfAffordable(ns, log, config, memberNames);
 
   await manageTerritoryEngagement(ns, log, config, gang, territoryWarfareCount, standDown, rivalPowers);
 

@@ -8,6 +8,8 @@ import {
   decideEligibilityStandDown,
   decideFactionsToJoin,
   decideInstallReady,
+  usefulCatalog,
+  workableFactions,
   repTargets,
   trainingPaysOff,
   gangTrainingStat,
@@ -823,5 +825,36 @@ describe("repTargets", () => {
 
   it("skips NeuroFlux-only, fully owned, and already-reached factions", () => {
     expect(repTargets(joined, { "The Covenant": 1.3e6 }, catalog, ["Owned", "QLink"], [])).toEqual({});
+  });
+});
+
+describe("workableFactions", () => {
+  it("leaves out the gang's own faction", () => {
+    expect(workableFactions(["Slum Snakes", "CyberSec", "NiteSec"], "Slum Snakes")).toEqual(["CyberSec", "NiteSec"]);
+  });
+
+  it("keeps everything without a gang", () => {
+    expect(workableFactions(["Slum Snakes", "CyberSec"], undefined)).toEqual(["Slum Snakes", "CyberSec"]);
+  });
+});
+
+describe("usefulCatalog", () => {
+  const useful = ["hacking", "hacking_exp", "faction_rep"];
+  const hacknet = aug({ name: "Hacknet Node Core Direct-Neural Interface", faction: "Netburners", stats: { hacknet_node_money: 1.45 } });
+  const combat = aug({ name: "Combat Rib I", faction: "Volhaven", stats: { strength: 1.1, defense: 1.1 } });
+  const hacking = aug({ name: "Neural Accelerator", faction: "Slum Snakes", stats: { hacking: 1.1, hacking_exp: 1.15 } });
+  const redPill = aug({ name: "The Red Pill", faction: "Daedalus", stats: {} });
+
+  it("keeps only augmentations raising a useful stat, plus The Red Pill", () => {
+    expect(usefulCatalog([hacknet, combat, hacking, redPill], useful).map((a) => a.name)).toEqual(["Neural Accelerator", "The Red Pill"]);
+  });
+
+  it("keeps everything with an empty list", () => {
+    expect(usefulCatalog([hacknet, combat], [])).toHaveLength(2);
+  });
+
+  it("means a faction selling only useless augmentations is no work target", () => {
+    const list = usefulCatalog([{ ...hacknet, repReq: 25000 }, { ...hacking, repReq: 400000 }], useful);
+    expect(decideWorkTarget(["Netburners", "Slum Snakes"], { Netburners: 0, "Slum Snakes": 0 }, list, [])).toBe("Slum Snakes");
   });
 });

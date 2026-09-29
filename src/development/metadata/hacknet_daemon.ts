@@ -1,5 +1,6 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
+import { isInstallPendingActive, readInstallPending } from "development/libraries/install_handshake";
 import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
@@ -221,8 +222,10 @@ async function tick(ns: NS, log: Logger, configIn: HacknetConfig): Promise<void>
   // re-reading nodes and costs after every purchase. One purchase per 5s
   // tick capped a full build-out (~9,000 purchases) at about 12 hours,
   // however much cash there was.
-  // The shared savings target (savings.ts) counts as a reserve too.
-  const reserve = effectiveReserve(config.reserveMoney, readSavings(ns));
+  // The shared savings target (savings.ts) counts as a reserve too. During
+  // a pending install nothing is bought: an install resets the Hacknet.
+  const installPending = isInstallPendingActive(readInstallPending(ns), Math.floor(Date.now() / 1000));
+  const reserve = installPending ? Infinity : effectiveReserve(config.reserveMoney, readSavings(ns));
   let remaining = Math.max(0, Math.min(money - reserve, money * config.maxSpendFraction));
   const purchased: Record<string, number> = {};
   let spent = 0;

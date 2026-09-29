@@ -238,6 +238,12 @@ singularity crime call). Every 10s it:
    compete for RAM. The player's crime continues across the switch.
 5. **Hands back:** once home fits the core, it stops its workers, runs `boot.js`, and exits.
 
+**State that must not cross a BitNode.** `/var` survives a BitNode change. `gang_daemon.ts`'s
+`/var/gang_state.txt` now records the BitNode it belongs to (`nodeReset`, from
+`/var/bitnode/current.txt`) and starts fresh in another one (`stateForNode`). Before this, BN9's
+12-member count met BN10's new gang, `detectCasualties` counted the gap as 12 deaths, and the
+stand-down disabled territory warfare.
+
 **Launch order is priority order.** A fresh BitNode starts with a small home, and whatever launches
 last just doesn't fit. After the one-shots and the capability detector, boot launches: the scheduler
 (income), the program shopper, the faction and gang daemons, Hacknet, study, backdoor, then the
@@ -760,6 +766,16 @@ success.
 
 ### Pre-install wind-down: `development/libraries/install_handshake.ts`
 
+**Spend-down stage.** After the wind-down (stock sold) and the whole-balance augmentation purchases
+and donations, the cash left would just be wiped. So before installing, the faction daemon switches
+the install file's `phase` to `"spendDown"`. It buys home RAM with the cash itself, and
+`gang_daemon.ts` buys gang equipment with all of it, as many items per tick as it covers. Both
+survive an install. It installs once cash hasn't dropped for 20s (`advanceSpendDown` /
+`spendDownSettled`), meaning nothing affordable is left. The Hacknet daemon buys nothing while any
+install is pending, since an install resets the Hacknet. Augmentations come first, because gang or
+RAM spending before them would take cash they need. Whether gang equipment really survives an
+install is from memory. Check it the first time.
+
 **Pending counts repeats** (`pendingAugmentations`): pending is getOwnedAugmentations(true)
 minus getOwnedAugmentations(false) as a multiset. A plain name filter dropped a queued NeuroFlux
 Governor whenever one was already installed, so pending read 0 and auto-install never fired with
@@ -995,8 +1011,10 @@ work) are the same as HACK.
   anyway. Outside AUGMENTS, only The Red Pill is held this way.
 - **The shared savings target** (`development/libraries/savings.ts`, `/var/savings.txt`). The
   faction daemon writes the augmentation's price plus any donation still needed, every tick, and
-  removes it otherwise. Hacknet, gang, stock and purchased-server daemons spend only above
-  `max(reserveMoney, target)`. The stock daemon also sells everything once cash plus its
+  removes it otherwise. Hacknet, stock and purchased-server daemons spend only above
+  `max(reserveMoney, target)`. **Gang equipment is exempt:** it raises the gang income that fills
+  the savings, so holding it back made saving slower. In BN10, a $5.26T target for Embedded
+  Netburner Module had blocked every gang purchase. The stock daemon also sells everything once cash plus its
   positions' cost basis covers the target. A target more than a minute old is ignored, so a dead
   writer can't freeze every spender. Auto-install also waits while saving, because an install
   would wipe the savings.
@@ -1205,6 +1223,16 @@ game's formula (`amount / $1M × faction_rep mult × BitNode FactionWorkRepGain`
   `ns.formulas.reputation.calculateFavorToRep`), then moves on. `/var/faction_reps.txt` shows
   the plan and `favorPlanReady`, and the log says so once. **Installing is still manual:** turn on
   `autoInstall` with an augmentation pending.
+- **Only useful augmentations count** (`usefulCatalog`, `usefulAugmentationStats`). By default
+  those are the ones raising hacking level/experience/chance/speed/money/grow or faction rep, plus
+  The Red Pill. Buying, donating, the pre-install spend-down, the work target, the sleeves' rep
+  targets and the favor plan all start from this list, in every mode. Before it, every augmentation
+  counted: BN10 worked Netburners for rep and bought its five Hacknet augmentations (5× price, each
+  raising every later price 1.9×), none of which helped. `augmentationFocus` still narrows further
+  in GROW_STATS/AUGMENTS.
+- **Never the gang's own faction** (`workableFactions`) for the favor plan, rep targets or work
+  target. Its rep comes from gang respect, and it can never take donations. BN10 had put Slum Snakes
+  in the favor plan and made it the player's work target. Buying its augmentations is unaffected.
 - **Wanted invites** (`pursueAugmentationFactions`, default Illuminati, The Covenant, Daedalus). An
   install drops every faction, and these sell the big augmentations. While one of them isn't joined
   and still sells something wanted (`wantedInviteFactions`), the daemon works toward its invite
@@ -1463,6 +1491,22 @@ territory changing hands based on `getChanceToWinClash`'s `myPower/(myPower+thei
   boundary-casting pattern `hacknet_daemon.ts` already uses for `HashUpgradeName`/`FactionNameType`.
   Defaults to `"CONSOLIDATE"` — opt into `"GROWING"` explicitly, same "ask before hard-to-reverse"
   spirit as `autoInstall`/`autoPurchaseAugmentations` defaulting off in `faction_daemon.ts`.
+- **Few ascensions until the gang is full** (`ascensionThreshold`). While the gang has fewer than
+  `fullGangSize` (12) members, a member ascends only for a gain of at least
+  `earlyAscensionGainMultiplier` (2×) instead of `minAscensionGainMultiplier` (1.1×). Training and
+  the pre-ascension equipment skip use the same bar. Ascending costs respect, and recruits come
+  from respect. BN10's new gang sat at 10 of 12 with ~177K respect.
+- **Nothing bought just to be lost at ascension.** Ascension throws regular equipment (weapons,
+  armor, vehicles, rootkits) away and keeps gang augmentations. So each tick ascends *before*
+  buying (it used to buy first, and a member could lose same-tick purchases). Gang augmentations
+  are bought before equipment. Members who already qualify for ascension get no regular equipment
+  until they've ascended (`skipEquipmentBeforeAscension`).
+- **Equipment in bulk** (`maxEquipmentCost`, default $4B). Every tick the gang daemon buys every
+  affordable item up to that per-item price, cheapest first, as many as cash allows. Each purchase
+  still respects `reserveMoney`, `maxSpendFraction` and the savings target, re-reading cash after
+  every buy, but not the savings target (see the AUGMENTS section). One item per 5s tick had taken
+  ~30 minutes to equip a full gang. Regular equipment is
+  lost on ascension (gang augmentations aren't), which is acceptable at this price.
 - **`decideTerritoryWarfareAssignment`** (`gang_decisions.ts`) carves `config.territoryWarfareMembers`
   members off the front of the roster onto `"Territory Warfare"` whenever posture is `GROWING`
   and the circuit breaker (below) hasn't tripped — zero otherwise, and also zero once no rival

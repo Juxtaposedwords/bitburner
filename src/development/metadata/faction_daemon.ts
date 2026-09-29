@@ -1,7 +1,14 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
-import { clearInstallPending, readInstallPending, touchInstallPending } from "development/libraries/install_handshake";
+import {
+  advanceSpendDown,
+  clearInstallPending,
+  readInstallPending,
+  spendDownSettled,
+  touchInstallPending,
+  writeInstallPending,
+} from "development/libraries/install_handshake";
 import { writeSavings } from "development/libraries/savings";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import {
@@ -41,6 +48,8 @@ import {
   repTargets,
   requirementToAction,
   unmetMoneyRequirement,
+  usefulCatalog,
+  workableFactions,
   wantedInviteFactions,
 } from "development/metadata/faction_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
@@ -80,6 +89,9 @@ type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 const WORLD_DAEMON = "w0r1d_d43m0n";
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
+// Install once cash hasn't dropped for this long during the spend-down -
+// several gang_daemon.ts ticks (5s) with nothing left to buy.
+const SPEND_DOWN_SETTLE_MS = 20_000;
 // Same affordability rule as study_daemon.ts's paid training.
 const GYM_RUNWAY_MINUTES = 10;
 const GYM_FALLBACK_MIN_CASH = 1e9;
@@ -199,6 +211,11 @@ export type FactionConfig = {
   // multiplier sits inside an exponent (see skill_progress.ts), so it's worth
   // far more toward w0r1d_d43m0n than anything else. [] = buy everything.
   augmentationFocus: string[];
+  // What makes an augmentation worth rep or money at all, in every mode
+  // (multiplier keys; [] = everything; The Red Pill always counts). See
+  // usefulCatalog - BN10 spent rep and 5x-price money on five Hacknet
+  // augmentations that did nothing for the run.
+  usefulAugmentationStats: string[];
   // Hacking level GROW_STATS works toward; 0 = w0r1d_d43m0n's requirement
   // once visible, else Daedalus's 2500 (see hackingGoal).
   growStatsHackingGoal: number;
@@ -237,6 +254,8 @@ export const DEFAULT_CONFIG: FactionConfig = {
   gangCrimeMinChance: 0.8,
 
   augmentationFocus: ["hacking", "hacking_exp"],
+  // Hacking level/experience and hacking income, plus faster faction rep.
+  usefulAugmentationStats: ["hacking", "hacking_exp", "hacking_chance", "hacking_speed", "hacking_money", "hacking_grow", "faction_rep"],
   growStatsHackingGoal: 0,
   growStatsInstallMaxRatio: 0.8,
 };
@@ -761,7 +780,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // NeuroFlux Governor is decided once, here, for every path: only in the
   // pre-install spend-down, and only at factions with nothing else left
   // (see catalogsFor).
-  const catalogs = catalogsFor(catalog, owned);
+  // Only useful augmentations drive buying, work and favor (usefulCatalog),
+  // in every mode; augmentationFocus narrows further in GROW_STATS/AUGMENTS.
+  const useful = usefulCatalog(catalog, config.usefulAugmentationStats);
+  const catalogs = catalogsFor(useful, owned);
   // What's bought or donated for - narrowed to augmentationFocus during
   // GROW_STATS and AUGMENTS.
   const inFocus = (list: AugmentationInfo[]): AugmentationInfo[] =>
@@ -777,6 +799,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // with the fastest crime (pickKarmaCrime) - ahead of invites and faction
   // work. gang_daemon.ts creates the gang once karma allows.
   const gangAvailable = playerRes.data?.player?.gangAvailable === true;
+  // Never the gang's own faction for work, favor or rep targets (see workableFactions).
+  const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
+  const workable = workableFactions(joinedFactions, gangFaction);
   const karmaCrime =
     approach === Approach.GANG && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
       ? pickKarmaCrimeLive(ns)
@@ -807,7 +832,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   );
   const plan =
     !growingStats && ns.fileExists("Formulas.exe", "home")
-      ? favorPlan(joinedFactions, reps, favors, catalog, owned, ns.getFavorToDonate(), (favor) =>
+      ? favorPlan(workable, reps, favors, useful, owned, ns.getFavorToDonate(), (favor) =>
           ns.formulas.reputation.calculateFavorToRep(favor)
         )
       : [];
@@ -822,12 +847,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
 
   const workTarget =
     !growingStats && !karmaCrime && inviteAction.kind === "none" && joinedFactions.length > 0
-      ? decideWorkTarget(joinedFactions, reps, catalogs.regular, owned, plan)
+      ? decideWorkTarget(workable, reps, catalogs.regular, owned, plan)
       : undefined;
   const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
   const repsFile: FactionRepsFile = {
     reps,
-    repTargets: repTargets(joinedFactions, reps, catalogs.regular, owned, plan),
+    repTargets: repTargets(workable, reps, catalogs.regular, owned, plan),
     workTarget,
     workType: work?.type,
     workGains: work?.gains,
@@ -1021,6 +1046,25 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     }
     return;
   }
+
+  // Spend-down stage: augmentations are done and stock is sold, so the cash
+  // left would just be wiped. Spend it on what survives an install - home
+  // RAM here, gang equipment in gang_daemon.ts (both watch the phase) - and
+  // install once cash stops dropping (nothing affordable left).
+  const pendingState = readInstallPending(ns);
+  const nowMs = Date.now();
+  const spendDown = advanceSpendDown(pendingState?.spendDown, ns.getServerMoneyAvailable("home"), nowMs);
+  const starting = pendingState?.phase !== "spendDown";
+  if (starting) {
+    await log.info("[Faction] Augmentations done; spending the rest on gang equipment and home RAM before installing.");
+  }
+  for (let i = 0; i < 50; i++) {
+    const ramCost = ns.singularity.getUpgradeHomeRamCost();
+    if (!(ramCost <= ns.getServerMoneyAvailable("home")) || !ns.singularity.upgradeHomeRam()) break;
+    await log.info(`[Faction] Pre-install: upgraded home RAM to ${ns.getServerMaxRam("home")} GB ($${ramCost.toFixed(0)}).`);
+  }
+  writeInstallPending(ns, { since: pendingState?.since ?? now, heartbeat: now, phase: "spendDown", spendDown });
+  if (starting || !spendDownSettled(spendDown, nowMs, SPEND_DOWN_SETTLE_MS)) return;
 
   clearInstallPending(ns);
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);

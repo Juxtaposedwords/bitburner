@@ -22,7 +22,33 @@ import { NS } from "@ns";
 export const INSTALL_PENDING_PATH = "/var/install_pending.txt";
 export const INSTALL_PENDING_MAX_AGE_SEC = 600;
 
-export type InstallPending = { since: number; heartbeat: number };
+/**
+ * `phase`: "augments" (the default) while stock is sold and cash goes to
+ * augmentations; "spendDown" once nothing is left to buy there - then
+ * cash goes to what survives an install (gang equipment via gang_daemon.ts,
+ * home RAM via faction_daemon.ts) until spending settles, and only then
+ * the install happens. `spendDown` tracks that settling (advanceSpendDown).
+ */
+export type InstallPending = { since: number; heartbeat: number; phase?: "augments" | "spendDown"; spendDown?: SpendDownState };
+
+/** Cash while spending down: when it started, the last cash seen, and when cash last dropped (ms). */
+export type SpendDownState = { since: number; lastCash: number; lastDropAt: number };
+
+/** Records this tick's cash; a drop means something was bought, so the settle clock restarts. */
+export function advanceSpendDown(state: SpendDownState | undefined, cash: number, nowMs: number): SpendDownState {
+  if (!state) return { since: nowMs, lastCash: cash, lastDropAt: nowMs };
+  return { since: state.since, lastCash: cash, lastDropAt: cash < state.lastCash ? nowMs : state.lastDropAt };
+}
+
+/** Spending has settled once cash hasn't dropped for `settleMs` - nothing affordable is left to buy. */
+export function spendDownSettled(state: SpendDownState, nowMs: number, settleMs: number): boolean {
+  return nowMs - state.lastDropAt >= settleMs;
+}
+
+/** Whether the spend-down stage is running (and its writer is alive). */
+export function isSpendDownActive(state: InstallPending | undefined, now: number, maxAgeSec = INSTALL_PENDING_MAX_AGE_SEC): boolean {
+  return isInstallPendingActive(state, now, maxAgeSec) && state?.phase === "spendDown";
+}
 
 export function isInstallPendingActive(state: InstallPending | undefined, now: number, maxAgeSec = INSTALL_PENDING_MAX_AGE_SEC): boolean {
   return state !== undefined && now - state.heartbeat <= maxAgeSec;
@@ -39,13 +65,19 @@ export function readInstallPending(ns: NS): InstallPending | undefined {
   }
 }
 
-/** Starts the wind-down, or refreshes its heartbeat if already started (keeping the original `since`). */
+/** Starts the wind-down, or refreshes its heartbeat if already started (keeping `since`, the phase, and spend-down progress). */
 export function touchInstallPending(ns: NS, now: number): InstallPending {
-  const state = { since: readInstallPending(ns)?.since ?? now, heartbeat: now };
+  const existing = readInstallPending(ns);
+  const state = { ...existing, since: existing?.since ?? now, heartbeat: now };
   ns.write(INSTALL_PENDING_PATH, JSON.stringify(state), "w");
   return state;
 }
 
 export function clearInstallPending(ns: NS): void {
   ns.rm(INSTALL_PENDING_PATH, "home");
+}
+
+/** Writes the whole wind-down state (faction_daemon.ts's spend-down stage). */
+export function writeInstallPending(ns: NS, state: InstallPending): void {
+  ns.write(INSTALL_PENDING_PATH, JSON.stringify(state), "w");
 }

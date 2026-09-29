@@ -13,7 +13,7 @@ import {
   EquipmentOption,
   selectBestAscensionCandidate,
   TaskOption,
-  WantedPolicy, worstClashWinChance, karmaBlocksGang, nextMemberName } from "development/metadata/gang_decisions";
+  WantedPolicy, worstClashWinChance, karmaBlocksGang, nextMemberName, stateForNode, skipEquipmentBeforeAscension, ascensionThreshold } from "development/metadata/gang_decisions";
 import { GangPosture } from "development/metadata/gang";
 
 const task = (overrides: Partial<TaskOption> = {}): TaskOption => ({
@@ -324,5 +324,70 @@ describe("nextMemberName", () => {
   it("falls back to Member-N once the list is used up", () => {
     expect(nextMemberName(new Set(["Clotho", "Atropos"]), ["Clotho", "Atropos"])).toBe("Member-2");
     expect(nextMemberName(new Set(["Clotho", "Member-1"]), ["Clotho"])).toBe("Member-2");
+  });
+});
+
+describe("stateForNode", () => {
+  it("starts fresh when the state is from another BitNode", () => {
+    expect(stateForNode({ lastKnownMemberCount: 12, casualties: 0, nodeReset: 111 }, 222, 3)).toEqual({
+      lastKnownMemberCount: 3,
+      casualties: 0,
+      nodeReset: 222,
+    });
+  });
+
+  it("clears BN9's phantom casualties when no BitNode was recorded", () => {
+    expect(stateForNode({ lastKnownMemberCount: 10, casualties: 12 }, 222, 10)).toEqual({ lastKnownMemberCount: 10, casualties: 0, nodeReset: 222 });
+  });
+
+  it("keeps the state within the same BitNode, or when the node is unknown", () => {
+    const state = { lastKnownMemberCount: 10, casualties: 1, nodeReset: 222 };
+    expect(stateForNode(state, 222, 9)).toBe(state);
+    expect(stateForNode(state, undefined, 9)).toBe(state);
+  });
+});
+
+describe("decideEquipmentPurchase maxItemCost", () => {
+  it("skips items above the per-item cap even when affordable", () => {
+    const candidates = [
+      { member: "Clotho", name: "Rootkit", cost: 5e9 },
+      { member: "Clotho", name: "Katana", cost: 1e9 },
+    ];
+    expect(decideEquipmentPurchase(1e12, 0, 1, candidates, 4e9)?.name).toBe("Katana");
+    expect(decideEquipmentPurchase(1e12, 0, 1, [candidates[0]], 4e9)).toBeUndefined();
+  });
+});
+
+describe("gang augmentations before equipment", () => {
+  const candidates = [
+    { member: "Clotho", name: "Katana", cost: 1e6 },
+    { member: "Clotho", name: "Bionic Arms", cost: 5e8, augmentation: true },
+  ];
+
+  it("buys an affordable augmentation before cheaper equipment", () => {
+    expect(decideEquipmentPurchase(1e12, 0, 1, candidates)?.name).toBe("Bionic Arms");
+  });
+
+  it("falls back to equipment when no augmentation is affordable", () => {
+    expect(decideEquipmentPurchase(1e7, 0, 1, candidates)?.name).toBe("Katana");
+  });
+
+  it("skips regular equipment for members about to ascend, but not their augmentations", () => {
+    const kept = skipEquipmentBeforeAscension(
+      [...candidates, { member: "Atropos", name: "Katana", cost: 1e6 }],
+      new Set(["Clotho"])
+    );
+    expect(kept.map((c) => `${c.member}:${c.name}`)).toEqual(["Clotho:Bionic Arms", "Atropos:Katana"]);
+  });
+});
+
+describe("ascensionThreshold", () => {
+  it("uses the high early bar until the gang is full", () => {
+    expect(ascensionThreshold(10, 12, 1.1, 2)).toBe(2);
+    expect(ascensionThreshold(12, 12, 1.1, 2)).toBe(1.1);
+  });
+
+  it("never goes below the normal bar", () => {
+    expect(ascensionThreshold(10, 12, 1.1, 1.05)).toBe(1.1);
   });
 });

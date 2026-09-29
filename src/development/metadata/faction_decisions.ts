@@ -112,6 +112,29 @@ export function catalogsFor(catalog: AugmentationInfo[], owned: string[]): { reg
   return { regular, preInstall: [...regular, ...lastResort] };
 }
 
+/**
+ * Augmentations worth rep or money at all: The Red Pill, or anything
+ * raising one of `usefulStats` (multiplier keys; [] = everything). Every
+ * buying, work-target, rep-target and favor-plan decision starts from this.
+ * Before it, every augmentation counted - BN10 worked Netburners for rep
+ * and bought its five Hacknet augmentations (5x price there, each raising
+ * every later price 1.9x), none of which helps the run.
+ */
+export function usefulCatalog(catalog: AugmentationInfo[], usefulStats: string[]): AugmentationInfo[] {
+  return catalog.filter((aug) => aug.name === RED_PILL || matchesFocus(aug.stats, usefulStats));
+}
+
+/**
+ * Joined factions worth working for or planning favor at: all but the
+ * gang's own faction. Its rep comes from gang respect (BN9's reached 58M
+ * with nobody working it) and it can never take donations, so work or favor
+ * there is wasted - BN10 had put Slum Snakes in the favor plan and made it
+ * the player's work target.
+ */
+export function workableFactions(joinedFactions: string[], gangFaction: string | undefined): string[] {
+  return joinedFactions.filter((faction) => faction !== gangFaction);
+}
+
 /** Not owned, and not the repeatable NeuroFlux Governor - an augmentation worth a faction's rep or favor. */
 function isWanted(aug: AugmentationInfo, ownedSet: Set<string>): boolean {
   return aug.name !== NEUROFLUX_GOVERNOR && !ownedSet.has(aug.name);
