@@ -195,6 +195,16 @@
       "id": "2026-10-03-start-network-daemon",
       "script": "development/metadata/network_daemon.js",
       "note": "replaces crawl_servers, rooter and the supervisor's dispatch"
+    },
+    {
+      "id": "2026-10-03-red-pill-on",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/faction.txt",
+        "pursueRedPill",
+        "true"
+      ],
+      "note": "5th sleeve bought and all memory 100: finish BN10"
     }
   ]
 }
