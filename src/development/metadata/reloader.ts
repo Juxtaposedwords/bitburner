@@ -27,7 +27,7 @@ import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
  *   at most MAX_REVIVALS_PER_HOUR times an hour, logging the dead script's
  *   last log lines so the crash is visible. `--once` runs finish on
  *   purpose and are never tracked.
- * - Reloads itself when its own code changes (ns.spawn).
+ * - Exits when its own code changes; tools/log_rotator.js restarts it.
  * - Runs commands Claude queues in /claude/commands.txt (pushed from the
  *   repo by filesync): each id once, tools and managed daemons only, each
  *   echoed to the terminal (runQueuedCommands).
@@ -116,11 +116,12 @@ export async function main(ns: NS): Promise<void> {
       return sources.get(path) as string;
     };
 
-    // Itself: same hold-for-one-check rule as the daemons, then respawn.
+    // Itself: same hold-for-one-check rule as the daemons, then exit -
+    // tools/log_rotator.js starts it again with the new code. ns.spawn of
+    // itself once left no reloader running at all (and so no command queue).
     const selfCheck = decideReloads(selfSignature ? new Map([[0, selfSignature]]) : new Map(), [{ pid: 0, signature: fingerprint(self, read) }]);
     if (selfCheck.restart.length > 0) {
-      await log.info(`[Reloader] ${self} changed; reloading itself.`);
-      ns.spawn(self, { threads: 1, spawnDelay: 100 }, ...ns.args);
+      await log.info(`[Reloader] ${self} changed; exiting for log_rotator.js to start the new version.`);
       return;
     }
     selfSignature = selfCheck.tracked.get(0);

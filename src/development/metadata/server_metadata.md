@@ -1602,8 +1602,10 @@ fingerprints each managed daemon on home (`MANAGED_DAEMONS`): the daemon's file 
 imports, transitively (`fingerprint`, `importedScripts`). When a fingerprint changes and then holds
 for one more check (`decideReloads`, so a restart never lands mid-sync), it kills that daemon and
 runs it again with the same threads and arguments. Workers, one-shot tools, bootstrap and the
-reloader itself are never restarted this way. The reloader reloads itself (`ns.spawn`) when its
-own code changes.
+reloader itself are never restarted this way. When its own code changes, the reloader exits, and
+`tools/log_rotator.js` starts the new version within its 60 s sweep. It's a watchdog both ways:
+the reloader revives the log rotator, and the log rotator revives the reloader. Reloading itself
+with `ns.spawn` once left no reloader running, and so no command queue.
 
 It also **revives crashed daemons** (`decideRevivals`). A managed daemon it saw running that
 disappears is started again with the same threads and args, at most 3 times an hour. The warning

@@ -83,6 +83,7 @@ async function pushAll() {
 // Last content written per mirrored file, so unchanged files aren't rewritten.
 const mirrored = new Map();
 let pulling = false;
+let firstPull = true;
 
 async function pull() {
   if (pulling || !socket) return;
@@ -102,7 +103,10 @@ async function pull() {
     }
     fs.mkdirSync(MIRROR, { recursive: true });
     fs.writeFileSync(path.join(MIRROR, ".last_pull"), `${new Date().toISOString()} ${wanted.length} file(s), ${changed} changed\n`);
-    if (changed > 0) log(`pulled ${changed} changed of ${wanted.length} file(s)`);
+    // Routine pulls stay quiet (game/.last_pull records each); only the
+    // first after a connect is logged.
+    if (firstPull) log(`mirroring ${wanted.length} file(s) into ${MIRROR}/`);
+    firstPull = false;
   } catch (e) {
     log(`pull failed: ${e.message}`);
   } finally {
@@ -114,6 +118,7 @@ const wss = new WebSocketServer({ port: PORT });
 wss.on("connection", (ws) => {
   if (socket) socket.close();
   socket = ws;
+  firstPull = true;
   log("game connected");
   ws.on("message", (raw) => {
     let msg;

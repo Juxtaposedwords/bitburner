@@ -23,6 +23,8 @@ export function rotateIfNeeded(ns: NS, file: string): void {
   ns.write(file, "", "w");
 }
 
+const RELOADER = "development/metadata/reloader.js";
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
 
@@ -33,6 +35,11 @@ export async function main(ns: NS): Promise<void> {
     for (const file of logFiles) {
       rotateIfNeeded(ns, file);
     }
+
+    // Watchdog for the reloader (which revives every other daemon, this one
+    // included, and runs Claude's queued commands): start it when missing -
+    // it exits on its own code change and relies on this to come back.
+    if (!ns.isRunning(RELOADER, "home") && ns.run(RELOADER) !== 0) ns.print(`Started ${RELOADER}.`);
 
     await ns.asleep(SWEEP_INTERVAL_MS);
   }
