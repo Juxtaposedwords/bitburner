@@ -2043,3 +2043,15 @@ This replaced a fixed priority list plus patches: an activity reorder, Company F
 overflow only above 90% to a configured upgrade. That spent every hash on Improve Studying at
 hacking 13,900, so maximum money was never bought. The `hashSpendPriority`,
 `overflowHashUpgrade` and `hashDrainUpgrade` keys are no longer read.
+
+## The bridge: two-way Remote API (`build/bridge.mjs`)
+
+`npm run watch` runs `build/bridge.mjs` as `watch:remote`, in place of bitburner-filesync. The old
+one is still available as `watch:remote:filesync`, and only one Remote API server can be connected.
+It pushes `dist/` on connect and on every change or delete, and fetches the definitions file
+(ignoring anything under 10 KB). Every 10 s it copies the game's `var/` files, except
+`var/supervisor/`, into `./game/` (gitignored), rewriting only changed files;
+`game/.last_pull` records each pull. Tools write output for it under `/var/claude_out/`, for
+example `run tools/status.js --verbose --out /var/claude_out/status.txt`. Queued commands plus the
+mirror give Claude a read/write loop with the game. `BRIDGE_PORT`, `BRIDGE_MIRROR` and
+`BRIDGE_DEFS` exist for testing against a fake game client.

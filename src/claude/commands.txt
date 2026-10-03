@@ -163,6 +163,16 @@
         "\"Increase Maximum Money\""
       ],
       "note": "hash overflow raises the best target's max money"
+    },
+    {
+      "id": "2026-10-03-status-out-1",
+      "script": "tools/status.js",
+      "args": [
+        "--verbose",
+        "--out",
+        "/var/claude_out/status.txt"
+      ],
+      "note": "first status written for the bridge to pull"
     }
   ]
 }

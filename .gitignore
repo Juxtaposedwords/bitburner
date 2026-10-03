@@ -23,3 +23,5 @@ Dockerfile
 
 # 7. Workspace specficis
 *.code-workspace
+# Files mirrored out of the game by build/bridge.mjs
+/game/

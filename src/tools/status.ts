@@ -17,7 +17,7 @@ import { checkStatus, Finding, formatMoney, StatusSnapshot, summarizeScheduler }
 /**
  * One-screen health check of the whole system:
  *
- *   run tools/status.js [--window 10m] [--verbose]
+ *   run tools/status.js [--window 10m] [--verbose] [--out /var/claude_out/status.txt]
  *
  * --verbose adds player stats, every faction's rep and favor, what blocks
  * each wanted invite, the scheduler's top targets, home RAM per script and
@@ -461,4 +461,9 @@ export async function main(ns: NS): Promise<void> {
   if (verbose) out.push(...verboseLines(ns, faction, pendingBoost?.count));
 
   ns.tprintf("%s", out.join("\n"));
+  // --out <file>: the same report as a file, for build/bridge.mjs to copy
+  // out of the game (e.g. /var/claude_out/status.txt).
+  const outIdx = args.indexOf("--out");
+  const outFile = outIdx >= 0 ? args[outIdx + 1] : undefined;
+  if (outFile) ns.write(outFile, `${new Date().toISOString()}\n${out.join("\n")}\n`, "w");
 }
