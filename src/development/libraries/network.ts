@@ -122,3 +122,20 @@ export function backdoorTargets(file: NetworkFile): NetworkServer[] {
     (s) => s.kind === "npc" && s.rooted && !s.backdoor && s.requiredLevel <= file.hackingLevel && s.host !== "w0r1d_d43m0n"
   );
 }
+
+/**
+ * Kills the prep workers (weaken/grow with prep's arguments: target, delay
+ * 0) aimed at `target`, on every host; returns how many were killed. A
+ * prep at security 100 runs for a long time, and when the scheduler drops
+ * the target they kept the fleet's RAM to no purpose - BN12 started with
+ * every host tied up by preps for targets dropped a second later.
+ */
+export function killPrepWorkers(ns: NS, target: string, scripts: string[]): number {
+  let killed = 0;
+  for (const { host } of scanWithPaths(ns)) {
+    for (const p of ns.ps(host)) {
+      if (scripts.includes(p.filename.replace(/^\//, "")) && p.args[0] === target && p.args[1] === 0 && ns.kill(p.pid)) killed++;
+    }
+  }
+  return killed;
+}

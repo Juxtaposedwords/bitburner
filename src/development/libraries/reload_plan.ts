@@ -206,3 +206,19 @@ export const UNKNOWN_SIGNATURE = "unknown";
 export function seedTracked(saved: Record<string, string>, runningPids: number[]): Map<number, Tracked> {
   return new Map(runningPids.map((pid) => [pid, { signature: saved[String(pid)] ?? UNKNOWN_SIGNATURE }]));
 }
+
+/**
+ * Managed daemons stopped on purpose (tools/kill.js adds them): the
+ * reloader neither revives nor reloads these. Without it, a daemon killed
+ * to free RAM came straight back. Running a script again removes it.
+ */
+export const STOPPED_DAEMONS_PATH = "/var/stopped_daemons.txt";
+
+export function readStoppedDaemons(raw: string): string[] {
+  try {
+    const list = JSON.parse(raw || "[]") as unknown;
+    return Array.isArray(list) ? list.map(String).map((f) => f.replace(/^\//, "")) : [];
+  } catch {
+    return [];
+  }
+}

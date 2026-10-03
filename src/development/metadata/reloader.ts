@@ -4,7 +4,9 @@ import {
   COMMANDS_PATH,
   daemonKey,
   EXPECTED_DAEMONS_PATH,
+  readStoppedDaemons,
   RELOADER_STATE_PATH,
+  STOPPED_DAEMONS_PATH,
   seedTracked,
   decideReloads,
   decideRevivals,
@@ -173,6 +175,12 @@ export async function main(ns: NS): Promise<void> {
     // already running again under their new pid).
     const running = ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
     const runningKeys = new Set(running.map((p) => daemonKey(p.filename, p.args)));
+    // Stopped on purpose (tools/kill.js) - leave them down; once running
+    // again (started by hand or boot), they're watched as usual.
+    const stopped = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
+    const stillStopped = stopped.filter((f) => !running.some((p) => p.filename.replace(/^\//, "") === f));
+    if (stillStopped.length !== stopped.length) ns.write(STOPPED_DAEMONS_PATH, JSON.stringify(stillStopped), "w");
+    for (const key of [...seen.keys()]) if (stillStopped.includes(seen.get(key)?.filename.replace(/^\//, "") ?? "")) seen.delete(key);
     const { revive, giveUp } = decideRevivals(seen, runningKeys, revivals, Date.now(), MAX_REVIVALS_PER_HOUR);
     for (const key of revive) {
       const d = seen.get(key) as SeenDaemon;

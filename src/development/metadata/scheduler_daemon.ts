@@ -2,7 +2,7 @@ import { NS } from "@ns";
 import { MANAGED_DAEMONS } from "development/libraries/reload_plan";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { sleevesAvailable } from "development/metadata/sleeve_decisions";
-import { liveWorkerHosts } from "development/libraries/network";
+import { killPrepWorkers, liveWorkerHosts } from "development/libraries/network";
 import { SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
@@ -578,7 +578,13 @@ export async function main(ns: NS): Promise<void> {
     const names = next.map((t) => t.host).join(", ");
     if (names !== targets.map((t) => t.host).join(", ")) await log.info(`[Scheduler] Targets: ${names || "(none)"}.`);
     targets = next;
-    for (const host of [...busyUntil.keys()]) if (!targets.some((t) => t.host === host)) busyUntil.delete(host);
+    for (const host of [...busyUntil.keys()]) {
+      if (targets.some((t) => t.host === host)) continue;
+      busyUntil.delete(host);
+      // Dropped while prepping: its prep workers would hold RAM for nothing.
+      const killed = killPrepWorkers(ns, host, [WEAKEN_WORKER, GROW_WORKER]);
+      if (killed > 0) await log.info(`[Scheduler] Dropped ${host}; stopped ${killed} prep worker(s) still aimed at it.`);
+    }
     for (const host of [...prepped]) if (!targets.some((t) => t.host === host)) prepped.delete(host);
     if (targets.length === 0) {
       await log.warn("[Scheduler] No target available yet (waiting on target_selector.js); skipping tick.");
