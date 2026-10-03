@@ -268,7 +268,12 @@ export function batchesPerTick(tickMs: number, spacingMs: number): number {
  */
 export const SCHEDULER_TARGETS_PATH = "/var/scheduler_targets.txt";
 export type TargetIncome = { host: string; state: "prepping" | "batching"; batchesPerMin: number; takePerBatch: number; incomePerMin: number; chance: number };
-export type SchedulerTargetsFile = { targets: TargetIncome[]; writtenAt: number };
+export type SchedulerTargetsFile = {
+  targets: TargetIncome[];
+  // Drift re-preps in the last minute (driftVerdict) - a high count means batches land out of order.
+  driftsLastMin?: number;
+  writtenAt: number;
+};
 
 /** The batching target earning the most, or undefined. */
 export function topEarner(targets: TargetIncome[]): TargetIncome | undefined {

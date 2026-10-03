@@ -482,7 +482,15 @@ const DRIFT_STREAK_TICKS = 10;
 const driftStreak = new Map<string, number>();
 
 /** Publishes each target's state and income (SCHEDULER_TARGETS_PATH), dropping fire times older than a minute. */
-function writeTargetIncome(ns: NS, hosts: string[], prepped: Set<string>, firedAt: Map<string, number[]>, hackFraction: number, now: number): void {
+function writeTargetIncome(
+  ns: NS,
+  hosts: string[],
+  prepped: Set<string>,
+  firedAt: Map<string, number[]>,
+  hackFraction: number,
+  now: number,
+  driftsLastMin: number
+): void {
   for (const [host, times] of firedAt) {
     const recent = times.filter((t) => now - t < 60_000);
     if (recent.length === 0 || !hosts.includes(host)) firedAt.delete(host);
@@ -494,7 +502,7 @@ function writeTargetIncome(ns: NS, hosts: string[], prepped: Set<string>, firedA
     const takePerBatch = hackFraction * ns.getServerMaxMoney(host) * chance;
     return { host, state: prepped.has(host) ? "batching" : "prepping", batchesPerMin, takePerBatch, incomePerMin: batchesPerMin * takePerBatch, chance };
   });
-  const file: SchedulerTargetsFile = { targets, writtenAt: now };
+  const file: SchedulerTargetsFile = { targets, driftsLastMin, writtenAt: now };
   ns.write(SCHEDULER_TARGETS_PATH, JSON.stringify(file), "w");
 }
 
@@ -523,6 +531,7 @@ export async function main(ns: NS): Promise<void> {
   let lastTargetsWrite = 0;
   let lastSummary = Date.now();
   let drifts = 0;
+  const driftTimes: number[] = [];
   // Auto-scaled hackFraction (adjustHackFraction), starting from the saved
   // value, else the config's.
   const tuning: Tuning = {
@@ -590,6 +599,7 @@ export async function main(ns: NS): Promise<void> {
       if (result === "drifted") {
         prepped.delete(host);
         drifts++;
+        driftTimes.push(now);
         await log.warn(`[Scheduler] ${host} drifted off min-security/max-money; re-prepping before more batches.`);
       }
       if (result === "noFit") {
@@ -608,7 +618,10 @@ export async function main(ns: NS): Promise<void> {
     }
     if (now - lastTargetsWrite >= TARGETS_WRITE_INTERVAL_MS) {
       lastTargetsWrite = now;
-      writeTargetIncome(ns, targets.map((t) => t.host), prepped, firedAt, batchConfig.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1, now);
+      const recentDrifts = driftTimes.filter((t) => now - t < 60_000);
+      driftTimes.length = 0;
+      driftTimes.push(...recentDrifts);
+      writeTargetIncome(ns, targets.map((t) => t.host), prepped, firedAt, batchConfig.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1, now, recentDrifts.length);
     }
     // CRIME: defined in the schema, not implemented yet (see scheduler.proto).
   }, BATCH_CHECK_INTERVAL_MS);

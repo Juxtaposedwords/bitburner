@@ -2084,3 +2084,11 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
 - **Overrides-only configs** (`loadJsonConfig`): nothing is written when a config file is missing,
   and keys equal to their default are stripped from the file, which is rewritten without them.
   Changed code defaults therefore always apply, and the file shows only what was set on purpose.
+
+**System series** (`recordSystem`, `monitoring_daemon.ts`):
+- **Hacking pipeline:** `planned_hacking_per_min`, `batches_per_min`, `drifts_per_min` (the scheduler adds `driftsLastMin` to its targets file), `targets_batching`, `targets_prepping`, `top_target_share_pct`.
+- **Fleet:** `fleet_used_pct`.
+- **Phase and progress:** `phase` (Approach number), `savings_target`, `augs_installed`, `augs_pending`.
+- **Sleeves:** `sleeves`, `sleeves_on_faction`, `sleeve_avg_shock`.
+
+These are for judging a change from its trend, not one snapshot. All of them come from the files the daemons already publish, plus one network scan. They're mirrored by the bridge, so Claude can read them directly.

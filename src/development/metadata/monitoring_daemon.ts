@@ -5,6 +5,11 @@ import { FACTION_REPS_PATH, FactionRepsFile, repSeriesId } from "development/met
 import { GANG_STATUS_PATH, GangStatusFile } from "development/metadata/gang_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
+import { SCHEDULER_TARGETS_PATH, SchedulerTargetsFile } from "development/metadata/hwgw";
+import { PHASE_PATH, PhaseFile } from "development/libraries/approach";
+import { readSavings } from "development/libraries/savings";
+import { PENDING_BOOST_PATH, PendingBoost } from "development/libraries/skill_progress";
+import { SLEEVES_PATH, SleevesFile } from "development/metadata/sleeve_decisions";
 
 /**
  * Samples the economy once a minute into fixed-size time series under
@@ -109,6 +114,76 @@ function recordGang(ns: NS, t: number): string {
   return `gang winChance=${(s.worstWinChance * 100).toFixed(1)}% territory=${(s.territory * 100).toFixed(1)}%`;
 }
 
+/** Reads a JSON status file another daemon publishes; undefined if missing, corrupt or older than STATUS_MAX_AGE_MS. */
+function readStatus<T extends { writtenAt: number }>(ns: NS, path: string): T | undefined {
+  try {
+    const file = JSON.parse(ns.read(path) || "null") as T | null;
+    return file && Date.now() - file.writtenAt <= STATUS_MAX_AGE_MS ? file : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every server reachable from home. */
+function scanAll(ns: NS): string[] {
+  const seen = new Set(["home"]);
+  const queue = ["home"];
+  while (queue.length > 0) {
+    for (const next of ns.scan(queue.shift() as string)) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * The system's own behavior, for judging changes from the trends: the
+ * hacking pipeline (scheduler_targets), fleet RAM use, the phase, savings,
+ * augmentation progress and what the sleeves do - all from files the
+ * daemons already publish, plus one network scan.
+ */
+function recordSystem(ns: NS, t: number): string {
+  const parts: string[] = [];
+  const sched = readStatus<SchedulerTargetsFile>(ns, SCHEDULER_TARGETS_PATH);
+  if (sched) {
+    const planned = sched.targets.reduce((sum, x) => sum + x.incomePerMin, 0);
+    const top = sched.targets.reduce((a, b) => (b.incomePerMin > a.incomePerMin ? b : a), sched.targets[0]);
+    record(ns, "gauge/planned_hacking_per_min", t, planned);
+    record(ns, "gauge/batches_per_min", t, sched.targets.reduce((sum, x) => sum + x.batchesPerMin, 0));
+    record(ns, "gauge/targets_batching", t, sched.targets.filter((x) => x.state === "batching").length);
+    record(ns, "gauge/targets_prepping", t, sched.targets.filter((x) => x.state === "prepping").length);
+    record(ns, "gauge/drifts_per_min", t, sched.driftsLastMin ?? 0);
+    if (top && planned > 0) record(ns, "gauge/top_target_share_pct", t, (top.incomePerMin / planned) * 100);
+    parts.push(`planned=$${planned.toExponential(2)}/min`);
+  }
+  let max = 0;
+  let used = 0;
+  for (const host of scanAll(ns)) {
+    if (!ns.hasRootAccess(host)) continue;
+    max += ns.getServerMaxRam(host);
+    used += ns.getServerUsedRam(host);
+  }
+  if (max > 0) record(ns, "gauge/fleet_used_pct", t, (used / max) * 100);
+  const phase = readStatus<PhaseFile>(ns, PHASE_PATH);
+  if (phase) record(ns, "gauge/phase", t, phase.approach);
+  const savings = readSavings(ns);
+  record(ns, "gauge/savings_target", t, savings?.amount ?? 0);
+  const faction = readStatus<FactionRepsFile>(ns, FACTION_REPS_PATH);
+  if (faction?.installedAugs !== undefined) record(ns, "gauge/augs_installed", t, faction.installedAugs);
+  const pending = readStatus<PendingBoost>(ns, PENDING_BOOST_PATH);
+  if (pending) record(ns, "gauge/augs_pending", t, pending.count);
+  const sleeves = readStatus<SleevesFile>(ns, SLEEVES_PATH);
+  if (sleeves && sleeves.sleeves.length > 0) {
+    record(ns, "gauge/sleeves", t, sleeves.sleeves.length);
+    record(ns, "gauge/sleeves_on_faction", t, sleeves.sleeves.filter((s) => s.goal.startsWith("faction work")).length);
+    record(ns, "gauge/sleeve_avg_shock", t, sleeves.sleeves.reduce((sum, s) => sum + s.shock, 0) / sleeves.sleeves.length);
+  }
+  return parts.join(" ");
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Monitoring", LOG_LEVEL.DEBUG);
@@ -144,8 +219,9 @@ export async function main(ns: NS): Promise<void> {
     const hacknet = recordHacknet(ns, t);
     const reps = recordReps(ns, t);
     const gang = recordGang(ns, t);
+    const system = recordSystem(ns, t);
 
-    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet} ${reps} ${gang}`);
+    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet} ${reps} ${gang} ${system}`);
 
     await ns.asleep(TICK_INTERVAL_MS);
   }
