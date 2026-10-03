@@ -1,9 +1,9 @@
 import { NS } from "@ns";
 
 /**
- * Loads a JSON config file, writing `defaults` out if the file doesn't
- * exist yet, filling in any fields missing from a partially-edited file,
- * and falling back to `defaults` entirely on corrupt JSON.
+ * Loads a JSON config file of overrides on top of `defaults` (a missing
+ * file means all defaults - nothing is written), and falls back to
+ * `defaults` entirely on corrupt JSON.
  *
  * The corrupt-JSON fallback used to be silent - every daemon calling this
  * (hacknet/purchased-server/faction/gang, plus their state files) would
@@ -18,14 +18,25 @@ import { NS } from "@ns";
  */
 export function loadJsonConfig<T extends object>(ns: NS, path: string, defaults: T): T {
   const raw = ns.read(path);
-  if (!raw) {
-    ns.write(path, JSON.stringify(defaults, null, 2), "w");
-    return defaults;
-  }
+  if (!raw) return defaults;
+  let parsed: Record<string, unknown>;
   try {
-    return { ...defaults, ...(JSON.parse(raw) as Partial<T>) };
+    parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (error) {
     ns.tprint(`[loadJsonConfig] ERROR: ${path} has invalid JSON, falling back to defaults entirely: ${error}`);
     return defaults;
   }
+  // The file holds overrides only: a key equal to its default is dropped
+  // (and the file rewritten without it), so a changed default reaches every
+  // install. Writing all defaults out used to pin old values - share at 0.5,
+  // sleeve saving at 60 minutes, stale hacknet keys - long after the code
+  // moved on.
+  const overrides = stripDefaults(parsed, defaults as Record<string, unknown>);
+  if (Object.keys(overrides).length !== Object.keys(parsed).length) ns.write(path, JSON.stringify(overrides, null, 2), "w");
+  return { ...defaults, ...(overrides as Partial<T>) };
+}
+
+/** `config` without the keys whose value equals `defaults`' (compared as JSON). Keys not in `defaults` stay. */
+export function stripDefaults(config: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(config).filter(([key, value]) => !(key in defaults) || JSON.stringify(value) !== JSON.stringify(defaults[key])));
 }

@@ -2071,3 +2071,16 @@ Reading live state per batch had flagged about one drift a second across all tar
 each idling a target for a full prep. That was most of the gap between planned $1,134T/min and
 actual $735T/min. The scheduler logs one `Batch summary (60s)` line per minute instead of a line
 per batch, which had rotated its log every 2 minutes. Status parses the summary.
+
+## Phases, and configs that hold only overrides
+
+- **Phases** (`development/libraries/approach.ts`): `faction_daemon.ts` writes `/var/phase.txt`
+  every tick from the game (`derivePhase`). It's GANG while a gang is possible (BN2 or SF2) and
+  not yet created, and AUGMENTS otherwise. `readApproach` uses an explicit `approach` in
+  `/etc/scheduler.txt` when set (`set_scheduler_approach.js NAME`), else this BitNode's phase
+  file (one older than `lastNodeReset` is ignored), else HACK. `set_scheduler_approach.js AUTO`
+  removes the override. Manual modes had carried FACTION_GRIND into a fresh BitNode, left GANG on
+  after the gang existed, and missed AUGMENTS.
+- **Overrides-only configs** (`loadJsonConfig`): nothing is written when a config file is missing,
+  and keys equal to their default are stripped from the file, which is rewritten without them.
+  Changed code defaults therefore always apply, and the file shows only what was set on purpose.

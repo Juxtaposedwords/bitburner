@@ -50,7 +50,7 @@ const HOME = "home";
 const BATCH_CHECK_INTERVAL_MS = 1000;
 
 const DEFAULT_CONFIG: scheduler_pb.SchedulerConfig = {
-  approach: scheduler_pb.Approach.HACK,
+  // No `approach` default: unset means the derived phase (approach.ts).
   // hackFraction below is only the starting point while this is on - see
   // adjustHackFraction.
   autoHackFraction: true,

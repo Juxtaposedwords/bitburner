@@ -81,7 +81,7 @@ import {
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "development/metadata/study_decisions";
-import { readApproach } from "development/libraries/approach";
+import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
 import { Approach } from "development/metadata/scheduler";
 import {
   combineMultipliers,
@@ -964,7 +964,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // claims it - otherwise each would restart over the other every tick.
   // From the scheduler's config file, not RPC - see approach.ts for the
   // post-install timeout that silently dropped AUGMENTS mode.
-  const approach = readApproach(ns);
+  // The phase from the game (derivePhase), published for every other
+  // daemon; an explicit approach in /etc/scheduler.txt overrides it.
+  const gangPossible = (await player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort).GetPlayerMetadata({})).data?.player
+    ?.gangAvailable === true;
+  const phase = derivePhase(gangPossible, gangPossible && ns.gang.inGang());
+  ns.write(PHASE_PATH, JSON.stringify({ ...phase, writtenAt: Date.now() } satisfies PhaseFile), "w");
+  const approach = parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach;
   const growingStats = approach === Approach.GROW_STATS;
   // AUGMENTS (scheduler.proto): spending steered toward good augmentations -
   // see priorityFocus below.

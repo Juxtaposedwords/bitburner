@@ -173,6 +173,14 @@
         "/var/claude_out/status.txt"
       ],
       "note": "first status written for the bridge to pull"
+    },
+    {
+      "id": "2026-10-03-approach-auto",
+      "script": "tools/set_scheduler_approach.js",
+      "args": [
+        "AUTO"
+      ],
+      "note": "phases replace the manual approach"
     }
   ]
 }

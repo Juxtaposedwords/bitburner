@@ -21,11 +21,18 @@ const fakeNs = (files: Record<string, string> = {}): NS & { tprintCalls: string[
 const DEFAULTS = { intervalMs: 5000, path: "/data/default.txt" };
 
 describe("loadJsonConfig", () => {
-  it("writes and returns the defaults when no file exists yet", () => {
+  it("returns the defaults without writing anything when no file exists", () => {
     const ns = fakeNs();
 
     expect(loadJsonConfig(ns, "/etc/test.txt", DEFAULTS)).toEqual(DEFAULTS);
-    expect(JSON.parse(ns.read("/etc/test.txt"))).toEqual(DEFAULTS);
+    expect(ns.read("/etc/test.txt")).toBe("");
+  });
+
+  it("drops keys equal to their default from the file, keeping overrides and unknown keys", () => {
+    const ns = fakeNs({ "/etc/test.txt": JSON.stringify({ intervalMs: 5000, path: "/x.txt", extra: 1 }) });
+
+    expect(loadJsonConfig(ns, "/etc/test.txt", DEFAULTS)).toEqual({ intervalMs: 5000, path: "/x.txt", extra: 1 });
+    expect(JSON.parse(ns.read("/etc/test.txt"))).toEqual({ path: "/x.txt", extra: 1 });
   });
 
   it("fills in fields missing from a partially-written file", () => {

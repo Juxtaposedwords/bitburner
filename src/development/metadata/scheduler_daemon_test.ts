@@ -11,7 +11,6 @@ describe("Scheduler RPC handlers", () => {
 
       expect(handlers.GetSchedulerConfig({})).toEqual({
         config: {
-          approach: Approach.HACK,
           autoHackFraction: true,
           targetUtilization: 0.85,
           maxHackFraction: 0.9,
