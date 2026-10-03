@@ -253,6 +253,37 @@
         "/var/claude_out/recent_scripts.txt"
       ],
       "note": "why BN12 daemons die on start"
+    },
+    {
+      "id": "2026-10-03-bn12-kill-0",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/stock_daemon.js"
+      ],
+      "note": "no TIX yet: free RAM for the sleeve daemon"
+    },
+    {
+      "id": "2026-10-03-bn12-kill-1",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/stock_target_daemon.js"
+      ],
+      "note": "no TIX yet: free RAM for the sleeve daemon"
+    },
+    {
+      "id": "2026-10-03-bn12-boot",
+      "script": "boot.js",
+      "note": "start the held-back daemons in priority order"
+    },
+    {
+      "id": "2026-10-03-bn12-status-2",
+      "script": "tools/status.js",
+      "args": [
+        "--verbose",
+        "--out",
+        "/var/claude_out/status.txt"
+      ],
+      "note": "BN12 check"
     }
   ]
 }
