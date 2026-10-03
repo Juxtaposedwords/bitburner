@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commandAllowed, daemonKey, decideReloads, decideRevivals, fingerprint, importedScripts, pendingCommands, SeenDaemon } from "development/libraries/reload_plan";
+import { commandAllowed, seedTracked, UNKNOWN_SIGNATURE, daemonKey, decideReloads, decideRevivals, fingerprint, importedScripts, pendingCommands, SeenDaemon } from "development/libraries/reload_plan";
 
 describe("importedScripts", () => {
   it("finds script imports and skips packages", () => {
@@ -135,5 +135,19 @@ describe("queued commands", () => {
     expect(commandAllowed("development/metadata/gang_daemon.js")).toBe(true);
     expect(commandAllowed("development/metadata/hack_worker.js")).toBe(false);
     expect(commandAllowed("development/metadata/target_selector.js")).toBe(true);
+  });
+});
+
+describe("seedTracked", () => {
+  it("uses saved fingerprints, and marks processes without one for a restart", () => {
+    const tracked = seedTracked({ "5": "abc" }, [5, 9]);
+    expect(tracked.get(5)).toEqual({ signature: "abc" });
+    expect(tracked.get(9)).toEqual({ signature: UNKNOWN_SIGNATURE });
+  });
+
+  it("restarts an unknown process after the usual one-check hold", () => {
+    const first = decideReloads(seedTracked({}, [9]), [{ pid: 9, signature: "new" }]);
+    expect(first.restart).toEqual([]);
+    expect(decideReloads(first.tracked, [{ pid: 9, signature: "new" }]).restart).toEqual([9]);
   });
 });

@@ -4,6 +4,8 @@ import {
   COMMANDS_PATH,
   daemonKey,
   EXPECTED_DAEMONS_PATH,
+  RELOADER_STATE_PATH,
+  seedTracked,
   decideReloads,
   decideRevivals,
   fingerprint,
@@ -40,6 +42,16 @@ const MAX_REVIVALS_PER_HOUR = 3;
 const CRASH_LOG_LINES = 5;
 // A queued command that can't start (no RAM) is retried this many checks.
 const MAX_COMMAND_ATTEMPTS = 30;
+
+/** Fingerprints saved by the last reloader (RELOADER_STATE_PATH), by pid; {} if none. */
+function readSavedSignatures(ns: NS): Record<string, string> {
+  try {
+    const saved = JSON.parse(ns.read(RELOADER_STATE_PATH) || "{}") as unknown;
+    return saved && typeof saved === "object" ? (saved as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
 
 /** Managed daemons boot.js started (EXPECTED_DAEMONS_PATH); [] if it hasn't run or the file is unreadable. */
 function readExpectedDaemons(ns: NS): string[] {
@@ -90,7 +102,12 @@ export async function main(ns: NS): Promise<void> {
 
   const self = ns.getScriptName().replace(/^\//, "");
   let selfSignature: Tracked | undefined;
-  let tracked = new Map<number, Tracked>();
+  // What every already-running daemon started with (seedTracked) - so code
+  // that changed while no reloader was running still gets picked up.
+  let tracked = seedTracked(
+    readSavedSignatures(ns),
+    ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, ""))).map((p) => p.pid)
+  );
   const seen = new Map<string, SeenDaemon>();
   // Seeded with what boot.js started (EXPECTED_DAEMONS_PATH), so a daemon
   // missing after a game restart is revived too, not just ones that die
@@ -131,6 +148,7 @@ export async function main(ns: NS): Promise<void> {
       processes.map((p) => ({ pid: p.pid, signature: fingerprint(p.filename.replace(/^\//, ""), read) }))
     );
     tracked = decision.tracked;
+    ns.write(RELOADER_STATE_PATH, JSON.stringify(Object.fromEntries([...tracked].map(([pid, t]) => [pid, t.signature]))), "w");
 
     for (const pid of decision.restart) {
       const p = processes.find((proc) => proc.pid === pid);

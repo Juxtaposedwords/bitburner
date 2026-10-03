@@ -2107,3 +2107,11 @@ The registry was a crawled cache kept over RPC and on disk. It went stale across
 servers stuck "rooted", hacking level lagging so the best targets went missing, deleted servers
 crashing daemons, crawler pushes timing out. The supervisor now serves only the player snapshot.
 Its registry handlers have no callers left and can go with a proto change.
+
+**The reloader keeps state.** It saves each daemon's fingerprint by pid to
+`/var/reloader_state.txt`. A new reloader seeds its tracking from that file (`seedTracked`), so
+code that changed while none was running is still picked up. A daemon with no saved fingerprint
+is restarted once, since its code version can't be known. Before this, a reloader started after
+a change recorded the new code as current for processes still running the old version: the log
+rotator kept running without its reloader watchdog, and the reloader stayed down after its next
+self-exit.

@@ -190,6 +190,11 @@
         "/var/claude_out/augmentation_report.txt"
       ],
       "note": "check The Red Pill path"
+    },
+    {
+      "id": "2026-10-03-start-network-daemon",
+      "script": "development/metadata/network_daemon.js",
+      "note": "replaces crawl_servers, rooter and the supervisor's dispatch"
     }
   ]
 }

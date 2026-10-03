@@ -184,3 +184,25 @@ export function pendingCommands(raw: string, done: Set<string>): { command: Queu
     .filter((c): c is QueuedCommand => typeof c?.id === "string" && typeof c?.script === "string" && !done.has(c.id))
     .map((command) => ({ command, allowed: commandAllowed(command.script) }));
 }
+
+/**
+ * Each tracked daemon's fingerprint by pid, saved every check, so a newly
+ * started reloader knows what code the already-running daemons started
+ * with. Without it, a reloader started after a change recorded the new
+ * fingerprint for a process still running the old code, and never
+ * restarted it (BN10: log_rotator.js kept running without its reloader
+ * watchdog, so the reloader stayed down after its next self-exit).
+ */
+export const RELOADER_STATE_PATH = "/var/reloader_state.txt";
+
+/** Marks a process whose starting code is unknown - always differs from a real fingerprint, so it gets restarted once. */
+export const UNKNOWN_SIGNATURE = "unknown";
+
+/**
+ * Tracking for the processes already running when the reloader starts:
+ * the saved fingerprint where there is one, else UNKNOWN_SIGNATURE (a
+ * process started outside any reloader's view is restarted once).
+ */
+export function seedTracked(saved: Record<string, string>, runningPids: number[]): Map<number, Tracked> {
+  return new Map(runningPids.map((pid) => [pid, { signature: saved[String(pid)] ?? UNKNOWN_SIGNATURE }]));
+}
