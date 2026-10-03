@@ -113,7 +113,7 @@ describe("queued commands", () => {
     commands: [
       { id: "1", script: "tools/set_config.js", args: ["/etc/gang.txt", "territoryWarfareMembers", 12] },
       { id: "2", script: "development/metadata/sleeve_daemon.js" },
-      { id: "3", script: "boot.js" },
+      { id: "3", script: "bootstrap.js" },
     ],
   });
 

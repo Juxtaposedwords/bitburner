@@ -162,7 +162,7 @@ export const COMMANDS_DONE_PATH = "/var/claude_commands_done.txt";
 export type QueuedCommand = { id: string; script: string; args?: (string | number | boolean)[]; note?: string };
 
 /** One-shot system scripts safe to re-run on demand (e.g. a forced target re-rank). */
-export const QUEUEABLE_ONE_SHOTS = ["development/metadata/target_selector.js"];
+export const QUEUEABLE_ONE_SHOTS = ["development/metadata/target_selector.js", "boot.js"];
 
 /** Only tools, the managed daemons and QUEUEABLE_ONE_SHOTS may be run this way. */
 export function commandAllowed(script: string): boolean {

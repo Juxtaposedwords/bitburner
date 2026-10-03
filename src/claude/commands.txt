@@ -224,6 +224,35 @@
         "/var/claude_out/status.txt"
       ],
       "note": "first BN12 full-system check"
+    },
+    {
+      "id": "2026-10-03-bn12-start-sleeve_daemon",
+      "script": "development/metadata/sleeve_daemon.js",
+      "note": "boot held it back for RAM; the scheduler now keeps room"
+    },
+    {
+      "id": "2026-10-03-bn12-start-monitoring_daemon",
+      "script": "development/metadata/monitoring_daemon.js",
+      "note": "boot held it back for RAM; the scheduler now keeps room"
+    },
+    {
+      "id": "2026-10-03-bn12-start-purchased_server_daemon",
+      "script": "development/metadata/purchased_server_daemon.js",
+      "note": "boot held it back for RAM; the scheduler now keeps room"
+    },
+    {
+      "id": "2026-10-03-bn12-start-share_daemon",
+      "script": "development/metadata/share_daemon.js",
+      "note": "boot held it back for RAM; the scheduler now keeps room"
+    },
+    {
+      "id": "2026-10-03-recent-scripts-1",
+      "script": "tools/recent_scripts.js",
+      "args": [
+        "--out",
+        "/var/claude_out/recent_scripts.txt"
+      ],
+      "note": "why BN12 daemons die on start"
     }
   ]
 }
