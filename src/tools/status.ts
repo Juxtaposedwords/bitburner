@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "development/libraries/reload_plan";
 import { readApproach } from "development/libraries/approach";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { readInstallPending } from "development/libraries/install_handshake";
@@ -252,6 +253,7 @@ export async function main(ns: NS): Promise<void> {
   // Bootstrap replaces the whole system on a small home - nothing else is expected then.
   const running = ns.ps("home").map((p) => p.filename.replace(/^\//, ""));
   const bootstrapping = running.includes("bootstrap.js");
+  const stopped = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
 
   const faction = readJson<FactionRepsFile>(ns, FACTION_REPS_PATH);
   // A gang file from an earlier BitNode describes a gang that no longer
@@ -274,7 +276,10 @@ export async function main(ns: NS): Promise<void> {
   const snapshot: StatusSnapshot = {
     nowMs: Date.now(),
     running,
-    expected: bootstrapping ? [] : expected.filter((e) => e.when !== false).map(({ script, core }) => ({ script, core })),
+    // Daemons stopped on purpose (tools/kill.js) aren't missing.
+    expected: bootstrapping
+      ? []
+      : expected.filter((e) => e.when !== false && !stopped.includes(e.script)).map(({ script, core }) => ({ script, core })),
     cash,
     rates: {
       hacking: ratePerMin(ns, "counter/hacking", windowSec),
