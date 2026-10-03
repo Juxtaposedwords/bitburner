@@ -181,6 +181,15 @@
         "AUTO"
       ],
       "note": "phases replace the manual approach"
+    },
+    {
+      "id": "2026-10-03-augreport-1",
+      "script": "tools/augmentation_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/augmentation_report.txt"
+      ],
+      "note": "check The Red Pill path"
     }
   ]
 }

@@ -171,4 +171,7 @@ export async function main(ns: NS): Promise<void> {
   }
 
   ns.tprint(lines.join("\n"));
+  // --out <file>: the same report as a file, for build/bridge.mjs to copy out.
+  const outIdx = ns.args.indexOf("--out");
+  if (outIdx >= 0 && typeof ns.args[outIdx + 1] === "string") ns.write(ns.args[outIdx + 1] as string, lines.join("\n"), "w");
 }
