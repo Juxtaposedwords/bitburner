@@ -337,6 +337,26 @@
         "--out",
         "/var/claude_out/ram_report.txt"
       ]
+    },
+    {
+      "id": "2026-10-03-bn12-kill-study",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/study_daemon.js"
+      ],
+      "note": "idle in GANG phase; make room for sleeves"
+    },
+    {
+      "id": "2026-10-03-bn12-start-sleeves-2",
+      "script": "development/metadata/sleeve_daemon.js"
+    },
+    {
+      "id": "2026-10-03-bn12-ram-2",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ]
     }
   ]
 }
