@@ -357,6 +357,18 @@
         "--out",
         "/var/claude_out/ram_report.txt"
       ]
+    },
+    {
+      "id": "2026-10-03-bn12-kill-backdoor",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/backdoor_daemon.js"
+      ],
+      "note": "4 GB short for the sleeve daemon"
+    },
+    {
+      "id": "2026-10-03-bn12-start-sleeves-3",
+      "script": "development/metadata/sleeve_daemon.js"
     }
   ]
 }
