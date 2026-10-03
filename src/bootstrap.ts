@@ -35,6 +35,7 @@ const HOME = "home";
 // Reliable early money at low combat stats; it repeats on its own.
 const CRIME = "Mug";
 const TICK_MS = 10_000;
+const SLEEVE_KICK = "bootstrap_sleeves.js";
 const STATUS_FILE = "/var/bootstrap_status.txt";
 
 const OPENERS: [string, (ns: NS, host: string) => void][] = [
@@ -122,6 +123,8 @@ export async function main(ns: NS): Promise<void> {
   // Leave room on home to run boot.js at handoff.
   const homeKeepGb = ns.getScriptRam(BOOT, HOME);
   let target: string | undefined;
+  // Idle sleeves to crime once, before workers take the RAM (bootstrap_sleeves.ts).
+  if (ns.fileExists(SLEEVE_KICK, HOME)) ns.run(SLEEVE_KICK);
 
   while (true) {
     const required = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, HOME)));
