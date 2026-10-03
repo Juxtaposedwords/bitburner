@@ -1,112 +1,42 @@
 import { NS } from "@ns";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
-import * as server_metadata_pb from "development/metadata/server_metadata";
+import { backdoorTargets, HOME, readNetwork } from "development/libraries/network";
 
 /**
- * The second file (after tools/program_shopper.ts) allowed to import
- * ns.singularity - kept isolated from supervisor.ts/scheduler_daemon.ts/
- * everything else so its RAM cost never leaks into another script's
- * footprint (see server_metadata.md). Only launched by boot.ts when
- * PlayerMetadata.singularityAvailable is true.
+ * Backdoors every server worth it (network.ts's backdoorTargets: NPC,
+ * rooted, within hacking level, not done, never w0r1d_d43m0n), from
+ * network_daemon.ts's live snapshot. Kept apart from that daemon because
+ * ns.singularity's RAM cost belongs only here.
  */
-
-const HOME = "home";
-// Backdooring this ends the BitNode - see selectBackdoorTargets.
-export const WORLD_DAEMON = "w0r1d_d43m0n";
 const TICK_INTERVAL_MS = 5000;
 
-/**
- * Pure filter, no `ns` dependency - mirrors rooter.ts's selectRootable.
- * A server is worth backdooring once it's rooted, isn't already
- * backdoored, and is a real NPC server (backdoor is meaningless on home
- * and Hacknet/purchased servers can't be backdoored at all). rootStatus
- * alone isn't enough, though: rooting only requires enough open ports to
- * nuke, with no hacking-level check at all - installBackdoor needs the
- * same hacking-skill check as an actual hack (see server_metadata.md's
- * "two independent axes"), which is the separate, always-freshly-computed
- * hackStatus field.
- */
-export function selectBackdoorTargets(servers: server_metadata_pb.Metadata[]): server_metadata_pb.Metadata[] {
-  return servers.filter(
-    (server) =>
-      // Never w0r1d_d43m0n: backdooring it destroys the BitNode. Finishing a
-      // BitNode is the player's decision (e.g. BN10 is kept running to buy
-      // Covenant sleeves) - The Red Pill install that reveals it is automatic.
-      server.hostname !== WORLD_DAEMON &&
-      server.rootStatus === server_metadata_pb.RootStatus.ROOTED &&
-      server.hackStatus === server_metadata_pb.HackStatus.HACKABLE &&
-      server.kind === server_metadata_pb.ServerKind.NPC &&
-      !server.backdoorInstalled
-  );
-}
-
-/**
- * ns.singularity.connect can only hop to a direct neighbor (see
- * NetscriptDefinitions.d.ts) - walks pathFromHome ("home -> a -> b") hop by
- * hop rather than jumping straight to the target, then returns to home so
- * the terminal doesn't end up parked somewhere unexpected for the player's
- * own manual use. Returns false (leaving the target for the next pass)
- * if any hop fails, e.g. a stale pathFromHome from a network change.
- */
-async function backdoor(ns: NS, pathFromHome: string): Promise<boolean> {
-  const hops = pathFromHome.split(" -> ").filter((hop) => hop !== HOME);
-  for (const hop of hops) {
-    if (!ns.singularity.connect(hop)) return false;
-  }
-
+/** Walks `path` one hop at a time (connect only reaches neighbors), backdoors, and returns home. */
+async function backdoor(ns: NS, path: string[]): Promise<boolean> {
   try {
+    for (const hop of path) if (!ns.singularity.connect(hop)) return false;
     await ns.singularity.installBackdoor();
+    return true;
   } catch {
-    ns.singularity.connect(HOME);
     return false;
+  } finally {
+    ns.singularity.connect(HOME);
   }
-  ns.singularity.connect(HOME);
-  return true;
 }
 
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Backdoor", LOG_LEVEL.INFO);
-
   await log.info("=== Backdoor manager online ===");
 
-  const client = server_metadata_pb.NewSupervisorServiceClient(ns);
-
   while (true) {
-    const res = await client.ListServers({});
-    if (res.status !== Codes.OK) {
-      await log.warn(`[Backdoor] ListServers failed (${Codes[res.status]}): ${res.error}`);
-      await ns.asleep(TICK_INTERVAL_MS);
-      continue;
+    const network = readNetwork(ns);
+    for (const server of network ? backdoorTargets(network) : []) {
+      // The snapshot can be up to a tick old - check root live.
+      if (!ns.hasRootAccess(server.host)) continue;
+      await log.info(`[Backdoor] Backdooring ${server.host}...`);
+      if (await backdoor(ns, server.path)) await log.info(`[Backdoor] Backdoored ${server.host}.`);
+      else await log.warn(`[Backdoor] Couldn't reach or backdoor ${server.host}; leaving it for the next pass.`);
     }
-
-    const targets = selectBackdoorTargets(res.data?.servers ?? []);
-
-    for (const server of targets) {
-      if (!server.hostname || !server.pathFromHome) continue;
-      // The supervisor's ROOTED can run ahead of the game's (e.g. right after
-      // an install, before the rooter re-nukes) - installBackdoor throws then.
-      if (!ns.hasRootAccess(server.hostname)) continue;
-
-      await log.info(`[Backdoor] Backdooring ${server.hostname}...`);
-      const ok = await backdoor(ns, server.pathFromHome);
-      if (!ok) {
-        await log.warn(`[Backdoor] Couldn't reach or backdoor ${server.hostname}; leaving it for the next pass.`);
-        continue;
-      }
-
-      const patched = await client.PatchMetadata({ server: { hostname: server.hostname, backdoorInstalled: true } });
-      if (patched.status !== Codes.OK) {
-        await log.error(
-          `[Backdoor] Backdoored ${server.hostname} but failed to update its status (${Codes[patched.status]}): ${patched.error}`
-        );
-        continue;
-      }
-
-      await log.info(`[Backdoor] Backdoored ${server.hostname}.`);
-    }
-
     await ns.asleep(TICK_INTERVAL_MS);
   }
 }

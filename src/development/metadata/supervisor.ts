@@ -4,7 +4,6 @@ import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { applyDefined } from "development/libraries/merge";
 import * as rpc from "development/libraries/rpc";
 import { Codes } from "development/libraries/status";
-import { DispatchSnapshot, ROOTER_MARKER_PATH, scriptsToLaunch } from "development/metadata/dispatch";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
@@ -457,23 +456,6 @@ export async function main(ns: NS): Promise<void> {
     await flush(ns, log, config, dataDir, state);
   }, FLUSH_INTERVAL_MS);
 
-  // Dispatches one-shot jobs when the state that gates them changes (see
-  // dispatch.ts) — hackingLevel/portOpenersOwned come from the task above,
-  // which already refreshes them, so there's nothing new to read there;
-  // the rooter's completion marker is the one new (free) read here.
-  let lastSnapshot: DispatchSnapshot | undefined;
-  server.addBackgroundTask(async () => {
-    const snapshot: DispatchSnapshot = {
-      hackingLevel: state.player.hackingLevel ?? 0,
-      portOpenersOwned: state.player.portOpenersOwned ?? 0,
-      rooterMarker: ns.read(ROOTER_MARKER_PATH),
-    };
-    for (const { script, args } of scriptsToLaunch(lastSnapshot, snapshot)) {
-      ns.run(script, 1, ...(args ?? []));
-      await log.info(`[Dispatch] Launched ${script}${args ? ` ${args.join(" ")}` : ""}.`);
-    }
-    lastSnapshot = snapshot;
-  }, DISPATCH_CHECK_INTERVAL_MS);
 
   await log.info(`[Supervisor] Serving Supervisor RPC on Port ${server_metadata_pb.SupervisorServicePort}...`);
   await server.Serve();

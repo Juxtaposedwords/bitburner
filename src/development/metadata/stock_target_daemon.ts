@@ -1,7 +1,7 @@
 import { NS } from "@ns";
+import { readNetwork } from "development/libraries/network";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 import { WeightedServer, WeightsFile } from "development/metadata/target_selector";
 
@@ -103,8 +103,11 @@ export async function main(ns: NS): Promise<void> {
       // hackAnalyzeThreads accepts. Without this, a held-long stock whose
       // server is above our hacking level (megacorp at level 858, say)
       // would pin the whole fleet onto a target every batch tick skips.
-      const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({ eligibleOnly: true });
-      const weights = res.status === Codes.OK ? computeStockTargetWeights(res.data?.servers ?? [], longPositionCostBasis) : [];
+      const network = readNetwork(ns);
+      const eligible = (network?.servers ?? [])
+        .filter((s) => s.kind === "npc" && s.rooted && s.maxMoney > 0 && s.requiredLevel <= network!.hackingLevel)
+        .map((s) => ({ hostname: s.host, organization: s.organization }));
+      const weights = computeStockTargetWeights(eligible, longPositionCostBasis);
 
       const file: WeightsFile = { hackingLevel: 0, computedAt: Date.now(), weights };
       ns.write(config.weightsPath, JSON.stringify(file, null, 2), "w");

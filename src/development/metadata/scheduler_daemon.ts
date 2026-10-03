@@ -1,10 +1,10 @@
 import { NS } from "@ns";
+import { liveWorkerHosts } from "development/libraries/network";
 import { SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { applyDefined } from "development/libraries/merge";
 import * as rpc from "development/libraries/rpc";
-import { Codes } from "development/libraries/status";
 import {
   allocateAcrossHosts,
   Allocation,
@@ -182,19 +182,7 @@ const MAX_TARGETS = 24;
  * again.
  */
 async function listWorkerHosts(ns: NS): Promise<string[]> {
-  const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({});
-  if (res.status !== Codes.OK) return [];
-
-  return (res.data?.servers ?? [])
-    .filter(
-      (server) =>
-        server.rootStatus === server_metadata_pb.RootStatus.ROOTED &&
-        server.hostname !== HOME &&
-        server.kind !== server_metadata_pb.ServerKind.HACKNET
-    )
-    .map((server) => server.hostname as string)
-    // Actually nuked, not just nukeable (see resolveTarget).
-    .filter((host) => ns.hasRootAccess(host));
+  return liveWorkerHosts(ns);
 }
 
 /** Copies the three worker scripts to `host` if they're not already there. `ns.exec` requires the script to already exist on the destination — it doesn't copy for you. */
