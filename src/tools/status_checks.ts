@@ -86,6 +86,10 @@ export type SchedulerSummary = {
 
 /** What the scheduler's recent log says: current target, batch rate, and the latest warning. */
 export function summarizeScheduler(lines: string[]): SchedulerSummary {
+  // The scheduler logs a per-minute summary (per-batch lines are no longer
+  // written); older logs still have "Fired batch" lines.
+  const summaries = lines.map((l) => /Batch summary \(60s\): (\d+) batches across \d+ target\(s\), top (\S+);/.exec(l)).filter((m): m is RegExpExecArray => !!m);
+  const lastSummary = summaries[summaries.length - 1];
   const fired = lines.filter((l) => l.includes("Fired batch"));
   const lastTarget = [...lines]
     .reverse()
@@ -96,14 +100,14 @@ export function summarizeScheduler(lines: string[]): SchedulerSummary {
   if (span < 0) span += 24 * 3600; // crossed midnight
   const warnings = lines.filter((l) => l.includes("[WARN"));
   return {
-    target: lastTarget ? (lastTarget[1] ?? lastTarget[2] ?? lastTarget[3] ?? lastTarget[4])?.trim() : undefined,
-    fired: fired.length,
+    target: lastSummary ? lastSummary[2] : lastTarget ? (lastTarget[1] ?? lastTarget[2] ?? lastTarget[3] ?? lastTarget[4])?.trim() : undefined,
+    fired: fired.length + summaries.reduce((sum, m) => sum + Number(m[1]), 0),
     // Every target batched in the window (the scheduler runs several).
     targets: [...new Set(fired.map((l) => /Fired batch on ([^:]+):/.exec(l)?.[1]).filter((t): t is string => !!t))],
     prep: lines.filter((l) => l.includes("Prep ")).length,
     notHackable: lines.filter((l) => l.includes("not hackable")).length,
     noFit: lines.filter((l) => l.includes("doesn't fit")).length,
-    batchesPerMin: span > 0 ? ((times.length - 1) / span) * 60 : undefined,
+    batchesPerMin: lastSummary ? Number(lastSummary[1]) : span > 0 ? ((times.length - 1) / span) * 60 : undefined,
     // Drop every leading "[...]" group: time, PID, level, and the logger's prefixes.
     lastWarning: warnings.length > 0 ? warnings[warnings.length - 1].replace(/^(\[[^\]]*\]\s*)+/, "") : undefined,
   };
@@ -152,7 +156,7 @@ function schedulerChecks(s: StatusSnapshot): Finding[] {
   if (notHackable >= 5) findings.push({ level: "WARN", message: `Scheduler logged "not hackable" ${notHackable} times recently - batches aren't firing.` });
   const noFit = lines.filter((line) => line.includes("doesn't fit")).length;
   if (noFit >= 5) findings.push({ level: "info", message: `Scheduler: ${noFit} recent batches didn't fit in free RAM.` });
-  if (!lines.some((line) => line.includes("Fired batch") || line.includes("Prep "))) {
+  if (!lines.some((line) => line.includes("Fired batch") || line.includes("Prep ") || /Batch summary \(60s\): [1-9]/.test(line))) {
     findings.push({ level: "WARN", message: "Scheduler's recent log shows no batches and no prep." });
   }
   return findings;

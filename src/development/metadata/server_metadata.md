@@ -2057,3 +2057,17 @@ It pushes `dist/` on connect and on every change or delete, and fetches the defi
 example `run tools/status.js --verbose --out /var/claude_out/status.txt`. Queued commands plus the
 mirror give Claude a read/write loop with the game. `BRIDGE_PORT`, `BRIDGE_MIRROR` and
 `BRIDGE_DEFS` exist for testing against a fake game client.
+
+## Drift: streaks, not single readings
+
+Batches are planned from per-thread figures (`hackAnalyze`, `growthAnalyze`), not live money.
+Grow is sized for the fraction a hack really takes, since one thread can exceed `hackFraction` at
+high hacking level. Drift is judged by `driftVerdict` from one reading per target per tick:
+- **Security more than max(1, 5% of min) above min:** drift at once.
+- **Any other off reading:** only adds to a streak, and 10 in a row (`DRIFT_STREAK_TICKS`) means
+  drained. A mid-batch dip, where a hack has landed and its grow hasn't, lasts well under a second.
+
+Reading live state per batch had flagged about one drift a second across all targets in BN10,
+each idling a target for a full prep. That was most of the gap between planned $1,134T/min and
+actual $735T/min. The scheduler logs one `Batch summary (60s)` line per minute instead of a line
+per batch, which had rotated its log every 2 minutes. Status parses the summary.

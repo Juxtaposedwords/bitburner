@@ -18,6 +18,7 @@ import {
   nextHackFraction,
   prepThreadsNeeded,
   batchesPerTick,
+  driftVerdict,
   SCHEDULER_TARGETS_PATH,
   SchedulerTargetsFile,
   TargetIncome,
@@ -338,7 +339,7 @@ async function prepStep(ns: NS, log: Logger, target: string, config: scheduler_p
   }
   if (totalThreads === 0) return BATCH_CHECK_INTERVAL_MS * 5;
 
-  await log.debug(
+  await log.info(
     `[Scheduler] Prep ${action} on ${target}: security=${security.toFixed(2)}/${minSecurity.toFixed(2)} money=$${money.toFixed(0)}/$${maxMoney.toFixed(0)} ` +
       `${totalThreads} thread(s)${remaining > 0 ? ` (${remaining} more needed - no room)` : ""}.`
   );
@@ -362,28 +363,35 @@ async function fireBatchIfRoom(
   const hackFraction = config.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1;
   const spacingMs = config.spacingMs ?? DEFAULT_CONFIG.spacingMs ?? 200;
 
-  const maxMoney = ns.getServerMaxMoney(target);
-  const hackThreadsRaw = ns.hackAnalyzeThreads(target, maxMoney * hackFraction);
-  // -1 means unhackable right now: money below the requested amount, or
-  // hacking level too low. If the target has drifted off its min-security/
-  // max-money baseline, say so - the caller re-preps it. Prep used to run
-  // only on retarget, so a drained target stayed unbatchable forever (BN10:
-  // phantasy skipped every tick with zero hacking running).
-  if (hackThreadsRaw <= 0) {
-    const drifted =
-      decidePrepAction(
-        ns.getServerSecurityLevel(target),
-        ns.getServerMinSecurityLevel(target),
-        ns.getServerMoneyAvailable(target),
-        maxMoney
-      ) !== "done";
-    if (drifted) return "drifted";
-    await log.warn(`[Scheduler] ${target} not hackable for hackFraction ${hackFraction} right now (hackAnalyzeThreads returned ${hackThreadsRaw}); skipping tick.`);
+  // Planned from per-thread figures, not live money: with several batches
+  // in flight a target is usually mid-dip (a hack landed, its grow not yet),
+  // and reading live money there flagged ~1 drift a second (BN10), each
+  // idling a target for a full prep cycle.
+  const perThread = ns.hackAnalyze(target);
+  if (!(perThread > 0)) {
+    await log.warn(`[Scheduler] ${target} not hackable right now (hackAnalyze returned ${perThread}); skipping.`);
     return "ok";
   }
+  // One drift reading per tick (the first batch of the tick).
+  if (offsetMs === 0) {
+    const verdict = driftVerdict(
+      driftStreak.get(target) ?? 0,
+      ns.getServerSecurityLevel(target),
+      ns.getServerMinSecurityLevel(target),
+      ns.getServerMoneyAvailable(target),
+      ns.getServerMaxMoney(target),
+      DRIFT_STREAK_TICKS
+    );
+    driftStreak.set(target, verdict.streak);
+    if (verdict.drifted) return "drifted";
+  }
 
-  const hackThreads = Math.ceil(hackThreadsRaw);
-  const growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - hackFraction)));
+  const hackThreads = Math.max(1, Math.ceil(hackFraction / perThread));
+  // What the hack really takes: at high hacking level one thread can take
+  // more than hackFraction, and a grow sized for hackFraction then
+  // under-refills - more drift.
+  const takenFraction = Math.min(0.999, hackThreads * perThread);
+  const growThreads = Math.ceil(ns.growthAnalyze(target, 1 / (1 - takenFraction)));
 
   const plan = computeBatchPlan(
     {
@@ -461,13 +469,17 @@ async function fireBatchIfRoom(
   fireOn(WEAKEN_WORKER, weaken2, plan.weaken2DelayMs + offsetMs);
 
   const summarize = (group: Allocation[]): string => (group.length > 0 ? group.map((a) => `${a.threads}@${a.host}`).join("+") : "0");
-  await log.info(
+  await log.debug(
     `[Scheduler] Fired batch on ${target}: H${summarize(hack)}/W${summarize(weaken1)}/G${summarize(grow)}/W${summarize(weaken2)}.`
   );
   return "fired";
 }
 
 const TARGETS_WRITE_INTERVAL_MS = 5000;
+// Off readings in a row (one per tick) before a batching target counts as drifted (driftVerdict).
+const DRIFT_STREAK_TICKS = 10;
+// Per target: consecutive off readings (driftVerdict).
+const driftStreak = new Map<string, number>();
 
 /** Publishes each target's state and income (SCHEDULER_TARGETS_PATH), dropping fire times older than a minute. */
 function writeTargetIncome(ns: NS, hosts: string[], prepped: Set<string>, firedAt: Map<string, number[]>, hackFraction: number, now: number): void {
@@ -491,7 +503,9 @@ export async function main(ns: NS): Promise<void> {
   // DEBUG so a long-running prep phase (which used to log nothing at all
   // per iteration) is visible tick-by-tick, same reasoning as hacknet_daemon.ts/
   // purchased_server_daemon.ts (see server_metadata.md).
-  const log = createLogger(ns, "Scheduler", LOG_LEVEL.DEBUG);
+  // INFO: per-batch lines are DEBUG and dropped (thousands a minute rotated
+  // the log every 2 minutes); a summary is logged each minute instead.
+  const log = createLogger(ns, "Scheduler", LOG_LEVEL.INFO);
 
   const state = createSchedulerState(loadConfig(ns));
   const handlers = createHandlers(state, (config) => ns.write(CONFIG_PATH, JSON.stringify(config, null, 2), "w"));
@@ -507,6 +521,8 @@ export async function main(ns: NS): Promise<void> {
   // Batch fire times per target over the last minute (writeTargetIncome).
   const firedAt = new Map<string, number[]>();
   let lastTargetsWrite = 0;
+  let lastSummary = Date.now();
+  let drifts = 0;
   // Auto-scaled hackFraction (adjustHackFraction), starting from the saved
   // value, else the config's.
   const tuning: Tuning = {
@@ -573,6 +589,7 @@ export async function main(ns: NS): Promise<void> {
       }
       if (result === "drifted") {
         prepped.delete(host);
+        drifts++;
         await log.warn(`[Scheduler] ${host} drifted off min-security/max-money; re-prepping before more batches.`);
       }
       if (result === "noFit") {
@@ -581,6 +598,14 @@ export async function main(ns: NS): Promise<void> {
       }
     }
     if (auto) await adjustHackFraction(ns, log, targets[0].host, state.config, tuning);
+    if (now - lastSummary >= 60_000) {
+      const fired = [...firedAt.entries()].map(([host, times]) => ({ host, n: times.filter((t) => now - t < 60_000).length }));
+      const total = fired.reduce((sum, f) => sum + f.n, 0);
+      const top = fired.reduce((a, b) => (b.n > a.n ? b : a), { host: "none", n: 0 }).host;
+      await log.info(`[Scheduler] Batch summary (60s): ${total} batches across ${targets.length} target(s), top ${top}; ${drifts} drift re-prep(s).`);
+      lastSummary = now;
+      drifts = 0;
+    }
     if (now - lastTargetsWrite >= TARGETS_WRITE_INTERVAL_MS) {
       lastTargetsWrite = now;
       writeTargetIncome(ns, targets.map((t) => t.host), prepped, firedAt, batchConfig.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1, now);

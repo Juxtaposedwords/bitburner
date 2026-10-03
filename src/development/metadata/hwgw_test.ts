@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { batchesPerTick, allocateAcrossHosts, computeBatchPlan, decidePrepAction, homeWorkerCapacity, homeWorkerRam, nextHackFraction, prepThreadsNeeded, selectTargets } from "development/metadata/hwgw";
+import { batchesPerTick, driftVerdict, allocateAcrossHosts, computeBatchPlan, decidePrepAction, homeWorkerCapacity, homeWorkerRam, nextHackFraction, prepThreadsNeeded, selectTargets } from "development/metadata/hwgw";
 
 // hackTime = 1000ms, growTime = 3.2x, weakenTime = 4x — the fixed ratios
 // Bitburner uses for a given security/hacking-level snapshot.
@@ -270,5 +270,20 @@ describe("batchesPerTick", () => {
     expect(batchesPerTick(1000, 200)).toBe(1);
     expect(batchesPerTick(1000, 50)).toBe(5);
     expect(batchesPerTick(1000, 0)).toBe(1);
+  });
+});
+
+describe("driftVerdict", () => {
+  it("ignores a mid-batch dip, counting it toward a streak", () => {
+    expect(driftVerdict(0, 33.01, 33, 1e11, 1e12, 10)).toEqual({ drifted: false, streak: 1 });
+  });
+
+  it("calls drift after streakTicks off readings in a row, and resets on a clean one", () => {
+    expect(driftVerdict(9, 33.01, 33, 1e11, 1e12, 10)).toEqual({ drifted: true, streak: 0 });
+    expect(driftVerdict(5, 33, 33, 1e12, 1e12, 10)).toEqual({ drifted: false, streak: 0 });
+  });
+
+  it("calls drift at once when security climbs well past min", () => {
+    expect(driftVerdict(0, 40, 33, 1e12, 1e12, 10)).toEqual({ drifted: true, streak: 0 });
   });
 });

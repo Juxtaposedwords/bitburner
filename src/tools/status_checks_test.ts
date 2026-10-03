@@ -148,6 +148,11 @@ describe("summarizeScheduler", () => {
     expect(summary.lastWarning).toMatch(/^Batch for silver-helix doesn't fit/);
   });
 
+  it("reads the per-minute batch summary", () => {
+    const summary = summarizeScheduler(["[1:00:00 PM] [PID: 1] [INFO ] [Scheduler] [Scheduler] Batch summary (60s): 1700 batches across 24 target(s), top ecorp; 2 drift re-prep(s)."]);
+    expect(summary).toMatchObject({ target: "ecorp", fired: 1700, batchesPerMin: 1700 });
+  });
+
   it("finds the target from prep and not-hackable lines", () => {
     expect(summarizeScheduler(["[1:00:00 PM] [PID: 1] [DEBUG] [Scheduler] [Scheduler] Prep weaken on ecorp: security=1/1"]).target).toBe("ecorp");
     expect(summarizeScheduler(["[1:00:00 PM] [PID: 1] [WARN ] [Scheduler] [Scheduler] phantasy not hackable for hackFraction 0.05"]).target).toBe("phantasy");

@@ -275,3 +275,25 @@ export function topEarner(targets: TargetIncome[]): TargetIncome | undefined {
   const batching = targets.filter((t) => t.state === "batching" && t.incomePerMin > 0);
   return batching.length === 0 ? undefined : batching.reduce((a, b) => (b.incomePerMin > a.incomePerMin ? b : a));
 }
+
+/**
+ * Whether a batching target has really drifted (needs a prep), from one
+ * reading per tick. Mid-batch a target is often off - a hack landed, its
+ * grow not yet - for a fraction of a second, so an off reading alone only
+ * adds to a streak; `streakTicks` off readings in a row (a dip doesn't last
+ * that long) mean it's drained. Security far above min (more than in-flight
+ * batches add) means drift at once.
+ */
+export function driftVerdict(
+  streak: number,
+  security: number,
+  minSecurity: number,
+  money: number,
+  maxMoney: number,
+  streakTicks: number
+): { drifted: boolean; streak: number } {
+  if (security > minSecurity + Math.max(1, 0.05 * minSecurity)) return { drifted: true, streak: 0 };
+  if (decidePrepAction(security, minSecurity, money, maxMoney) === "done") return { drifted: false, streak: 0 };
+  const next = streak + 1;
+  return next >= streakTicks ? { drifted: true, streak: 0 } : { drifted: false, streak: next };
+}
