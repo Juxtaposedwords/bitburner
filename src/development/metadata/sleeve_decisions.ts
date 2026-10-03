@@ -321,3 +321,19 @@ export function pickSleeveAug(options: SleeveAugOption[], budget: number): Sleev
   );
   return useful.length === 0 ? undefined : useful.reduce((a, b) => (b.cost < a.cost ? b : a));
 }
+
+export type SleeveConfig = {
+  enabled: boolean;
+  maxShock: number;
+  minSync: number;
+  // BitNode 10: fraction of cash above the shared savings target spent on
+  // new sleeves and memory upgrades (decideSleeveInvestment).
+  investSpendFraction: number;
+};
+
+export const DEFAULT_CONFIG: SleeveConfig = { enabled: true, maxShock: 0, minSync: 100, investSpendFraction: 0.5 };
+export const CONFIG_PATH = "/etc/sleeve.txt";
+
+/** What sleeve_shop.ts last saw and did: next Covenant sleeve's price, the game's last refusal, augmentations per sleeve. */
+export const SLEEVE_SHOP_PATH = "/var/sleeve_shop.txt";
+export type SleeveShopFile = { nextSleeveCost?: number; lastMessage?: string; augs: number[]; writtenAt: number };

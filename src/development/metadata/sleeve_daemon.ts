@@ -18,17 +18,22 @@ import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/ga
 import { Approach } from "development/metadata/scheduler";
 import {
   bestCrimeBy,
+  CONFIG_PATH,
   COVENANT,
   decideSleeveGoals,
   decideSleeveInvestment,
+  DEFAULT_CONFIG,
   describeGoal,
   pickSleeveAug,
+  SLEEVE_SHOP_PATH,
   SLEEVE_STATE_PATH,
+  SleeveConfig,
   SleeveGoal,
   SleeveMemory,
   SLEEVES_PATH,
   sleevesAvailable,
   SleevesFile,
+  SleeveShopFile,
   sleeveTrainingPaysOff,
   syncPaysOff,
   taskMatchesGoal,
@@ -56,103 +61,7 @@ type FactionWorkTypeType = Parameters<NS["sleeve"]["setToFactionWork"]>[2];
  * 10) - ns.sleeve throws otherwise. Every sleeve function costs 4 GB, which
  * a big home absorbs easily; it launches after the income daemons.
  */
-type SleeveConfig = {
-  enabled: boolean;
-  maxShock: number;
-  minSync: number;
-  // BitNode 10: fraction of cash above the shared savings target spent on
-  // new sleeves and memory upgrades (decideSleeveInvestment).
-  investSpendFraction: number;
-};
 
-const DEFAULT_CONFIG: SleeveConfig = { enabled: true, maxShock: 0, minSync: 100, investSpendFraction: 0.5 };
-// Memory upgrades bought per tick at most, re-deciding after each.
-const MAX_MEMORY_UPGRADES_PER_TICK = 20;
-// Sleeve augmentations bought per tick at most, re-deciding after each.
-const MAX_SLEEVE_AUGS_PER_TICK = 20;
-// getAugmentationStats results never change - cached by name.
-const augStatsCache = new Map<string, Record<string, number>>();
-
-/**
- * Buys sleeve augmentations (pickSleeveAug): the cheapest useful one each
- * round, within investSpendFraction of cash above the savings target,
- * after this tick's sleeve and memory purchases. Any BitNode with sleeves.
- */
-async function buySleeveAugs(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
-  const statsOf = (name: string): Record<string, number> => {
-    let stats = augStatsCache.get(name);
-    if (!stats) {
-      stats = ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>;
-      augStatsCache.set(name, stats);
-    }
-    return stats;
-  };
-  for (let i = 0; i < MAX_SLEEVE_AUGS_PER_TICK; i++) {
-    const budget = Math.max(0, ns.getServerMoneyAvailable("home") - effectiveReserve(0, readSavings(ns))) * config.investSpendFraction;
-    const options = Array.from({ length: ns.sleeve.getNumSleeves() }, (_, index) => {
-      const shock = ns.sleeve.getSleeve(index).shock;
-      return ns.sleeve.getSleevePurchasableAugs(index).map((aug) => ({ index, name: aug.name, cost: aug.cost, stats: statsOf(aug.name), shock }));
-    }).flat();
-    const pick = pickSleeveAug(options, budget);
-    if (!pick) return;
-    if (!ns.sleeve.purchaseSleeveAug(pick.index, pick.name)) {
-      await log.warn(`[Sleeve] Couldn't buy ${pick.name} for sleeve ${pick.index}.`);
-      return;
-    }
-    await log.info(`[Sleeve] Bought ${pick.name} for sleeve ${pick.index} ($${(pick.cost / 1e9).toFixed(2)}B).`);
-  }
-}
-
-// The game's last answer to purchaseSleeve - logged only when it changes.
-let lastSleeveMessage: string | undefined;
-
-/**
- * BitNode 10: buy a sleeve from The Covenant and upgrade memory, within
- * investSpendFraction of cash above the savings target. Returns what the
- * status file shows about it, or undefined outside BitNode 10.
- */
-async function investInSleeves(ns: NS, log: Logger, config: SleeveConfig, node: number | undefined, factions: string[]): Promise<SleevesFile["shop"]> {
-  if (node !== 10) return undefined;
-  const covenantMember = factions.includes(COVENANT);
-  for (let i = 0; i < MAX_MEMORY_UPGRADES_PER_TICK; i++) {
-    const money = ns.getServerMoneyAvailable("home");
-    const savings = readSavings(ns);
-    // The faction daemon saving for this sleeve (sleeveSavings): every other
-    // spender is holding back for it, so buy with the full balance.
-    const savingForSleeve = savings?.reason === SLEEVE_SAVINGS_REASON;
-    const budget = savingForSleeve ? money : Math.max(0, money - effectiveReserve(0, savings)) * config.investSpendFraction;
-    const memory = Array.from({ length: ns.sleeve.getNumSleeves() }, (_, index) => ({
-      index,
-      memory: ns.sleeve.getSleeve(index).memory,
-      upgradeCost: ns.sleeve.getMemoryUpgradeCost(index, 1),
-    }));
-    const decision = decideSleeveInvestment(node, covenantMember, budget, ns.sleeve.getSleeveCost(), memory);
-
-    if (decision.buySleeve) {
-      // Needs only BN10, Covenant membership and cash; a refusal's message
-      // says which (logged once per change).
-      const result = ns.sleeve.purchaseSleeve();
-      if (result.success) {
-        await log.info(`[Sleeve] Bought a new sleeve from ${COVENANT} (now ${ns.sleeve.getNumSleeves()}).`);
-        lastSleeveMessage = undefined;
-        continue;
-      }
-      if (result.message !== lastSleeveMessage) {
-        lastSleeveMessage = result.message;
-        await log.info(`[Sleeve] Couldn't buy a sleeve yet: ${result.message}`);
-      }
-    }
-    if (decision.memoryFor === undefined) break;
-    const upgrade = ns.sleeve.upgradeMemory(decision.memoryFor, 1);
-    if (!upgrade.success) {
-      await log.warn(`[Sleeve] Memory upgrade for sleeve ${decision.memoryFor} failed: ${upgrade.message}`);
-      break;
-    }
-    await log.info(`[Sleeve] Upgraded sleeve ${decision.memoryFor}'s memory to ${ns.sleeve.getSleeve(decision.memoryFor).memory}.`);
-  }
-  return { nextSleeveCost: ns.sleeve.getSleeveCost(), lastMessage: lastSleeveMessage };
-}
-const CONFIG_PATH = "/etc/sleeve.txt";
 const TICK_INTERVAL_MS = 10_000;
 // faction_daemon.ts writes every 5s; allow a few missed writes.
 const REPS_MAX_AGE_MS = 60_000;
@@ -345,6 +254,19 @@ function syncFirst(ns: NS, index: number, sync: number, memory: SleeveMemory, co
   return syncPaysOff(karma - GANG_KARMA_REQUIREMENT, playerKarmaRate(ns), sleeveRateAtFull, sync, memory.syncPerMin);
 }
 
+const SHOP_SCRIPT = "development/metadata/sleeve_shop.js";
+const SHOP_INTERVAL_MS = 60_000;
+let lastShopRun = 0;
+
+/** sleeve_shop.ts's last report (SLEEVE_SHOP_PATH), any age. */
+function readShopFile(ns: NS): SleeveShopFile | undefined {
+  try {
+    return (JSON.parse(ns.read(SLEEVE_SHOP_PATH) || "null") as SleeveShopFile | null) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
   const info = readBitNodeInfo(ns);
   const count = ns.sleeve.getNumSleeves();
@@ -406,11 +328,14 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
     }
   }
 
-  const shop = await investInSleeves(ns, log, config, info?.node, player.factions as string[]);
-  await buySleeveAugs(ns, log, config);
+  // Buying (sleeves, memory, augmentations) is a separate one-shot - its
+  // API calls cost ~30 GB, too much to keep resident (sleeve_shop.ts).
+  if (Date.now() - lastShopRun >= SHOP_INTERVAL_MS && !ns.isRunning(SHOP_SCRIPT, "home") && ns.run(SHOP_SCRIPT) !== 0) lastShopRun = Date.now();
+  const shopFile = readShopFile(ns);
+  const shop = shopFile ? { nextSleeveCost: shopFile.nextSleeveCost ?? Infinity, lastMessage: shopFile.lastMessage } : undefined;
   const status: SleevesFile = {
     shop,
-    sleeves: sleeves.map((s, i) => ({ ...s, goal: describeGoal(goals[i]), syncPerMin: memory[i]?.syncPerMin, memory: ns.sleeve.getSleeve(i).memory, augs: ns.sleeve.getSleeveAugmentations(i).length })),
+    sleeves: sleeves.map((s, i) => ({ ...s, goal: describeGoal(goals[i]), syncPerMin: memory[i]?.syncPerMin, memory: ns.sleeve.getSleeve(i).memory, augs: shopFile?.augs?.[i] })),
     writtenAt: Date.now(),
   };
   ns.write(SLEEVES_PATH, JSON.stringify(status), "w");

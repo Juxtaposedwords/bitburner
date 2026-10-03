@@ -329,6 +329,14 @@
         "--out",
         "/var/claude_out/status.txt"
       ]
+    },
+    {
+      "id": "2026-10-03-bn12-ram-1",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ]
     }
   ]
 }
