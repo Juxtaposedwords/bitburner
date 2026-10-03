@@ -205,6 +205,15 @@
         "true"
       ],
       "note": "5th sleeve bought and all memory 100: finish BN10"
+    },
+    {
+      "id": "2026-10-03-finish-bn10",
+      "script": "tools/finish_bitnode.js",
+      "args": [
+        12,
+        "--confirm"
+      ],
+      "note": "BN10 done (5 Covenant sleeves, memory 100); on to BitNode 12"
     }
   ]
 }

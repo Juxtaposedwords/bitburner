@@ -99,6 +99,11 @@ async function launchAndWait(ns: NS, script: string, timeoutMs: number): Promise
 }
 
 export async function main(ns: NS): Promise<void> {
+  // The bootstrap hands off through `program_shopper.js --once`, which runs
+  // this and then exits - but this starts while the shopper is still in
+  // memory, and on a fresh 32 GB home bootstrap.js then didn't fit:
+  // "failed to launch", and nothing was left running. Wait for it to exit.
+  for (let i = 0; i < 50 && ns.isRunning(PROGRAM_SHOPPER_SCRIPT, "home", "--once"); i++) await ns.asleep(100);
   // Low-RAM startup: while home can't hold the full system's core
   // (bootstrap_plan.ts), run the self-contained bootstrap.js instead of
   // starting daemons that won't fit - it hands back to boot.js once home is
