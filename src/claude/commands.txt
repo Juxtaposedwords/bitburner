@@ -284,6 +284,51 @@
         "/var/claude_out/status.txt"
       ],
       "note": "BN12 check"
+    },
+    {
+      "id": "2026-10-03-bn12-killprep-global-pharm",
+      "script": "tools/kill_workers.js",
+      "args": [
+        "global-pharm"
+      ],
+      "note": "prep workers for a dropped target hold the fleet"
+    },
+    {
+      "id": "2026-10-03-bn12-killprep-univ-energy",
+      "script": "tools/kill_workers.js",
+      "args": [
+        "univ-energy"
+      ],
+      "note": "prep workers for a dropped target hold the fleet"
+    },
+    {
+      "id": "2026-10-03-bn12-kill2-0",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/stock_daemon.js"
+      ],
+      "note": "no TIX yet; free RAM for sleeves"
+    },
+    {
+      "id": "2026-10-03-bn12-kill2-1",
+      "script": "tools/kill.js",
+      "args": [
+        "development/metadata/stock_target_daemon.js"
+      ],
+      "note": "no TIX yet; free RAM for sleeves"
+    },
+    {
+      "id": "2026-10-03-bn12-boot-2",
+      "script": "boot.js"
+    },
+    {
+      "id": "2026-10-03-bn12-status-3",
+      "script": "tools/status.js",
+      "args": [
+        "--verbose",
+        "--out",
+        "/var/claude_out/status.txt"
+      ]
     }
   ]
 }
