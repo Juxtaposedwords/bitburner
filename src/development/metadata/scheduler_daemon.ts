@@ -1,4 +1,7 @@
 import { NS } from "@ns";
+import { MANAGED_DAEMONS } from "development/libraries/reload_plan";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
+import { sleevesAvailable } from "development/metadata/sleeve_decisions";
 import { liveWorkerHosts } from "development/libraries/network";
 import { SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
 import { loadJsonConfig } from "development/libraries/config";
@@ -211,8 +214,30 @@ async function currentHackingLevel(ns: NS): Promise<number> {
 function homeReserveArgs(config: scheduler_pb.SchedulerConfig): [number, number] {
   return [
     config.homeFallbackHackingLevel ?? DEFAULT_CONFIG.homeFallbackHackingLevel ?? 50,
-    config.homeReservedRamGb ?? DEFAULT_CONFIG.homeReservedRamGb ?? 5,
+    (config.homeReservedRamGb ?? DEFAULT_CONFIG.homeReservedRamGb ?? 5) + pendingDaemonRam,
   ];
+}
+
+// RAM the managed daemons not yet running on home need (refreshPendingDaemonRam).
+let pendingDaemonRam = 0;
+
+/**
+ * Keeps room on home for managed daemons that aren't running yet, so the
+ * reloader or boot can start them: workers used to fill home down to a
+ * 64 GB reserve, and on BN12's fresh 256 GB home the 96 GB sleeve daemon
+ * (and monitoring, share, purchased-server) could never start. Daemons for
+ * features this BitNode doesn't have (sleeves, gangs) don't count.
+ */
+function refreshPendingDaemonRam(ns: NS): void {
+  const info = readBitNodeInfo(ns);
+  const running = new Set(ns.ps(HOME).map((p) => p.filename.replace(/^\//, "")));
+  const unavailable = new Set<string>();
+  if (!sleevesAvailable(info?.node, info?.sourceFiles)) unavailable.add("development/metadata/sleeve_daemon.js");
+  if (!(info?.node === 2 || (info?.sourceFiles["2"] ?? 0) >= 1)) unavailable.add("development/metadata/gang_daemon.js");
+  pendingDaemonRam = MANAGED_DAEMONS.filter((script) => !running.has(script) && !unavailable.has(script)).reduce(
+    (sum, script) => sum + ns.getScriptRam(script, HOME),
+    0
+  );
 }
 
 async function getWorkerCapacities(ns: NS, config: scheduler_pb.SchedulerConfig): Promise<HostCapacity[]> {
@@ -546,6 +571,7 @@ export async function main(ns: NS): Promise<void> {
     // One target at a time capped income at what one server can give:
     // BN10 ran 1% of 137 TB at hacking 6541.
     const now = Date.now();
+    refreshPendingDaemonRam(ns);
     const ranked = rankedTargets(ns, state.config);
     const prepping = new Set(targets.map((t) => t.host).filter((host) => !prepped.has(host)));
     const next = selectTargets(targets, ranked, state.config.targetOverride ? 1 : MAX_TARGETS, now, TARGET_MIN_HOLD_MS, prepping);

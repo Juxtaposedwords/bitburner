@@ -209,5 +209,5 @@ export async function main(ns: NS): Promise<void> {
   }
   // For the reloader: revive these whenever they're missing, even after a
   // game restart it never saw them through (EXPECTED_DAEMONS_PATH).
-  ns.write(EXPECTED_DAEMONS_PATH, JSON.stringify(started), "w");
+  ns.write(EXPECTED_DAEMONS_PATH, JSON.stringify({ daemons: started, writtenAt: Date.now() }), "w");
 }

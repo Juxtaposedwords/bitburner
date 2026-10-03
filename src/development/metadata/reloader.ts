@@ -15,6 +15,7 @@ import {
   Tracked,
 } from "development/libraries/reload_plan";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 
 /**
  * Keeps the managed daemons running current code (see reload_plan.ts):
@@ -56,8 +57,11 @@ function readSavedSignatures(ns: NS): Record<string, string> {
 /** Managed daemons boot.js started (EXPECTED_DAEMONS_PATH); [] if it hasn't run or the file is unreadable. */
 function readExpectedDaemons(ns: NS): string[] {
   try {
-    const list = JSON.parse(ns.read(EXPECTED_DAEMONS_PATH) || "[]") as unknown;
-    return Array.isArray(list) ? list.map(String).map((f) => f.replace(/^\//, "")).filter((f) => MANAGED_DAEMONS.includes(f)) : [];
+    const file = JSON.parse(ns.read(EXPECTED_DAEMONS_PATH) || "null") as { daemons?: unknown; writtenAt?: number } | null;
+    // Only this BitNode's list: the reloader starts during boot, before
+    // boot writes the new one, and BN12 began by chasing BN10's daemons.
+    if (!file || !Array.isArray(file.daemons) || (file.writtenAt ?? 0) < (readBitNodeInfo(ns)?.lastNodeReset ?? 0)) return [];
+    return file.daemons.map(String).map((f) => f.replace(/^\//, "")).filter((f) => MANAGED_DAEMONS.includes(f));
   } catch {
     return [];
   }
@@ -112,11 +116,17 @@ export async function main(ns: NS): Promise<void> {
   // Seeded with what boot.js started (EXPECTED_DAEMONS_PATH), so a daemon
   // missing after a game restart is revived too, not just ones that die
   // while this reloader watches.
-  for (const file of readExpectedDaemons(ns)) seen.set(daemonKey(file, []), { filename: file, threads: 1, args: [] });
   const revivals = new Map<string, number[]>();
+  // Daemons a revival couldn't start (no RAM) - reported once, not counted as crashes.
+  const startFailed = new Set<string>();
   const givenUp = new Set<string>();
 
   while (true) {
+    // Re-read every check: boot writes this BitNode's list after starting us.
+    for (const file of readExpectedDaemons(ns)) {
+      const key = daemonKey(file, []);
+      if (!seen.has(key)) seen.set(key, { filename: file, threads: 1, args: [] });
+    }
     const processes = ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
     const sources = new Map<string, string>();
     // An unreadable path counts as an empty file rather than crashing the loop.
@@ -168,11 +178,22 @@ export async function main(ns: NS): Promise<void> {
       const d = seen.get(key) as SeenDaemon;
       const dead = ns.getRecentScripts().find((r) => r.filename.replace(/^\//, "") === d.filename.replace(/^\//, ""));
       const tail = dead ? dead.logs.slice(-CRASH_LOG_LINES).map(String).join(" | ") : "no log kept";
+      const pid = ns.run(d.filename, d.threads, ...d.args);
+      if (pid === 0) {
+        // Not a crash - no room yet (e.g. a fresh BitNode's small home). Not
+        // counted toward giving up: that once gave up on four daemons for
+        // an hour within 30 seconds of starting.
+        if (!startFailed.has(key)) await log.warn(`[Reloader] ${d.filename} isn't running and can't start yet (RAM?); will keep trying.`);
+        startFailed.add(key);
+        continue;
+      }
       revivals.set(key, [...(revivals.get(key) ?? []).filter((t) => Date.now() - t < 3600_000), Date.now()]);
       givenUp.delete(key);
-      const pid = ns.run(d.filename, d.threads, ...d.args);
+      const wasStartFailure = startFailed.delete(key);
       await log.warn(
-        `[Reloader] ${d.filename} stopped running; ${pid === 0 ? "couldn't restart it (RAM?)" : `restarted (pid ${pid})`}. Its last log lines: ${tail}`
+        wasStartFailure
+          ? `[Reloader] Started ${d.filename} (pid ${pid}) now that there's room.`
+          : `[Reloader] ${d.filename} stopped running; restarted (pid ${pid}). Its last log lines: ${tail}`
       );
     }
     for (const key of giveUp) {
