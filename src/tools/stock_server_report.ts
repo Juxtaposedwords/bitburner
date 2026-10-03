@@ -1,6 +1,5 @@
 import { NS } from "@ns";
-import { RootStatus } from "development/metadata/server_metadata";
-import * as server_metadata_pb from "development/metadata/server_metadata";
+import { readNetwork } from "development/libraries/network";
 
 /**
  * One-shot: cross-references every known server's `organization` (already
@@ -25,12 +24,11 @@ export async function main(ns: NS): Promise<void> {
   const orgToSymbol = new Map<string, string>();
   for (const sym of symbols) orgToSymbol.set(ns.stock.getOrganization(sym), sym);
 
-  const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({});
-  const servers = res.data?.servers ?? [];
+  const servers = readNetwork(ns, Infinity)?.servers ?? [];
 
   const linked = servers
     .filter((s) => s.organization && orgToSymbol.has(s.organization))
-    .map((s) => ({ server: s, sym: orgToSymbol.get(s.organization as string) as string }));
+    .map((s) => ({ server: s, sym: orgToSymbol.get(s.organization) as string }));
 
   const has4S = ns.stock.has4SDataTixApi();
 
@@ -41,8 +39,8 @@ export async function main(ns: NS): Promise<void> {
   for (const { server, sym } of linked) {
     const forecast = has4S ? ns.stock.getForecast(sym).toFixed(2) : "n/a (no 4S data yet)";
     lines.push(
-      `${server.hostname} -> ${sym} (${server.organization}) | forecast=${forecast} price=$${ns.stock.getPrice(sym).toFixed(2)} ` +
-        `rooted=${server.rootStatus === RootStatus.ROOTED} maxMoney=$${(server.maxMoney ?? 0).toFixed(0)}`
+      `${server.host} -> ${sym} (${server.organization}) | forecast=${forecast} price=$${ns.stock.getPrice(sym).toFixed(2)} ` +
+        `rooted=${server.rooted} maxMoney=$${server.maxMoney.toFixed(0)}`
     );
   }
 

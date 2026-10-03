@@ -44,23 +44,12 @@ const DAEMONS = [
   "tools/log_rotator.js",
   "development/metadata/player.js",
   "development/metadata/reloader.js",
+  "development/metadata/network_daemon.js",
 ];
 
-// Run once and exit, in order — each one is a prerequisite for the next, not
-// just "launched earlier": rooter.js needs crawl_servers.js to have
-// actually *finished* populating supervisor (so it has UNROOTABLE/ROOTABLE
-// facts to act on), and target_selector.js needs rooter.js to have finished
-// too, so a first boot doesn't rank purely off whatever was already rooted
-// from a previous session. Supervisor's own dispatch background task (see
-// dispatch.ts) can't cover this cold-start case on its own — it only fires
-// on a *change* from a previous reading, and there is no previous reading
-// yet at boot. Launched after the daemons above so supervisor is already
-// starting up by the time the first one tries to RPC it.
-const ONE_SHOT = [
-  "development/metadata/crawl_servers.js",
-  "development/metadata/rooter.js",
-  "development/metadata/target_selector.js",
-];
+// network_daemon.js (above) roots, snapshots and ranks every 10s; nothing
+// needs running once in order any more.
+const ONE_SHOT: string[] = [];
 
 const ONE_SHOT_TIMEOUT_MS = 60_000;
 

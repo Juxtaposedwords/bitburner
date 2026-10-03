@@ -2,8 +2,6 @@ import { NS } from "@ns";
 import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
-import { toServerMetadata } from "development/metadata/crawl_servers";
 import { decideServerInvestment } from "development/metadata/purchased_server_decisions";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as server_metadata_pb from "development/metadata/server_metadata";
@@ -53,7 +51,6 @@ export async function main(ns: NS): Promise<void> {
   // purchases/upgrades - a "none" decision otherwise looks identical to a
   // hung process from the logs alone (see server_metadata.md).
   const log = createLogger(ns, "PurchasedServer", LOG_LEVEL.DEBUG);
-  const supervisorClient = server_metadata_pb.NewSupervisorServiceClient(ns);
 
   await log.info("=== Purchased-server manager online ===");
 
@@ -66,13 +63,8 @@ export async function main(ns: NS): Promise<void> {
         .GetPlayerMetadata({});
       const money = playerRes.data?.player?.money ?? 0;
 
-      // SupervisorService is the single source of truth for what's owned -
-      // see server_metadata.md - not a second, redundant ns.cloud.getServerNames()
-      // view of the same fleet.
-      const listRes = await supervisorClient.ListServers({});
-      const owned = (listRes.status === Codes.OK ? (listRes.data?.servers ?? []) : [])
-        .filter((s): s is typeof s & { hostname: string } => s.kind === server_metadata_pb.ServerKind.PURCHASED && !!s.hostname)
-        .map((s) => ({ host: s.hostname, ram: s.maxRam ?? 0 }));
+      // Owned servers straight from the game (the supervisor's registry is gone).
+      const owned = ns.cloud.getServerNames().map((host) => ({ host, ram: ns.getServerMaxRam(host) }));
 
       const ramLimit = ns.cloud.getRamLimit();
       const atServerLimit = owned.length >= ns.cloud.getServerLimit();
@@ -99,23 +91,9 @@ export async function main(ns: NS): Promise<void> {
 
       if (decision.kind === "buyNew") {
         const host = ns.cloud.purchaseServer(nextHostname(config.hostnamePrefix, owned), decision.ram);
-        if (host) {
-          await supervisorClient.UpdateMetadata({
-            server: toServerMetadata(host, `home -> ${host}`, ns.getServer(host)),
-          });
-          await log.info(`[PurchasedServer] Purchased ${host} with ${decision.ram} GB.`);
-        }
+        if (host) await log.info(`[PurchasedServer] Purchased ${host} with ${decision.ram} GB.`);
       } else if (decision.kind === "upgrade") {
-        if (ns.cloud.upgradeServer(decision.host, decision.ram)) {
-          await supervisorClient.PatchMetadata({
-            server: {
-              hostname: decision.host,
-              maxRam: ns.getServerMaxRam(decision.host),
-              ramAvailable: ns.getServerMaxRam(decision.host) - ns.getServerUsedRam(decision.host),
-            },
-          });
-          await log.info(`[PurchasedServer] Upgraded ${decision.host} to ${decision.ram} GB.`);
-        }
+        if (ns.cloud.upgradeServer(decision.host, decision.ram)) await log.info(`[PurchasedServer] Upgraded ${decision.host} to ${decision.ram} GB.`);
       }
     }
 

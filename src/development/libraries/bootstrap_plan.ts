@@ -18,6 +18,7 @@ export const CORE_SCRIPTS = [
   "development/metadata/supervisor.js",
   "tools/log_rotator.js",
   "development/metadata/player.js",
+  "development/metadata/network_daemon.js",
   "development/metadata/scheduler_daemon.js",
   "tools/program_shopper.js",
   "development/metadata/faction_daemon.js",

@@ -1,9 +1,7 @@
 import { NS } from "@ns";
 import { loadJsonConfig } from "development/libraries/config";
-import { createLogger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
-import { FORCE_ARG } from "development/metadata/dispatch";
-import { PORT_OPENERS, root } from "development/metadata/rooter";
+import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
+import { scanWithPaths } from "development/libraries/network";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 const CONFIG_PATH = "/etc/target_selector.txt";
@@ -136,20 +134,6 @@ function chanceWhenPrepped(ns: NS, host: string): number {
   return ns.formulas.hacking.hackChance(server, ns.getPlayer());
 }
 
-/** Every hostname reachable from home (breadth-first ns.scan). */
-function scanNetwork(ns: NS): string[] {
-  const seen = new Set(["home"]);
-  const queue = ["home"];
-  while (queue.length > 0) {
-    for (const next of ns.scan(queue.shift() as string)) {
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-  return [...seen];
-}
 
 /**
  * Rough prep time: one weaken at current security (enough threads bring it
@@ -165,41 +149,26 @@ function prepTimeEstimate(ns: NS, host: string): number {
   return now + PREP_ROUNDS_AT_MIN * ns.formulas.hacking.weakenTime(server, ns.getPlayer());
 }
 
-export async function main(ns: NS): Promise<void> {
-  ns.disableLog("ALL");
-  const log = createLogger(ns, "TargetSelector", LOG_LEVEL.INFO);
-
+/**
+ * Ranks every hackable server (computeWeights) and writes the weights
+ * file. network_daemon.ts calls this every tick, after rooting; this
+ * script's main is for a one-off forced re-rank.
+ */
+export async function rankTargets(ns: NS, log: Logger): Promise<WeightedServer[]> {
   const config = loadConfig(ns);
-
   const hackingLevel = ns.getHackingLevel();
-  const existing = readWeightsFile(ns, config.weightsPath);
-  const forced = ns.args.includes(FORCE_ARG);
-
-  if (!forced && !shouldRecompute(existing?.hackingLevel, hackingLevel)) {
-    await log.info(`[Weights] Already up to date for hacking level ${hackingLevel}.`);
-    return;
-  }
-
   // Every server on the network, scanned and checked live here. The
   // supervisor's list and its cached eligibility lagged (crawler pushes
   // time out; hacking level stale after an install): BN10 at hacking 6845
   // ranked nothing above the-hub, with ecorp/megacorp/blade missing.
   const level = ns.getHackingLevel();
-  const openersOwned = PORT_OPENERS.filter(({ program }) => ns.fileExists(program, "home")).length;
   const eligible: server_metadata_pb.Metadata[] = [];
-  for (const host of scanNetwork(ns)) {
+  for (const { host } of scanWithPaths(ns)) {
     // NPC servers only: getServerMaxMoney throws on Hacknet servers, and
     // home/purchased servers have no money to take.
     if (host === "home" || /^hacknet-(server|node)-/.test(host) || ns.getServer(host).purchasedByPlayer) continue;
     const maxMoney = ns.getServerMaxMoney(host);
     if (maxMoney > 0 && ns.getServerRequiredHackingLevel(host) <= level) {
-      // Root it here if the owned openers allow: the rooter only runs on
-      // triggers (opener count changing), and after an install the openers
-      // came back while the supervisor's root records were stale - BN10
-      // left megacorp/ecorp/blade unrooted, scoring 0, for a whole run.
-      if (!ns.hasRootAccess(host) && openersOwned >= ns.getServerNumPortsRequired(host) && root(ns, host)) {
-        await log.info(`[Weights] Rooted ${host}.`);
-      }
       eligible.push({ hostname: host, maxMoney, minSecurityLevel: ns.getServerMinSecurityLevel(host) });
     }
   }
@@ -217,5 +186,12 @@ export async function main(ns: NS): Promise<void> {
   const file: WeightsFile = { hackingLevel, computedAt: Date.now(), weights, scorer: SCORER_VERSION, factors };
   ns.write(config.weightsPath, JSON.stringify(file, null, 2), "w");
 
-  await log.info(`[Weights] Recomputed for hacking level ${hackingLevel}. Top target: ${weights[0]?.hostname ?? "none"}.`);
+  return weights;
+}
+
+export async function main(ns: NS): Promise<void> {
+  ns.disableLog("ALL");
+  const log = createLogger(ns, "TargetSelector", LOG_LEVEL.INFO);
+  const weights = await rankTargets(ns, log);
+  await log.info(`[Weights] Recomputed for hacking level ${ns.getHackingLevel()}. Top target: ${weights[0]?.hostname ?? "none"}.`);
 }

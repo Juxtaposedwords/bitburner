@@ -14,6 +14,7 @@ export const MANAGED_DAEMONS = [
   "development/metadata/supervisor.js",
   "tools/log_rotator.js",
   "development/metadata/player.js",
+  "development/metadata/network_daemon.js",
   "development/metadata/scheduler_daemon.js",
   "tools/program_shopper.js",
   "development/metadata/faction_daemon.js",
@@ -161,11 +162,7 @@ export const COMMANDS_DONE_PATH = "/var/claude_commands_done.txt";
 export type QueuedCommand = { id: string; script: string; args?: (string | number | boolean)[]; note?: string };
 
 /** One-shot system scripts safe to re-run on demand (e.g. a forced target re-rank). */
-export const QUEUEABLE_ONE_SHOTS = [
-  "development/metadata/target_selector.js",
-  "development/metadata/crawl_servers.js",
-  "development/metadata/rooter.js",
-];
+export const QUEUEABLE_ONE_SHOTS = ["development/metadata/target_selector.js"];
 
 /** Only tools, the managed daemons and QUEUEABLE_ONE_SHOTS may be run this way. */
 export function commandAllowed(script: string): boolean {

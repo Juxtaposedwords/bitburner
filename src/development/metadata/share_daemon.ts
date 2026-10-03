@@ -1,7 +1,7 @@
 import { NS } from "@ns";
+import { liveWorkerHosts } from "development/libraries/network";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
-import { Codes } from "development/libraries/status";
 import { readApproach } from "development/libraries/approach";
 import { Approach } from "development/metadata/scheduler";
 import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget, shareWanted } from "development/metadata/share_decisions";
@@ -41,13 +41,7 @@ const TICK_INTERVAL_MS = 30_000;
 const STATUS_MAX_AGE_MS = 120_000;
 
 async function listWorkerHosts(ns: NS): Promise<string[]> {
-  const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({});
-  if (res.status !== Codes.OK) return [];
-  return (res.data?.servers ?? [])
-    .filter(
-      (s) => s.rootStatus === server_metadata_pb.RootStatus.ROOTED && s.hostname !== HOME && s.kind !== server_metadata_pb.ServerKind.HACKNET
-    )
-    .map((s) => s.hostname as string);
+  return liveWorkerHosts(ns);
 }
 
 function runningShares(ns: NS, hosts: string[]): { pid: number; threads: number }[] {

@@ -2092,3 +2092,18 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
 - **Sleeves:** `sleeves`, `sleeves_on_faction`, `sleeve_avg_shock`.
 
 These are for judging a change from its trend, not one snapshot. All of them come from the files the daemons already publish, plus one network scan. They're mirrored by the bridge, so Claude can read them directly.
+
+## The network daemon replaces the server registry
+
+`network_daemon.ts` roots every server the owned openers allow, writes `/var/network.txt`
+(`snapshotNetwork`: path, kind, root, backdoor, organization, RAM, money, level, ports) and
+re-ranks targets (`target_selector.ts`'s `rankTargets`), every 10 s, all from the live game.
+`crawl_servers.js`, `rooter.js` and the supervisor's dispatch trigger are gone.
+- **Scheduler and share** take worker hosts from a live scan (`liveWorkerHosts`).
+- **Backdoor and stock-target daemons** read `/var/network.txt`.
+- **The purchased-server daemon** asks `ns.cloud` directly.
+
+The registry was a crawled cache kept over RPC and on disk. It went stale across installs:
+servers stuck "rooted", hacking level lagging so the best targets went missing, deleted servers
+crashing daemons, crawler pushes timing out. The supervisor now serves only the player snapshot.
+Its registry handlers have no callers left and can go with a proto change.
