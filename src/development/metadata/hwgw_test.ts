@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocateAcrossHosts, computeBatchPlan, decidePrepAction, nextHackFraction } from "development/metadata/hwgw";
+import { batchesPerTick, allocateAcrossHosts, computeBatchPlan, decidePrepAction, homeWorkerCapacity, homeWorkerRam, nextHackFraction, prepThreadsNeeded, selectTargets } from "development/metadata/hwgw";
 
 // hackTime = 1000ms, growTime = 3.2x, weakenTime = 4x — the fixed ratios
 // Bitburner uses for a given security/hacking-level snapshot.
@@ -207,5 +207,68 @@ describe("nextHackFraction", () => {
   it("stays within bounds", () => {
     expect(nextHackFraction(0.85, 0.1, false, 0.85)).toBe(0.9);
     expect(nextHackFraction(0.01, 0.99, true, 0.85)).toBe(0.01);
+  });
+});
+
+describe("homeWorkerRam", () => {
+  it("uses all but reservedGb below the fallback level (fresh BitNode)", () => {
+    expect(homeWorkerRam(32, 10, 20, 50, 5)).toBe(17);
+  });
+
+  it("keeps a small home free past the fallback level", () => {
+    expect(homeWorkerRam(32, 10, 500, 50, 5)).toBe(0);
+  });
+
+  it("uses a big home beyond 10% for the daemons", () => {
+    // 16 TB home, 400 GB of daemons: 16384 - 400 - 1638.4
+    expect(homeWorkerRam(16384, 400, 500, 50, 5)).toBeCloseTo(14345.6, 1);
+    expect(homeWorkerCapacity(16384, 500, 50, 5)).toBeCloseTo(14745.6, 1);
+  });
+});
+
+describe("selectTargets", () => {
+  const HOLD = 20 * 60_000;
+  const NOW = 100 * 60_000;
+
+  it("fills up to k from the ranking, best first", () => {
+    expect(selectTargets([], ["ecorp", "megacorp", "blade", "the-hub"], 3, NOW, HOLD).map((t) => t.host)).toEqual(["ecorp", "megacorp", "blade"]);
+  });
+
+  it("keeps a young target still being prepped that dropped out of the top k, and drops an old one", () => {
+    const current = [
+      { host: "the-hub", since: NOW - 5 * 60_000 },
+      { host: "omega-net", since: NOW - 60 * 60_000 },
+    ];
+    const ranked = ["ecorp", "megacorp", "the-hub", "omega-net"];
+    expect(selectTargets(current, ranked, 2, NOW, HOLD, new Set(["the-hub", "omega-net"])).map((t) => t.host)).toEqual(["ecorp", "the-hub"]);
+  });
+
+  it("gives a prepped small target's slot to a better one at once", () => {
+    const current = [{ host: "the-hub", since: NOW - 60_000 }];
+    expect(selectTargets(current, ["ecorp", "megacorp", "the-hub"], 2, NOW, HOLD, new Set()).map((t) => t.host)).toEqual(["ecorp", "megacorp"]);
+  });
+
+  it("drops targets no longer ranked (lost root)", () => {
+    expect(selectTargets([{ host: "gone", since: NOW }], ["ecorp"], 2, NOW, HOLD).map((t) => t.host)).toEqual(["ecorp"]);
+  });
+
+  it("keeps a target's since across ticks", () => {
+    const first = selectTargets([], ["ecorp"], 1, NOW, HOLD);
+    expect(selectTargets(first, ["ecorp"], 1, NOW + 1000, HOLD)[0].since).toBe(NOW);
+  });
+});
+
+describe("prepThreadsNeeded", () => {
+  it("weakens just to min security, and grows by the threads asked", () => {
+    expect(prepThreadsNeeded("weaken", 72, 0.05, 0)).toBe(1440);
+    expect(prepThreadsNeeded("grow", 0, 0.05, 1234.2)).toBe(1235);
+  });
+});
+
+describe("batchesPerTick", () => {
+  it("fits as many 4-action windows as the tick allows, at least one", () => {
+    expect(batchesPerTick(1000, 200)).toBe(1);
+    expect(batchesPerTick(1000, 50)).toBe(5);
+    expect(batchesPerTick(1000, 0)).toBe(1);
   });
 });

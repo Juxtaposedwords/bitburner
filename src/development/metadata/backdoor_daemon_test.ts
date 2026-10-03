@@ -21,6 +21,10 @@ describe("selectBackdoorTargets", () => {
     expect(selectBackdoorTargets([target])).toEqual([target]);
   });
 
+  it("never backdoors w0r1d_d43m0n - that would end the BitNode", () => {
+    expect(selectBackdoorTargets([rootedHackableNpc("w0r1d_d43m0n"), rootedHackableNpc("a")]).map((s) => s.hostname)).toEqual(["a"]);
+  });
+
   it("excludes servers that are already backdoored", () => {
     expect(selectBackdoorTargets([rootedHackableNpc("a", true)])).toEqual([]);
   });

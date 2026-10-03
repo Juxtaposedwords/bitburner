@@ -1,4 +1,6 @@
 import { NS } from "@ns";
+import { readFreshJson } from "development/libraries/fresh_file";
+import { COVENANT, SLEEVES_PATH, SleevesFile } from "development/metadata/sleeve_decisions";
 import { loadJsonConfig } from "development/libraries/config";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import {
@@ -10,12 +12,36 @@ import {
   writeInstallPending,
 } from "development/libraries/install_handshake";
 import { writeSavings } from "development/libraries/savings";
+import { incomePerMin } from "development/libraries/timeseries";
+import { addRepSample, installNowEstimate, measuredRepPerMin, RepSample } from "development/libraries/training_plan";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import {
   AugmentationInfo,
   bestWorkType,
   catalogsFor,
   CITY_FACTION_NAMES,
+  focusPriceLimit,
+  focusStatsFor,
+  describeUnmetRequirements,
+  combatBlocksInvite,
+  companyRepRequirement,
+  companyTargets,
+  CompanyTarget,
+  RED_PILL,
+  SLEEVE_SAVINGS_REASON,
+  sleeveSavings,
+  grindInstallPays,
+  pickInstallEnabler,
+  FavorPlanEntry,
+  GrindStatus,
+  grindAllowsInstall,
+  WORK_SLOT_PATH,
+  WorkSlotFile,
+  workSlotFree,
+  INSTALL_LOOP_PATH,
+  InstallLoopFile,
+  installLoopActive,
+  NEUROFLUX_GOVERNOR,
   CombatStat,
   COMPANY_FACTION_EMPLOYER,
   COMPANY_FACTION_NAMES,
@@ -216,6 +242,14 @@ export type FactionConfig = {
   // usefulCatalog - BN10 spent rep and 5x-price money on five Hacknet
   // augmentations that did nothing for the run.
   usefulAugmentationStats: string[];
+  // Also worth buying, after augmentationFocus: in AUGMENTS, once no focus
+  // augmentation is left reachable, these (with usefulAugmentationStats)
+  // take over (focusStatsFor). Combat by default - Daedalus (The Red Pill)
+  // takes 1500 in every combat stat instead of 2500 hacking, and The
+  // Covenant/Illuminati have combat routes too. BN10's loop owned every
+  // hacking augmentation Slum Snakes sells and then bought nothing, with
+  // $18T and 25M rep there.
+  secondaryAugmentationStats: string[];
   // Hacking level GROW_STATS works toward; 0 = w0r1d_d43m0n's requirement
   // once visible, else Daedalus's 2500 (see hackingGoal).
   growStatsHackingGoal: number;
@@ -224,7 +258,34 @@ export type FactionConfig = {
   // 1 because an install also resets the Hacknet and its study upgrades,
   // which the comparison doesn't count.
   growStatsInstallMaxRatio: number;
+  // Short, because a reinstall is cheap: the gang keeps earning and its
+  // faction's rep was back to 25M three minutes after one in BN10, while
+  // at 30 the loop kept waiting on 1.9^12-inflated prices.
+  // In AUGMENTS, only augmentations within this many minutes of income are
+  // saved for, dearest first (focusPriceLimit). Once none are left, what's
+  // affordable gets bought and, with autoInstall, the install resets the
+  // 1.9x price inflation for the next cycle. 0 = no limit.
+  maxFocusWaitMinutes: number;
+  // FACTION_GRIND's estimate of what an install costs in grind time: the
+  // reboot plus hacking level regrowing from batches (BN10: 737 three
+  // minutes after an install). An install goes ahead when the favor it
+  // banks speeds up the rest by more than this (grindInstallPays).
+  grindInstallOverheadMinutes: number;
+  // BitNode 10: save for the next Covenant sleeve once it's within this
+  // many minutes of income (sleeveSavings). 0 = never save for sleeves.
+  sleeveSaveMinutes: number;
+  // Work toward corporate factions selling useful augmentations not owned
+  // yet: hold a job at each employer (applying again each tick also takes
+  // promotions) and publish company rep progress, which sleeves work on
+  // and the hacknet buys Company Favor for (companyTargets).
+  pursueCompanyTargets: boolean;
+  // Work, save and buy toward The Red Pill (which leads to finishing the
+  // BitNode). Off while staying in a BitNode on purpose.
+  pursueRedPill: boolean;
 };
+
+// Window the AUGMENTS focus wait limit measures income over.
+const INCOME_WINDOW_SEC = 10 * 60;
 
 export const DEFAULT_CONFIG: FactionConfig = {
   enabled: true,
@@ -232,6 +293,11 @@ export const DEFAULT_CONFIG: FactionConfig = {
   maxSpendFraction: 0.5,
   autoPurchaseAugmentations: false,
   autoInstall: false,
+  maxFocusWaitMinutes: 5,
+  grindInstallOverheadMinutes: 10,
+  sleeveSaveMinutes: 480,
+  pursueCompanyTargets: true,
+  pursueRedPill: true,
   autoDonate: true,
   donationSpendFraction: 0.9,
   bootScript: "boot.js",
@@ -256,6 +322,7 @@ export const DEFAULT_CONFIG: FactionConfig = {
   augmentationFocus: ["hacking", "hacking_exp"],
   // Hacking level/experience and hacking income, plus faster faction rep.
   usefulAugmentationStats: ["hacking", "hacking_exp", "hacking_chance", "hacking_speed", "hacking_money", "hacking_grow", "faction_rep"],
+  secondaryAugmentationStats: ["strength", "defense", "dexterity", "agility", "strength_exp", "defense_exp", "dexterity_exp", "agility_exp"],
   growStatsHackingGoal: 0,
   growStatsInstallMaxRatio: 0.8,
 };
@@ -678,15 +745,30 @@ function pursueWantedInvites(
   snapshot: EligibilitySnapshot,
   joinedFactions: string[],
   owned: string[]
-): { action?: { faction: string; action: EligibilityAction }; moneyNeeded?: { faction: string; amount: number } } {
+): {
+  action?: { faction: string; action: EligibilityAction };
+  moneyNeeded?: { faction: string; amount: number };
+  blockers: Record<string, string[]>;
+} {
   const offered: Record<string, string[]> = {};
   for (const faction of config.pursueAugmentationFactions) {
-    offered[faction] = ns.singularity.getAugmentationsFromFaction(faction as FactionNameType);
+    // Without pursueRedPill, The Red Pill doesn't make a faction worth an
+    // invite (Daedalus sells nothing else but NeuroFlux).
+    offered[faction] = ns.singularity
+      .getAugmentationsFromFaction(faction as FactionNameType)
+      .filter((name) => config.pursueRedPill || name !== RED_PILL);
   }
+  const blockers: Record<string, string[]> = {};
+  const installedCount = ns.singularity.getOwnedAugmentations(false).length;
   let found: { faction: string; action: EligibilityAction } | undefined;
   let moneyNeeded: { faction: string; amount: number } | undefined;
-  for (const faction of wantedInviteFactions(config.pursueAugmentationFactions, joinedFactions, offered, owned)) {
+  // BitNode 10: The Covenant sells sleeves too (sleeve_daemon.ts publishes
+  // the next one's cost; Infinity once all 5 are bought).
+  const shop = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.shop;
+  const alsoWanted = shop && Number.isFinite(shop.nextSleeveCost) ? [COVENANT] : [];
+  for (const faction of wantedInviteFactions(config.pursueAugmentationFactions, joinedFactions, offered, owned, alsoWanted)) {
     const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
+    blockers[faction] = describeUnmetRequirements(requirements, snapshot, installedCount);
     const money = unmetMoneyRequirement(requirements, snapshot);
     if (money > 0 && (!moneyNeeded || money > moneyNeeded.amount)) moneyNeeded = { faction, amount: money };
     // Gym time only once combat is all that's left (onlyCombatLeft).
@@ -696,12 +778,118 @@ function pursueWantedInvites(
     const action = requirementToAction(blocking, config.companyJobField, snapshot);
     if (action.kind !== "none" && action.kind !== "commitCrime") found = { faction, action };
   }
-  return { action: found, moneyNeeded };
+  return { action: found, moneyNeeded, blockers };
 }
 
 // Whether the favor plan was already ready last tick - so "ready" is logged
 // once when it happens, not every 5 seconds.
 let favorPlanWasReady = false;
+
+/**
+ * Corporate factions worth an invite (companyTargets): not joined, selling
+ * a useful augmentation not owned, short of the company rep their invite
+ * needs. Applies at each employer without a job, and again otherwise -
+ * applyToCompany is also how promotions (more rep per minute) happen.
+ * Applying takes no time; the work itself is the sleeves' (sleeve_daemon.ts).
+ */
+async function gatherCompanyTargets(
+  ns: NS,
+  log: Logger,
+  config: FactionConfig,
+  joinedFactions: string[],
+  owned: string[],
+  jobs: Partial<Record<string, string>>,
+  usefulStats: string[]
+): Promise<CompanyTarget[]> {
+  const ownedSet = new Set(owned);
+  const candidates: CompanyTarget[] = [];
+  for (const faction of COMPANY_FACTION_NAMES) {
+    if (joinedFactions.includes(faction)) continue;
+    const wanted = ns.singularity
+      .getAugmentationsFromFaction(faction as FactionNameType)
+      .some((name) => name !== NEUROFLUX_GOVERNOR && !ownedSet.has(name) && matchesFocus(ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>, usefulStats));
+    if (!wanted) continue;
+    const need = companyRepRequirement(ns.singularity.getFactionInviteRequirements(faction as FactionNameType));
+    if (!need) continue;
+    const before = jobs[need.company];
+    const job = ns.singularity.applyToCompany(need.company as CompanyNameType, config.companyJobField as JobFieldType);
+    if (job && job !== before) await log.info(`[Faction] ${before ? "Promoted" : "Hired"} at ${need.company}: ${job} (toward the ${faction} invite).`);
+    candidates.push({ faction, company: need.company, rep: ns.singularity.getCompanyRep(need.company as CompanyNameType), needed: need.reputation });
+  }
+  return companyTargets(candidates);
+}
+
+/** Whether any wanted, not-yet-joined faction's invite is blocked on combat stats (combatBlocksInvite). */
+function wantedInvitesNeedCombat(ns: NS, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[], owned: string[]): boolean {
+  const offered: Record<string, string[]> = {};
+  for (const faction of config.pursueAugmentationFactions) {
+    // Without pursueRedPill, The Red Pill doesn't make a faction worth an
+    // invite (Daedalus sells nothing else but NeuroFlux).
+    offered[faction] = ns.singularity
+      .getAugmentationsFromFaction(faction as FactionNameType)
+      .filter((name) => config.pursueRedPill || name !== RED_PILL);
+  }
+  const shop = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.shop;
+  const alsoWanted = shop && Number.isFinite(shop.nextSleeveCost) ? [COVENANT] : [];
+  return wantedInviteFactions(config.pursueAugmentationFactions, joinedFactions, offered, owned, alsoWanted).some((faction) =>
+    combatBlocksInvite(ns.singularity.getFactionInviteRequirements(faction as FactionNameType), snapshot)
+  );
+}
+
+// Each ground faction's rep over time (measureGrinds) - survives ticks, not restarts.
+const grindSamples = new Map<string, RepSample[]>();
+// Rep/min is measured over this window, once there's at least the minimum span.
+const GRIND_WINDOW_MS = 10 * 60_000;
+const GRIND_MIN_SPAN_MS = 2 * 60_000;
+
+/**
+ * Every favor-plan faction being ground - the player's work target and
+ * each sleeve's faction - with its rep/min from actual rep growth (so
+ * share and every worker count), time to its favor target, and what
+ * installing now would do (installNowEstimate).
+ */
+function measureGrinds(
+  ns: NS,
+  config: FactionConfig,
+  factions: string[],
+  reps: Record<string, number>,
+  favors: Record<string, number>,
+  plan: FavorPlanEntry[]
+): GrindStatus[] {
+  const now = Date.now();
+  for (const faction of [...grindSamples.keys()]) if (!factions.includes(faction)) grindSamples.delete(faction);
+  const grinds: GrindStatus[] = [];
+  for (const faction of factions) {
+    const rep = reps[faction] ?? 0;
+    const samples = addRepSample(grindSamples.get(faction) ?? [], { t: now, rep }, GRIND_WINDOW_MS);
+    grindSamples.set(faction, samples);
+    const repPerMin = measuredRepPerMin(samples, GRIND_MIN_SPAN_MS);
+    const entry = plan.find((e) => e.faction === faction);
+    if (!entry || repPerMin === undefined || !ns.fileExists("Formulas.exe", "home")) continue;
+    const favor = favors[faction] ?? 0;
+    const gap = Math.max(0, entry.target - rep);
+    if (gap <= 0) continue;
+    const estimate = installNowEstimate(
+      rep,
+      favor,
+      gap,
+      repPerMin,
+      (f) => ns.formulas.reputation.calculateFavorToRep(f),
+      (r) => ns.formulas.reputation.calculateRepToFavor(r),
+      config.grindInstallOverheadMinutes
+    );
+    grinds.push({
+      faction,
+      gap,
+      repPerMin,
+      etaMinutes: estimate.grindNowMinutes,
+      favor,
+      installFavor: estimate.favorAfter,
+      installEtaMinutes: estimate.afterInstallMinutes,
+    });
+  }
+  return grinds;
+}
 
 /**
  * Whether installing `pending` now reaches the GROW_STATS hacking goal
@@ -756,7 +944,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const joinedFactions = player.factions;
 
   const reps: Record<string, number> = joinedFactions.length > 0 ? gatherReps(ns, joinedFactions) : {};
-  const catalog: AugmentationInfo[] = joinedFactions.length > 0 ? gatherCatalog(ns, joinedFactions) : [];
+  // Without pursueRedPill, The Red Pill is left out of everything - rep
+  // targets, the favor plan, priority work, savings - so the BitNode isn't
+  // pushed toward its end (e.g. BN10 kept running to buy Covenant sleeves).
+  const catalog: AugmentationInfo[] = (joinedFactions.length > 0 ? gatherCatalog(ns, joinedFactions) : []).filter(
+    (aug) => config.pursueRedPill || aug.name !== RED_PILL
+  );
   const owned = ns.singularity.getOwnedAugmentations(true);
   const pending = getPendingAugmentations(ns);
   const pendingBoost: PendingBoost = {
@@ -776,19 +969,19 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // AUGMENTS (scheduler.proto): spending steered toward good augmentations -
   // see priorityFocus below.
   const augmentsMode = approach === Approach.AUGMENTS;
+  const grindMode = approach === Approach.FACTION_GRIND;
 
   // NeuroFlux Governor is decided once, here, for every path: only in the
   // pre-install spend-down, and only at factions with nothing else left
   // (see catalogsFor).
   // Only useful augmentations drive buying, work and favor (usefulCatalog),
   // in every mode; augmentationFocus narrows further in GROW_STATS/AUGMENTS.
-  const useful = usefulCatalog(catalog, config.usefulAugmentationStats);
+  // Combat (secondaryAugmentationStats) is useful only while a wanted
+  // invite is blocked on combat stats (combatBlocksInvite).
+  const combatNeeded = wantedInvitesNeedCombat(ns, config, gatherEligibilitySnapshot(player), joinedFactions, owned);
+  const usefulStats = [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : [])];
+  const useful = usefulCatalog(catalog, usefulStats);
   const catalogs = catalogsFor(useful, owned);
-  // What's bought or donated for - narrowed to augmentationFocus during
-  // GROW_STATS and AUGMENTS.
-  const inFocus = (list: AugmentationInfo[]): AugmentationInfo[] =>
-    growingStats || augmentsMode ? list.filter((aug) => matchesFocus(aug.stats, config.augmentationFocus)) : list;
-  const buyCatalog = inFocus(catalogs.regular);
 
   // Earning an invite to a faction that sells something still wanted beats
   // grinding rep where we already are (pursueWantedInvites) - e.g. gym time
@@ -845,17 +1038,41 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   }
   favorPlanWasReady = planReady;
 
+  // Factions that accept donations (favor >= getFavorToDonate()): cash buys
+  // their rep, so they're never ground (decideWorkTarget/repTargets), and
+  // The Red Pill can take over purchases (redPillFocus).
+  const donatable =
+    config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
+      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
+      : new Set<string>();
+  // Rep is ground only up to where cash takes over (favor targets); never
+  // for NeuroFlux, whose rep is bought with its price once donations open.
   const workTarget =
     !growingStats && !karmaCrime && inviteAction.kind === "none" && joinedFactions.length > 0
-      ? decideWorkTarget(workable, reps, catalogs.regular, owned, plan)
+      ? decideWorkTarget(workable, reps, catalogs.regular, owned, plan, donatable)
       : undefined;
   const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
+  // Factions being ground: the player's target plus each sleeve's.
+  const sleeveFactions = (readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.sleeves ?? [])
+    .map((s) => /^faction work: (.+)$/.exec(s.goal)?.[1])
+    .filter((f): f is string => !!f);
+  const grinds = measureGrinds(ns, config, [...new Set([...(workTarget ? [workTarget] : []), ...sleeveFactions])], reps, favors, plan);
+  const companyGoals = config.pursueCompanyTargets
+    ? await gatherCompanyTargets(ns, log, config, joinedFactions, owned, player.jobs as Partial<Record<string, string>>, usefulStats)
+    : [];
   const repsFile: FactionRepsFile = {
+    companyTargets: companyGoals,
+    inviteBlockers: invite?.blockers,
+    favors,
+    donatable: [...donatable],
+    installedAugs: ns.singularity.getOwnedAugmentations(false).length,
     reps,
-    repTargets: repTargets(workable, reps, catalogs.regular, owned, plan),
+    repTargets: repTargets(workable, reps, catalogs.regular, owned, plan, donatable),
     workTarget,
     workType: work?.type,
     workGains: work?.gains,
+    gymTraining: inviteAction.kind === "gymWorkout" || karmaAction?.kind === "gymWorkout",
+    grinds,
     favorPlan: plan,
     favorPlanReady: planReady,
     karmaCrime: karmaCrime
@@ -899,18 +1116,17 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     workTarget || growingStats || karmaCrime || inviteAction.kind !== "none"
     ? { kind: "none" }
     : await decideEligibilityWorkSlotAction(ns, log, config, state, snapshot, joinedFactions);
+  const slotFile: WorkSlotFile = {
+    free: !growingStats && workSlotFree(workTarget, inviteAction.kind, !!karmaCrime, eligibilityAction.kind),
+    writtenAt: Date.now(),
+  };
+  ns.write(WORK_SLOT_PATH, JSON.stringify(slotFile), "w");
   const crimeAttempted = await executeEligibilityAction(ns, log, eligibilityAction, config.gymLocation);
   if (crimeAttempted) {
     state.crimeAttempts += 1;
     saveState(ns, state);
   }
 
-  // Factions that accept donations (favor >= getFavorToDonate()) - needed
-  // here already so The Red Pill can take over purchases (redPillFocus).
-  const donatable =
-    config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
-      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
-      : new Set<string>();
   // 0.1% over the exact amount, so float rounding can't leave the rep a
   // hair short of the requirement.
   const donationForRep = (rep: number): number => Math.ceil(ns.formulas.reputation.donationForRep(rep, player) * 1.001);
@@ -920,9 +1136,64 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Red Pill. While it exists it's the only thing bought or donated for,
   // with all cash rather than maxSpendFraction, and every other daemon holds
   // its spending to the savings target (savings.ts).
-  const focusAug = augmentsMode
-    ? priorityFocus(catalog, reps, owned, donatable, config.augmentationFocus)
+  // AUGMENTS cycle: only augmentations within maxFocusWaitMinutes of
+  // income are saved for - the dearest of them first (focusPriceLimit).
+  // With none left, the install goes ahead and resets the 1.9x inflation.
+  // Once the pre-install wind-down has started nothing is held, or growing
+  // cash would flip the hold back on mid-wind-down. The Red Pill is always
+  // waited for (priorityFocus returns it regardless of price).
+  const priceLimit =
+    readInstallPending(ns) !== undefined
+      ? 0
+      : focusPriceLimit(money, incomePerMin(ns, INCOME_WINDOW_SEC), config.maxFocusWaitMinutes, pending.length);
+  // What's bought or donated for - narrowed during GROW_STATS and AUGMENTS
+  // to augmentationFocus, and in AUGMENTS to everything useful once no
+  // focus augmentation is left reachable (focusStatsFor).
+  const focusStats = focusStatsFor(
+    growingStats || augmentsMode,
+    augmentsMode && priorityFocus(catalog, reps, owned, donatable, config.augmentationFocus) === undefined,
+    config.augmentationFocus,
+    usefulStats
+  );
+  const inFocus = (list: AugmentationInfo[]): AugmentationInfo[] =>
+    focusStats ? list.filter((aug) => matchesFocus(aug.stats, focusStats)) : list;
+  const buyCatalog = inFocus(catalogs.regular);
+  // A Covenant sleeve within reach outranks every augmentation but The Red
+  // Pill (sleeveSavings): it's saved for instead, and sleeve_daemon.ts buys it.
+  const sleeveSave = sleeveSavings(
+    readBitNodeInfo(ns)?.node,
+    joinedFactions.includes(COVENANT),
+    readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.shop?.nextSleeveCost,
+    money,
+    incomePerMin(ns, INCOME_WINDOW_SEC),
+    config.sleeveSaveMinutes
+  );
+  // Nothing pending and nothing within the (longer) cap: the cheapest
+  // reachable one, so the loop always moves - one purchase starts the
+  // install cycle.
+  const candidateFocus = augmentsMode
+    ? (priorityFocus(catalog, reps, owned, donatable, focusStats ?? config.augmentationFocus, priceLimit) ??
+      (pending.length === 0 && readInstallPending(ns) === undefined
+        ? priorityFocus(catalog, reps, owned, donatable, focusStats ?? config.augmentationFocus, Infinity, true)
+        : undefined))
     : redPillFocus(catalog, reps, owned, donatable);
+  const focusAug = sleeveSave > 0 && candidateFocus?.name !== RED_PILL ? undefined : candidateFocus;
+  // The install loop is "on" only while an install is near: something
+  // pending, or the saved-for augmentation within the short (5-minute)
+  // cap. A long save (BN10: 9.3h for QLink) is a long phase - the Hacknet,
+  // wiped by the last install, should rebuild through it.
+  const shortCap = focusPriceLimit(money, incomePerMin(ns, INCOME_WINDOW_SEC), config.maxFocusWaitMinutes, 1);
+  const loopFile: InstallLoopFile = {
+    active: installLoopActive(
+      augmentsMode,
+      config.autoPurchaseAugmentations,
+      config.autoInstall,
+      pending.length,
+      !!focusAug && focusAug.price <= shortCap
+    ),
+    writtenAt: Date.now(),
+  };
+  ns.write(INSTALL_LOOP_PATH, JSON.stringify(loopFile), "w");
   const spendCatalog = focusAug ? [focusAug] : buyCatalog;
   const focusRepGap = focusAug ? Math.max(0, focusAug.repReq - (reps[focusAug.faction] ?? 0)) : 0;
   const focusSavings =
@@ -930,18 +1201,20 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // In AUGMENTS, a wanted invite's cash requirement is saved for too - it
   // only counts cash on hand, and anything spent below it delays the invite.
   const inviteSavings = augmentsMode ? (invite?.moneyNeeded?.amount ?? 0) : 0;
-  const savingsAmount = Math.max(focusSavings, inviteSavings);
+  const savingsAmount = Math.max(focusSavings, inviteSavings, focusAug ? 0 : sleeveSave);
   writeSavings(
     ns,
     savingsAmount,
     focusSavings >= inviteSavings && focusAug
       ? `${focusAug.name} from ${focusAug.faction}`
-      : `${invite?.moneyNeeded?.faction ?? ""} invite`
+      : !focusAug && sleeveSave > 0 && sleeveSave >= inviteSavings
+        ? SLEEVE_SAVINGS_REASON
+        : `${invite?.moneyNeeded?.faction ?? ""} invite`
   );
   const spendFraction = focusAug ? 1 : config.maxSpendFraction;
   // The focus augmentation is what the savings are for; anything else must
   // stay above the invite's cash requirement.
-  const spendReserve = focusAug ? config.reserveMoney : Math.max(config.reserveMoney, inviteSavings);
+  const spendReserve = focusAug ? config.reserveMoney : Math.max(config.reserveMoney, inviteSavings, sleeveSave);
 
   const purchaseDecision: PurchaseDecision = config.autoPurchaseAugmentations
     ? decideAugmentationPurchase(money, spendReserve, spendFraction, reps, spendCatalog, owned)
@@ -992,13 +1265,30 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // multipliers more than make up for it (see growStatsInstallSaves).
   // Saving for a focus augmentation counts as a reserve too: an install
   // would wipe the savings (see decideInstallReady).
+  // An install that banks favor (every favor target met, or FACTION_GRIND's
+  // estimate says it pays) needs something pending: buy the cheapest
+  // augmentation to make it possible (pickInstallEnabler).
+  // In every mode: an install that banks favor is worth making possible.
+  const installWanted = planReady || grindInstallPays(grinds);
+  // Savings don't block it: the enabler costs millions, and with something
+  // pending the focus cap drops back to 5 minutes, which clears the hold.
+  if (installWanted && config.autoInstall && config.autoPurchaseAugmentations && pending.length === 0 && purchaseDecision.kind === "none") {
+    const enabler = pickInstallEnabler(catalog, reps, owned, money);
+    if (enabler && ns.singularity.purchaseAugmentation(enabler.faction as FactionNameType, enabler.name)) {
+      await log.info(`[Faction] Bought ${enabler.name} from ${enabler.faction} so the install banking favor can happen (nothing else was pending).`);
+      return;
+    }
+    if (!enabler) await log.warn("[Faction] An install would bank favor, but nothing is buyable to make one possible.");
+  }
   const installReady = config.autoInstall && decideInstallReady(purchaseDecision, pending, config.reserveMoney + savingsAmount);
   const growStatsBlocks = installReady && growingStats && !(await growStatsInstallSaves(ns, log, config, player, pendingBoost));
-  if (!installReady || growStatsBlocks) {
+  // FACTION_GRIND installs only once every favor target is met (grindAllowsInstall).
+  const grindBlocks = installReady && grindMode && !grindAllowsInstall(plan, grinds);
+  if (!installReady || growStatsBlocks || grindBlocks) {
     if (readInstallPending(ns)) {
       clearInstallPending(ns);
       await log.info(
-        `[Faction] Install no longer ready (autoInstall off, or not worth it during GROW_STATS) - cancelling the wind-down; stock trading resumes.`
+        `[Faction] Install no longer ready (autoInstall off, not worth it during GROW_STATS, or FACTION_GRIND favor targets unmet) - cancelling the wind-down; stock trading resumes.`
       );
     }
     return;

@@ -127,7 +127,7 @@ export async function main(ns: NS): Promise<void> {
   // this used to predict "buy NeuroFlux Governor" the daemon wouldn't make.
   // Still approximate: AUGMENTS mode's priority focus and savings aren't
   // modeled here; the faction daemon's log is authoritative.
-  const regular = catalogsFor(usefulCatalog(catalog, factionConfig.usefulAugmentationStats), owned).regular;
+  const regular = catalogsFor(usefulCatalog(catalog, [...factionConfig.usefulAugmentationStats, ...factionConfig.secondaryAugmentationStats]), owned).regular;
   const purchaseDecision = decideAugmentationPurchase(
     player.money,
     factionConfig.reserveMoney,

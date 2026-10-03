@@ -63,3 +63,13 @@ export function planShareKills(running: { pid: number; threads: number }[], targ
   }
   return kills;
 }
+
+/**
+ * Whether share threads are worth running: someone is doing faction work -
+ * the player (a work target) or any sleeve (its goal, as sleeve_daemon.ts
+ * describes it, starts "faction work"). Share multiplies all faction work
+ * rep, so a sleeve grinding while the player trains still needs it.
+ */
+export function shareWanted(playerFactionWork: boolean, sleeveGoals: string[]): boolean {
+  return playerFactionWork || sleeveGoals.some((goal) => goal.startsWith("faction work"));
+}

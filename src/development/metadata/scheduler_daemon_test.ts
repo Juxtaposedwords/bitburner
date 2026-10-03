@@ -91,10 +91,11 @@ describe("Scheduler RPC handlers", () => {
 });
 
 describe("resolveTarget", () => {
-  const fakeNs = (weightsFileContent?: string): NS =>
+  const fakeNs = (weightsFileContent?: string, rooted: (host: string) => boolean = () => true): NS =>
     ({
       read: (() => weightsFileContent ?? "") as NS["read"],
       write: (() => {}) as NS["write"],
+      hasRootAccess: rooted as NS["hasRootAccess"],
     }) as NS;
 
   it("prefers config.targetOverride when set, without touching weights.txt", () => {
@@ -116,6 +117,12 @@ describe("resolveTarget", () => {
     expect(resolveTarget(ns, {})).toBe("joesguns");
   });
 
+  it("skips a top pick the player hasn't actually nuked yet", () => {
+    const weightsFile = { hackingLevel: 50, computedAt: 123, weights: [{ hostname: "max-hardware", weight: 100 }, { hostname: "joesguns", weight: 10 }] };
+    const ns = fakeNs(JSON.stringify(weightsFile), (host) => host !== "max-hardware");
+    expect(resolveTarget(ns, {})).toBe("joesguns");
+  });
+
   it("returns undefined when no weights file exists yet and no override is set", () => {
     const ns = fakeNs();
     expect(resolveTarget(ns, {})).toBeUndefined();
@@ -128,6 +135,7 @@ describe("resolveTarget", () => {
       ({
         read: ((path: string) => filesByPath[path] ?? "") as NS["read"],
         write: (() => {}) as NS["write"],
+        hasRootAccess: (() => true) as NS["hasRootAccess"],
       }) as NS;
 
     const stockWeights = (hostname: string) => JSON.stringify({ hackingLevel: 0, computedAt: 0, weights: [{ hostname, weight: 1 }] });

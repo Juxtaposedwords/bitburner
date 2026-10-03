@@ -1,4 +1,7 @@
 import { NS } from "@ns";
+import { readFreshJson } from "development/libraries/fresh_file";
+import { WORK_SLOT_PATH, WorkSlotFile } from "development/metadata/faction_decisions";
+import { bestCrimeBy } from "development/metadata/sleeve_decisions";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { readApproach } from "development/libraries/approach";
@@ -7,13 +10,14 @@ import {
   Activity,
   ACTIVITY_PATH,
   ActivityFile,
-  chooseTraining,
   canAffordTraining,
+  chooseTraining,
   CombatNeed,
   CONFIG_PATH,
   decideStudyStep,
   DEFAULT_CONFIG,
   GYM_CITY,
+  pickProgramToCreate,
   StudyConfig,
   trainingCostPerMin,
 } from "development/metadata/study_decisions";
@@ -113,8 +117,48 @@ function trainingAffordable(ns: NS, activity: Activity): boolean {
   return canAffordTraining(ns.getServerMoneyAvailable("home"), costPerMin, TRAINING_RUNWAY_MINUTES, TRAINING_FALLBACK_MIN_CASH);
 }
 
+// faction_daemon.ts rewrites the work-slot file every tick.
+const FILE_MAX_AGE_MS = 60_000;
+
+type CrimeTypeType = Parameters<NS["singularity"]["commitCrime"]>[0];
+type ProgramNameType = Parameters<NS["singularity"]["createProgram"]>[0];
+// Without Formulas.exe, the crime bootstrap.ts relies on early.
+const FALLBACK_MONEY_CRIME = "Mug";
+
+/** The crime earning the most money per second at the player's success chances (bestCrimeBy); Mug without Formulas.exe. */
+function bestMoneyCrime(ns: NS): string {
+  if (!ns.fileExists("Formulas.exe", "home")) return FALLBACK_MONEY_CRIME;
+  const player = ns.getPlayer();
+  return (
+    bestCrimeBy(
+      Object.values(ns.enums.CrimeType).map((crime) => {
+        const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+        return { crime, value: stats.money, timeMs: stats.time, successChance: ns.formulas.work.crimeSuccessChance(player, crime as CrimeTypeType) };
+      })
+    ) ?? FALLBACK_MONEY_CRIME
+  );
+}
+
 async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
-  const active = readApproach(ns) === Approach.GROW_STATS;
+  // GROW_STATS, or the work slot is free: no faction needs grinding (every
+  // favor target met - cash buys the rest), no invite or karma crime.
+  const slotFree = readFreshJson<WorkSlotFile>(ns, WORK_SLOT_PATH, FILE_MAX_AGE_MS)?.free === true;
+  const active = readApproach(ns) === Approach.GROW_STATS || slotFree;
+
+  // A free slot writes a missing program first when cash can't buy it
+  // (pickProgramToCreate) - port openers root more of the network.
+  if (slotFree) {
+    const program = pickProgramToCreate((name) => ns.fileExists(name, "home"), ns.getHackingLevel(), ns.getServerMoneyAvailable("home"));
+    if (program) {
+      const current = ns.singularity.getCurrentWork();
+      if (current?.type !== "CREATE_PROGRAM" || current.programName !== program) {
+        if (ns.singularity.createProgram(program as ProgramNameType, false)) await log.info(`[Study] Writing ${program} (can't afford to buy it yet).`);
+        else await log.warn(`[Study] Couldn't start writing ${program}.`);
+      }
+      ns.write(ACTIVITY_PATH, JSON.stringify({ kind: "none", writtenAt: Date.now() } as ActivityFile), "w");
+      return;
+    }
+  }
 
   const gym = active ? pickGym(ns, config) : undefined;
   const activity: Activity = gym
@@ -130,6 +174,18 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
     }
   }
   const training = active && affordable;
+
+  // Can't afford training: earn instead of idling - crime for money, as
+  // bootstrap.ts does. BN10's second run sat idle at $16.7K right after
+  // an install, with the work slot free and every class unaffordable.
+  if (active && !affordable) {
+    const current = ns.singularity.getCurrentWork();
+    const crime = bestMoneyCrime(ns);
+    if (current?.type !== "CRIME" || current.crimeType !== crime) {
+      ns.singularity.commitCrime(crime as CrimeTypeType);
+      await log.info(`[Study] Can't afford ${activity.kind === "class" ? "a class" : "the gym"} yet; committing ${crime} for money.`);
+    }
+  }
 
   const activityFile: ActivityFile = { kind: training ? activity.kind : "none", writtenAt: Date.now() };
   ns.write(ACTIVITY_PATH, JSON.stringify(activityFile), "w");

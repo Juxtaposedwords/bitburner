@@ -99,9 +99,10 @@ export function decideNodeInvestment(
   nodes: NodeUpgradeCosts[],
   gainRate?: (level: number, ram: number, cores: number) => number,
   needCapacity = false,
-  maxPayback?: MaxPayback
+  maxPayback?: MaxPayback,
+  maxItemCost = Infinity
 ): InvestmentEvaluation {
-  const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction));
+  const budget = Math.max(0, Math.min(money - reserveMoney, money * maxSpendFraction, maxItemCost));
 
   type Candidate = { cost: number; decision: PurchaseDecision; score: number };
   const candidates: Candidate[] = [];
@@ -163,73 +164,107 @@ export function decideNodeInvestment(
 }
 
 /**
- * First name in `priority` (most-preferred-first) that's both a known and
- * currently affordable upgrade. Unknown names (typo'd in /etc/hacknet.txt)
- * or ones costing more than numHashes are skipped rather than treated as
- * an error - a bad entry just falls through to the next preference.
+ * How node purchases are limited this tick:
+ * - `none` while AUGMENTS' install loop runs (installLoopActive): an install
+ *   is minutes away and wipes the Hacknet.
+ * - `income` otherwise, with income known: anything costing at most
+ *   `budgetMinutes` of income, and at most `incomeShare` of income in total
+ *   (`tickBudget` per tick of `tickMinutes`). Hashes buy gym/study speed
+ *   and target upgrades, worth far more than the money they'd sell for -
+ *   with gang income in the trillions a money payback test (BN10 halves
+ *   Hacknet money too) kept the Hacknet tiny. The total cap matters: with
+ *   only the per-item cap, BN10 spent $1,917T/min on it - 75x the gang's
+ *   income - for 164 hashes/s.
+ * - `payback` without income data (or budgetMinutes 0): the old
+ *   maxPaybackHours test.
  */
-export function pickHashUpgrade(priority: string[], numHashes: number, costs: Record<string, number>): string | undefined {
-  return priority.find((name) => costs[name] !== undefined && costs[name] <= numHashes);
+export type NodePolicy = { kind: "none" } | { kind: "income"; maxItemCost: number; tickBudget: number } | { kind: "payback" };
+
+export function nodePolicy(
+  installLoop: boolean,
+  incomePerMin: number | undefined,
+  budgetMinutes: number,
+  incomeShare = 0.05,
+  tickMinutes = 5 / 60
+): NodePolicy {
+  if (installLoop) return { kind: "none" };
+  if (incomePerMin === undefined || !(incomePerMin > 0) || !(budgetMinutes > 0)) return { kind: "payback" };
+  return { kind: "income", maxItemCost: incomePerMin * budgetMinutes, tickBudget: incomePerMin * incomeShare * tickMinutes };
 }
 
-/**
- * True when every recognized priority upgrade costs more than the hashes
- * that can build up before the drain starts selling (drainAboveFraction of
- * capacity) - i.e. nothing on the list can ever be bought again without
- * more hash capacity. Names missing from `costs` are ignored; an empty list
- * never needs capacity.
- */
-export function hashCapacityBound(priority: string[], costs: Record<string, number>, capacity: number, drainAboveFraction: number): boolean {
-  const known = priority.map((name) => costs[name]).filter((cost): cost is number => cost !== undefined);
-  return known.length > 0 && Math.min(...known) > drainAboveFraction * capacity;
-}
 
-/** The hash upgrade that speeds up each training activity (see study_decisions.ts's ActivityFile). */
-export const ACTIVITY_HASH_UPGRADE: Record<string, string> = {
-  class: "Improve Studying",
-  gym: "Improve Gym Training",
+/** Written by hacknet_daemon.ts every tick, for tools/status.js. */
+export const HACKNET_STATUS_PATH = "/var/hacknet_status.txt";
+export type HacknetStatusFile = {
+  nodes: number;
+  maxNodes: number;
+  // Hacknet Servers (hashes) rather than Nodes (money).
+  servers: boolean;
+  // Hashes/s for servers, $/s for nodes.
+  productionPerSec: number;
+  hashes: number;
+  hashCapacity: number;
+  policy: NodePolicy["kind"];
+  hashSpending: string;
+  writtenAt: number;
 };
 
-/**
- * `priority` with the upgrade boosting the player's current activity moved
- * to the front - hashes spent on Improve Studying while at the gym (or the
- * reverse) do nothing until the activity changes. Only reorders: an upgrade
- * not already on the list isn't added, and anything else ("none", unknown)
- * leaves the list as configured.
- */
-export function prioritizeForActivity(priority: string[], activity: string | undefined): string[] {
-  const upgrade = activity === undefined ? undefined : ACTIVITY_HASH_UPGRADE[activity];
-  if (!upgrade || !priority.includes(upgrade)) return priority;
-  return [upgrade, ...priority.filter((name) => name !== upgrade)];
-}
+export const IMPROVE_STUDYING = "Improve Studying";
+export const IMPROVE_GYM = "Improve Gym Training";
+export const COMPANY_FAVOR = "Company Favor";
+export const REDUCE_MIN_SECURITY = "Reduce Minimum Security";
+export const INCREASE_MAX_MONEY = "Increase Maximum Money";
+export const SELL_FOR_MONEY = "Sell for Money";
+
+export type HashChoiceInputs = {
+  numHashes: number;
+  capacity: number;
+  // Live hashCost per upgrade name (missing = not available).
+  costs: Record<string, number>;
+  // Someone (player or sleeve) is training a stat a goal is blocked on.
+  gymForGoal: boolean;
+  classForGoal: boolean;
+  // Company whose favor sleeves are working toward an invite, if any.
+  companyTarget?: string;
+  // The scheduler's top-earning target (topEarner), if any.
+  topEarner?: { host: string; chance: number };
+  // Sell only past this fraction of capacity.
+  sellAboveFraction: number;
+};
+
+export type HashChoice = { upgrade: string; target?: string; reason: string };
 
 /**
- * One hash purchase: the first affordable upgrade in `priority`, or - only
- * once hashes pass `drainAboveFraction` of capacity - the drain upgrade
- * (normally "Sell for Money"). Hashes past capacity are simply lost, so the
- * drain stops that waste; keeping it off the regular priority list lets
- * hashes build up for the priority upgrades, whose cost rises every level,
- * instead of being sold off every tick. The drain is filtered out of
- * `priority` even if listed there, for the same reason. Callers loop until
- * this returns undefined, re-querying costs after each purchase.
+ * The hash upgrade worth buying next - the first that applies, in order:
+ * 1. Improve Gym Training / Improve Studying, only while a goal is blocked
+ *    on that stat and someone trains it.
+ * 2. Company Favor, while sleeves work toward a corporate invite.
+ * 3. Reduce Minimum Security on the top earner, only while its hack chance
+ *    is under 95% (it only speeds batches up otherwise).
+ * 4. Increase Maximum Money on the top earner: +2% of its max money, which
+ *    caps what each batch takes.
+ * 5. Sell for Money near capacity, when nothing else applies.
+ * `wanted` is the first applicable step even when it isn't affordable yet:
+ * hashes are saved for it (not spent lower down), and the caller adds
+ * cache when it costs more than capacity can hold. All of these upgrades
+ * and hashes themselves reset at an install, so nothing is ever held back
+ * for later beyond that.
  */
-export function decideHashSpend(
-  priority: string[],
-  numHashes: number,
-  capacity: number,
-  costs: Record<string, number>,
-  drainUpgrade: string,
-  drainAboveFraction: number
-): { upgrade: string; reason: "priority" | "drain" } | undefined {
-  const pick = pickHashUpgrade(
-    priority.filter((name) => name !== drainUpgrade),
-    numHashes,
-    costs
-  );
-  if (pick) return { upgrade: pick, reason: "priority" };
+export function chooseHashUpgrade(inputs: HashChoiceInputs): { buy?: HashChoice; wanted?: HashChoice } {
+  const steps: HashChoice[] = [];
+  if (inputs.gymForGoal) steps.push({ upgrade: IMPROVE_GYM, reason: "a goal waits on combat stats being trained" });
+  if (inputs.classForGoal) steps.push({ upgrade: IMPROVE_STUDYING, reason: "a goal waits on hacking being studied" });
+  if (inputs.companyTarget) steps.push({ upgrade: COMPANY_FAVOR, target: inputs.companyTarget, reason: "sleeves work toward a corporate invite" });
+  if (inputs.topEarner && inputs.topEarner.chance < 0.95) {
+    steps.push({ upgrade: REDUCE_MIN_SECURITY, target: inputs.topEarner.host, reason: `top earner's hack chance is ${(inputs.topEarner.chance * 100).toFixed(0)}%` });
+  }
+  if (inputs.topEarner) steps.push({ upgrade: INCREASE_MAX_MONEY, target: inputs.topEarner.host, reason: "top earner's max money caps each batch" });
 
-  const drainCost = costs[drainUpgrade];
-  const overThreshold = capacity > 0 && numHashes >= drainAboveFraction * capacity;
-  if (overThreshold && drainCost !== undefined && drainCost <= numHashes) return { upgrade: drainUpgrade, reason: "drain" };
-  return undefined;
+  const wanted = steps.find((step) => inputs.costs[step.upgrade] !== undefined);
+  if (wanted && inputs.costs[wanted.upgrade] <= inputs.numHashes) return { buy: wanted, wanted };
+  const sellCost = inputs.costs[SELL_FOR_MONEY];
+  if (inputs.capacity > 0 && inputs.numHashes >= inputs.sellAboveFraction * inputs.capacity && sellCost !== undefined && sellCost <= inputs.numHashes) {
+    return { buy: { upgrade: SELL_FOR_MONEY, reason: "near capacity, saving for something that costs more" }, wanted };
+  }
+  return { wanted };
 }

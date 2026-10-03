@@ -72,13 +72,31 @@ export function loadStateFromDisk(
   const dir = withTrailingSlash(config.dataServerDir);
 
   for (const hostname of list) {
+    // An install deletes purchased and Hacknet servers, but their files
+    // stay under /var/supervisor/ - served back, they made the share daemon
+    // crash on getServerMaxRam("pserv-0"). Dropped here, the next flush
+    // rewrites the index without them.
+    if (!ns.serverExists(hostname)) continue;
     hostnames.add(hostname);
     const filePath = `${dir}${hostname}.txt`;
     const rawData = ns.read(filePath);
     if (rawData && typeof rawData === "string") {
       try {
         const server = JSON.parse(rawData) as server_metadata_pb.Metadata;
-        if (server?.hostname) state.set(server.hostname, server);
+        // Root access and backdoors don't survive an install, but the saved
+        // ROOTED status is sticky (computeRootStatus never downgrades it):
+        // the rooter never re-nuked, and the backdoor daemon crashed on
+        // servers it no longer had root on (and skipped lost backdoors).
+        // Every install restarts the supervisor, so checking the live state
+        // here covers each one. Not rooted -> recomputed as ROOTABLE or not.
+        if (server?.hostname) {
+          const rooted = ns.hasRootAccess(hostname);
+          state.set(server.hostname, {
+            ...server,
+            rootStatus: rooted ? server_metadata_pb.RootStatus.ROOTED : server.rootStatus === server_metadata_pb.RootStatus.ROOTED ? undefined : server.rootStatus,
+            backdoorInstalled: ns.getServer(hostname).backdoorInstalled ?? false,
+          });
+        }
       } catch {
         // Ignore corrupted files
       }

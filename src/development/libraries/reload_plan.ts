@@ -77,6 +77,16 @@ export function fingerprint(entry: string, readFile: (path: string) => string): 
   return hash(parts.sort().join("\n\u0000"));
 }
 
+/**
+ * Daemons boot.js started (or found running), written by boot.ts. The
+ * reloader revives these even if it never saw them running itself: after
+ * a game restart, the game brings back only some scripts, and a fresh
+ * reloader had nothing to compare against - BN10's second run sat 49
+ * minutes without the scheduler, faction, sleeve, hacknet, study and stock
+ * daemons.
+ */
+export const EXPECTED_DAEMONS_PATH = "/var/expected_daemons.txt";
+
 /** What the reloader remembers per running process. */
 export type Tracked = { signature: string; pending?: string };
 
@@ -103,4 +113,77 @@ export function decideReloads(
     }
   }
   return { restart, tracked: next };
+}
+
+/** A daemon process as the reloader last saw it running. */
+export type SeenDaemon = { filename: string; threads: number; args: (string | number | boolean)[] };
+
+/** Identity of a daemon process across restarts: its script and arguments. */
+export function daemonKey(filename: string, args: (string | number | boolean)[]): string {
+  return `${filename.replace(/^\//, "")} ${JSON.stringify(args)}`;
+}
+
+const HOUR_MS = 3600_000;
+
+/**
+ * Daemons seen running that are gone now: crashed, since nothing else stops
+ * them (an install or test_restart kills the reloader too). Each is revived
+ * at most `maxPerHour` times an hour, so a daemon that dies on start can't
+ * loop forever; past that it's given up on (the status check flags it).
+ * `history` holds each key's revival times in ms.
+ */
+export function decideRevivals(
+  seen: Map<string, SeenDaemon>,
+  runningKeys: Set<string>,
+  history: Map<string, number[]>,
+  nowMs: number,
+  maxPerHour: number
+): { revive: string[]; giveUp: string[] } {
+  const revive: string[] = [];
+  const giveUp: string[] = [];
+  for (const key of seen.keys()) {
+    if (runningKeys.has(key)) continue;
+    const recent = (history.get(key) ?? []).filter((t) => nowMs - t < HOUR_MS);
+    (recent.length < maxPerHour ? revive : giveUp).push(key);
+  }
+  return { revive, giveUp };
+}
+
+/**
+ * Commands Claude queues from the repo: src/claude/commands.txt is copied
+ * to dist/ and pushed into the game by filesync, like any script, and
+ * reloader.ts runs each one it hasn't run yet (ids it has are kept
+ * game-side in COMMANDS_DONE_PATH). Lets Claude issue a config change or
+ * restart a daemon without the player typing it.
+ */
+export const COMMANDS_PATH = "/claude/commands.txt";
+export const COMMANDS_DONE_PATH = "/var/claude_commands_done.txt";
+export type QueuedCommand = { id: string; script: string; args?: (string | number | boolean)[]; note?: string };
+
+/** One-shot system scripts safe to re-run on demand (e.g. a forced target re-rank). */
+export const QUEUEABLE_ONE_SHOTS = [
+  "development/metadata/target_selector.js",
+  "development/metadata/crawl_servers.js",
+  "development/metadata/rooter.js",
+];
+
+/** Only tools, the managed daemons and QUEUEABLE_ONE_SHOTS may be run this way. */
+export function commandAllowed(script: string): boolean {
+  const file = script.replace(/^\//, "");
+  return (file.startsWith("tools/") && file.endsWith(".js")) || MANAGED_DAEMONS.includes(file) || QUEUEABLE_ONE_SHOTS.includes(file);
+}
+
+/** Queued commands not yet done, in file order, each with whether it's allowed. Unparseable files queue nothing. */
+export function pendingCommands(raw: string, done: Set<string>): { command: QueuedCommand; allowed: boolean }[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw || "[]");
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(parsed) ? parsed : (parsed as { commands?: unknown })?.commands;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((c): c is QueuedCommand => typeof c?.id === "string" && typeof c?.script === "string" && !done.has(c.id))
+    .map((command) => ({ command, allowed: commandAllowed(command.script) }));
 }

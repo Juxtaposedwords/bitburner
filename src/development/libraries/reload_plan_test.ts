@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideReloads, fingerprint, importedScripts } from "development/libraries/reload_plan";
+import { commandAllowed, daemonKey, decideReloads, decideRevivals, fingerprint, importedScripts, pendingCommands, SeenDaemon } from "development/libraries/reload_plan";
 
 describe("importedScripts", () => {
   it("finds script imports and skips packages", () => {
@@ -79,5 +79,61 @@ describe("decideReloads", () => {
   it("forgets processes that have exited", () => {
     const { tracked } = decideReloads(new Map([[1, { signature: "s1" }]]), []);
     expect(tracked.size).toBe(0);
+  });
+});
+
+describe("decideRevivals", () => {
+  const sleeve: SeenDaemon = { filename: "development/metadata/sleeve_daemon.js", threads: 1, args: [] };
+  const key = daemonKey(sleeve.filename, sleeve.args);
+  const seen = new Map([[key, sleeve]]);
+  const NOW = 10 * 3600_000;
+
+  it("revives a daemon that was running and is gone", () => {
+    expect(decideRevivals(seen, new Set(), new Map(), NOW, 3)).toEqual({ revive: [key], giveUp: [] });
+  });
+
+  it("leaves running daemons alone", () => {
+    expect(decideRevivals(seen, new Set([key]), new Map(), NOW, 3)).toEqual({ revive: [], giveUp: [] });
+  });
+
+  it("gives up after maxPerHour revivals within the hour, and tries again after", () => {
+    const history = new Map([[key, [NOW - 1000, NOW - 2000, NOW - 3000]]]);
+    expect(decideRevivals(seen, new Set(), history, NOW, 3)).toEqual({ revive: [], giveUp: [key] });
+    const old = new Map([[key, [NOW - 2 * 3600_000, NOW - 1000, NOW - 2000]]]);
+    expect(decideRevivals(seen, new Set(), old, NOW, 3).revive).toEqual([key]);
+  });
+
+  it("keys a daemon by script and args, ignoring a leading slash", () => {
+    expect(daemonKey("/tools/program_shopper.js", ["--once"])).toBe(daemonKey("tools/program_shopper.js", ["--once"]));
+  });
+});
+
+describe("queued commands", () => {
+  const raw = JSON.stringify({
+    commands: [
+      { id: "1", script: "tools/set_config.js", args: ["/etc/gang.txt", "territoryWarfareMembers", 12] },
+      { id: "2", script: "development/metadata/sleeve_daemon.js" },
+      { id: "3", script: "boot.js" },
+    ],
+  });
+
+  it("returns commands not yet done, flagging what's not allowed", () => {
+    expect(pendingCommands(raw, new Set(["1"])).map((p) => [p.command.id, p.allowed])).toEqual([
+      ["2", true],
+      ["3", false],
+    ]);
+  });
+
+  it("accepts a bare array and ignores junk", () => {
+    expect(pendingCommands('[{"id":"a","script":"tools/status.js"}]', new Set()).length).toBe(1);
+    expect(pendingCommands("not json", new Set())).toEqual([]);
+    expect(pendingCommands('[{"script":"tools/x.js"}]', new Set())).toEqual([]);
+  });
+
+  it("allows only tools and managed daemons", () => {
+    expect(commandAllowed("/tools/set_config.js")).toBe(true);
+    expect(commandAllowed("development/metadata/gang_daemon.js")).toBe(true);
+    expect(commandAllowed("development/metadata/hack_worker.js")).toBe(false);
+    expect(commandAllowed("development/metadata/target_selector.js")).toBe(true);
   });
 });

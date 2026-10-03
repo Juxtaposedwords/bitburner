@@ -4,7 +4,10 @@ import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
 import { Codes } from "development/libraries/status";
 import { readApproach } from "development/libraries/approach";
 import { Approach } from "development/metadata/scheduler";
-import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget } from "development/metadata/share_decisions";
+import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget, shareWanted } from "development/metadata/share_decisions";
+import { readFreshJson } from "development/libraries/fresh_file";
+import { FACTION_REPS_PATH, FactionRepsFile } from "development/metadata/faction_decisions";
+import { SLEEVES_PATH, SleevesFile } from "development/metadata/sleeve_decisions";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
 /**
@@ -12,10 +15,12 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
  * (ns.share()), which speeds up reputation from faction work - the way to
  * reach augmentations at factions that can't take donations yet (e.g.
  * BitRunners' Neural Accelerator). The bonus is logarithmic in thread count
- * (see share_decisions.ts) and every GB here is taken from HWGW batches, so
- * `fleetFraction` should track what batches are worth. The 0.5 default is
- * for BN9, where script hacking gives 5% of normal experience and almost no
- * money; in a BitNode where hacking pays, something like 0.1 fits better.
+ * (see share_decisions.ts: 1 + ln(threads)/25, so each doubling adds only
+ * ~2.8% rep) and every GB here is taken from HWGW batches, whose hacking
+ * exp scales with threads. 0.1 by default: on BN10's ~4.9 PB fleet, 50%
+ * gave x1.533 rep and 10% gives x1.468 - 4% less rep for ~1.9 PB more
+ * batch RAM. (0.5 was for BN9, where script hacking gave 5% of normal
+ * experience and almost no money.)
  *
  * Same host pool as scheduler_daemon.ts (rooted, never home, never Hacknet
  * servers, which run for hashes). The scheduler already works with live
@@ -24,7 +29,7 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
  */
 export type ShareConfig = { enabled: boolean; fleetFraction: number };
 
-export const DEFAULT_CONFIG: ShareConfig = { enabled: true, fleetFraction: 0.5 };
+export const DEFAULT_CONFIG: ShareConfig = { enabled: true, fleetFraction: 0.1 };
 export const CONFIG_PATH = "/etc/share.txt";
 
 const SHARE_WORKER = "development/metadata/share_worker.js";
@@ -32,6 +37,8 @@ const HOME = "home";
 // ns.share() cycles are 10s; checking every 30s is plenty to top up after
 // the scheduler's prep phase grabs free RAM, or after a config change.
 const TICK_INTERVAL_MS = 30_000;
+// The faction and sleeve daemons rewrite their files every tick.
+const STATUS_MAX_AGE_MS = 120_000;
 
 async function listWorkerHosts(ns: NS): Promise<string[]> {
   const res = await server_metadata_pb.NewSupervisorServiceClient(ns).ListServers({});
@@ -63,12 +70,18 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
 
   const hosts = await listWorkerHosts(ns);
   const totalRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0);
-  // Share only boosts faction/company rep; during GROW_STATS the player is
-  // studying, and during GANG committing crimes, so the RAM goes back to
-  // batches.
+  // Share boosts rep from faction work - the player's and the sleeves'. It
+  // runs while either works a faction; otherwise (training, studying,
+  // karma crime) the RAM goes back to batches. Without the status files,
+  // by mode as before: off in GROW_STATS and GANG.
   const approach = readApproach(ns);
-  const growingStats = approach === Approach.GROW_STATS || approach === Approach.GANG;
-  const target = config.enabled && !growingStats ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
+  const reps = readFreshJson<FactionRepsFile>(ns, FACTION_REPS_PATH, STATUS_MAX_AGE_MS);
+  const sleeves = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, STATUS_MAX_AGE_MS);
+  const repWork =
+    reps || sleeves
+      ? shareWanted(!!reps?.workTarget, (sleeves?.sleeves ?? []).map((s) => s.goal))
+      : approach !== Approach.GROW_STATS && approach !== Approach.GANG;
+  const target = config.enabled && repWork ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);
 
@@ -87,7 +100,7 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
   }
 
   await log.debug(
-    `[Share] tick: growStats=${growingStats} fleet=${(totalRam / 1024).toFixed(1)}TB fraction=${config.fleetFraction} target=${target} running=${runningThreads} ` +
+    `[Share] tick: repWork=${repWork} fleet=${(totalRam / 1024).toFixed(1)}TB fraction=${config.fleetFraction} target=${target} running=${runningThreads} ` +
       `expectedBonus=x${shareBonus(target).toFixed(3)} actualSharePower=x${ns.getSharePower().toFixed(3)}`
   );
 }

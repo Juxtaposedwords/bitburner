@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Activity, canAffordTraining, chooseTraining, CombatNeed, decideStudyStep, trainingCostPerMin } from "development/metadata/study_decisions";
+import { Activity, canAffordTraining, chooseTraining, CombatNeed, decideStudyStep, pickProgramToCreate, trainingCostPerMin } from "development/metadata/study_decisions";
 
 describe("decideStudyStep", () => {
   const zb: Activity = { kind: "class", location: "ZB Institute of Technology", detail: "Algorithms" };
@@ -74,5 +74,19 @@ describe("trainingCostPerMin", () => {
   it("turns a negative per-cycle money into a per-minute cost", () => {
     expect(trainingCostPerMin(-2000, 300)).toBe(600000);
     expect(trainingCostPerMin(0, 300)).toBe(0);
+  });
+});
+
+describe("pickProgramToCreate", () => {
+  const none = (): boolean => false;
+
+  it("writes the first missing opener whose level is met and cash can't buy", () => {
+    expect(pickProgramToCreate(none, 120, 144e3)).toBe("BruteSSH.exe");
+    expect(pickProgramToCreate((n) => n === "BruteSSH.exe", 120, 144e3)).toBe("FTPCrack.exe");
+  });
+
+  it("leaves to the shopper what cash can buy, and skips what the level can't write", () => {
+    expect(pickProgramToCreate(none, 120, 2e6)).toBeUndefined();
+    expect(pickProgramToCreate(none, 40, 0)).toBeUndefined();
   });
 });

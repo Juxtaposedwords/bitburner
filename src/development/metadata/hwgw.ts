@@ -180,3 +180,98 @@ export function nextHackFraction(
   if (utilization < targetUtilization) return clamp(current * RAISE_FACTOR);
   return clamp(current);
 }
+
+/**
+ * Home RAM the scheduler may fill with workers. Below `fallbackLevel`
+ * (a fresh BitNode, home the only real RAM) everything but `reservedGb`.
+ * Past it, everything but a reserve for the daemons and tools: the larger
+ * of `reservedGb`, `reserveFraction` of home, and `minReserveGb` - so a
+ * small home stays untouched, and a big one works. Home RAM survives
+ * installs while purchased servers don't: BN10's second run had ~16 TB of
+ * home idle after an install while prep crawled on 56 threads elsewhere,
+ * because home was only ever used below hacking level 50.
+ */
+export function homeWorkerRam(
+  maxRam: number,
+  usedRam: number,
+  hackingLevel: number,
+  fallbackLevel: number,
+  reservedGb: number,
+  reserveFraction = 0.1,
+  minReserveGb = 64
+): number {
+  const reserve = hackingLevel < fallbackLevel ? reservedGb : Math.max(reservedGb, maxRam * reserveFraction, minReserveGb);
+  return Math.max(0, maxRam - usedRam - reserve);
+}
+
+/** The most home RAM workers can ever have (homeWorkerRam with nothing running) - for utilization. */
+export function homeWorkerCapacity(maxRam: number, hackingLevel: number, fallbackLevel: number, reservedGb: number, reserveFraction = 0.1, minReserveGb = 64): number {
+  return homeWorkerRam(maxRam, 0, hackingLevel, fallbackLevel, reservedGb, reserveFraction, minReserveGb);
+}
+
+export type HeldTarget = { host: string; since: number };
+
+/**
+ * The targets to batch this tick, best first: up to `k` from `ranked`
+ * (rooted, best first). A current target stays while it's still in
+ * `ranked` and either within the top `k`, or still being prepped
+ * (`prepping`) and held for less than `minHoldMs` - a re-rank doesn't throw
+ * away a prep in progress, but a prepped small target gives its slot to a
+ * better one at once (the hold once kept 7 small targets while ecorp
+ * waited). Free slots fill from the top of `ranked`.
+ */
+export function selectTargets(
+  current: HeldTarget[],
+  ranked: string[],
+  k: number,
+  now: number,
+  minHoldMs: number,
+  prepping: Set<string> = new Set()
+): HeldTarget[] {
+  const top = ranked.slice(0, k);
+  const kept = current.filter(
+    (t) => ranked.includes(t.host) && (top.includes(t.host) || (prepping.has(t.host) && now - t.since < minHoldMs))
+  );
+  const out = [...kept];
+  for (const host of ranked) {
+    if (out.length >= k) break;
+    if (!out.some((t) => t.host === host)) out.push({ host, since: now });
+  }
+  return out.slice(0, Math.max(k, kept.length)).sort((a, b) => ranked.indexOf(a.host) - ranked.indexOf(b.host));
+}
+
+/**
+ * Threads one prep step needs: weaken down to min security, or grow to max
+ * money (the next step weakens what the grow added). Capped by the caller
+ * to free RAM; sized so one target's prep doesn't take the whole fleet
+ * from the others.
+ */
+export function prepThreadsNeeded(action: "weaken" | "grow", securityGap: number, weakenPerThread: number, growThreads: number): number {
+  if (action === "weaken") return weakenPerThread > 0 ? Math.max(1, Math.ceil(securityGap / weakenPerThread)) : 1;
+  return Math.max(1, Math.ceil(growThreads));
+}
+
+/**
+ * Batches one target can take per scheduler tick: as many 4-action windows
+ * (4 x spacingMs each) as fit in the tick, at least 1.
+ */
+export function batchesPerTick(tickMs: number, spacingMs: number): number {
+  if (!(spacingMs > 0)) return 1;
+  return Math.max(1, Math.floor(tickMs / (4 * spacingMs)));
+}
+
+/**
+ * Per-target state the scheduler publishes (SCHEDULER_TARGETS_PATH): what
+ * each target earns now - batches in the last minute x the planned take
+ * per batch (hackFraction x maxMoney x hack chance). hacknet_daemon.ts
+ * spends hashes on the top earner; tools/status.js shows the shares.
+ */
+export const SCHEDULER_TARGETS_PATH = "/var/scheduler_targets.txt";
+export type TargetIncome = { host: string; state: "prepping" | "batching"; batchesPerMin: number; takePerBatch: number; incomePerMin: number; chance: number };
+export type SchedulerTargetsFile = { targets: TargetIncome[]; writtenAt: number };
+
+/** The batching target earning the most, or undefined. */
+export function topEarner(targets: TargetIncome[]): TargetIncome | undefined {
+  const batching = targets.filter((t) => t.state === "batching" && t.incomePerMin > 0);
+  return batching.length === 0 ? undefined : batching.reduce((a, b) => (b.incomePerMin > a.incomePerMin ? b : a));
+}

@@ -34,6 +34,13 @@ enum Approach {
   // gang with the first preferred gang faction joined. Batches run as in
   // HACK; once the gang exists, player work goes back to normal.
   GANG = 5;
+  // Grinds faction rep only up to each favor target (the rep that lifts a
+  // faction to donation favor at the next install), training first when
+  // that gets there sooner (planTraining). No installs until every favor
+  // target is met - an install resets trained stats - then one install
+  // banks the favor and AUGMENTS turns cash into rep. Batches run as in
+  // HACK; the Hacknet builds and share runs for the rep work.
+  FACTION_GRIND = 6;
 }
 
 message SchedulerConfig {

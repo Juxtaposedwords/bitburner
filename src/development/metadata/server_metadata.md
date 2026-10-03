@@ -319,13 +319,15 @@ reason `SupervisorService` lives in `supervisor.ts` rather than
   takes `ramUsed` as an input — running HWGW scripts on one measurably cuts
   its own hash output, undermining the entire point of
   `purchased_server_daemon.ts`'s counterpart, `hacknet_daemon.ts` (see
-  below). Below `SchedulerConfig.homeFallbackHackingLevel` (default 50),
-  `home` is included too, since early on it may be the only significant
-  RAM source before enough is rooted/purchased elsewhere — but even then,
-  `homeReservedRamGb` (default 5) always stays off-limits, so development
-  keeps some headroom. At or above that hacking level, `home` reverts to
-  fully reserved, same as it stays for every other purpose in this
-  codebase. Both are live-patchable via `PatchSchedulerConfig`.
+  below). `home` is included beyond a reserve (`homeWorkerRam`, `hwgw.ts`). Below
+  `SchedulerConfig.homeFallbackHackingLevel` (default 50) the reserve is `homeReservedRamGb`
+  (default 5), since early on home may be the only real RAM. Past that level it's the largest of
+  `homeReservedRamGb`, 10% of home, and 64 GB: a small home stays free for the daemons, and a big
+  one works. Home used to revert to fully reserved past level 50. But home RAM survives installs
+  and purchased servers don't, so BN10's second run had about 16 TB of home idle after an install
+  while prep crawled on 56 threads elsewhere and hacking earned $0. hackFraction auto-scaling
+  counts home's worker share in its utilization. Both config values are live-patchable via
+  `PatchSchedulerConfig`.
   `hack`/`grow`/`weaken` don't need to run *from* the target or from the
   same host as each other, so `allocateAcrossHosts` (`hwgw.ts`) places each
   of a batch's four actions independently, **round-robin** across live
@@ -418,6 +420,30 @@ regardless of whether a program arrived via `program_shopper.ts` or a
 manual purchase.
 
 ## Hacknet manager: `hacknet_daemon.ts`, BitNode-agnostic by construction
+
+**Phases** (`nodePolicy`, `hashPriorityFor`). Hacknet money doesn't matter next to gang income in
+the trillions, and BN10 halves it too, so the Hacknet is worth its hashes: gym and study speed
+for invites, and upgrades to the scheduler's target.
+- **During AUGMENTS' install loop,** nothing is bought. An install is minutes away and wipes the
+  Hacknet. The loop is published by `faction_daemon.ts` in `/var/install_loop.txt`
+  (`installLoopActive`).
+- **Otherwise,** any node, upgrade or cache costing at most `incomeBudgetMinutes` (10) of income
+  is bought. This replaces the `maxPaybackHours` money test, which valued hashes at Sell for
+  Money prices and kept the Hacknet tiny. The payback test still applies without monitoring data.
+- **Hashes go to training.** Improve Gym Training or Improve Studying goes first while the player
+  trains. That covers `study_daemon.ts`'s sessions and also the faction daemon's gym work for an
+  invite (`gymTraining` in `/var/faction_reps.txt`), and sleeves at the gym (a `gym` goal in
+  `/var/sleeves.txt`, since the hash bonus multiplies sleeve gym gains too). Otherwise the
+  configured order applies. Both
+  multipliers last until the next install, so buying them while idle pays off at the next
+  session.
+- **Overflow** past `hashDrainAboveFraction` goes to `overflowHashUpgrade` (Increase Maximum Money; it was Reduce Minimum Security until income became capped by max money
+  on the scheduler's target), not Sell for Money. Batch times scale with security, so it means
+  more hacking exp, where $1M per purchase is nothing next to the gang. It falls back to
+  `hashDrainUpgrade` when there's no target. An earlier version spent idle hashes on Increase
+  Maximum Money first. That only raises hacking money, which doesn't matter here, and it took the
+  hashes the training upgrades needed.
+- `/var/hacknet_status.txt` feeds the hacknet line in `tools/status.js`.
 
 Grows the Hacknet Node/Server fleet and spends hashes, without any
 BitNode-specific branching. `ns.hacknet.purchaseNode()`/`upgradeLevel()`/
@@ -948,8 +974,10 @@ per tick (`decideSleeveGoals`), in priority order:
    (`/etc/sleeve.txt`, defaults 0 and 100).
 3. **Faction rep:** work at a joined faction still short of a rep target. The faction daemon
    publishes these as `repTargets` in `/var/faction_reps.txt`: the favor-plan target, else the
-   largest wanted augmentation's requirement. One sleeve per faction, never the player's, closest
-   target first, with the work type chosen by formula for that sleeve.
+   largest wanted augmentation's requirement. One sleeve per faction. The player's faction comes
+   first while it's short of its target, so two workers finish its favor target sooner.
+   `tools/sleeve_probe.js` confirmed the game allows this and keeps the player working. After
+   that, the closest target first, with the work type chosen by formula for that sleeve.
 4. **Otherwise,** the crime earning the most money.
 
 A task already matching the goal is never restarted (`taskMatchesGoal`). If the game refuses a
@@ -1016,6 +1044,28 @@ work) are the same as HACK.
   price by 1.9× within the batch: QLink at $25T would be about $90T after SPTN-97 and one
   NeuroFlux. Unreachable augmentations hold nothing, since the next install resets the inflation
   anyway. Outside AUGMENTS, only The Red Pill is held this way.
+- **The install loop** (`maxFocusWaitMinutes`, default 5; `focusPriceLimit`). Only augmentations
+  costing at most cash plus that many minutes of income are saved for, the dearest of them first.
+  Income is every counter that rose over the last 10 minutes, from monitoring, not counting stock
+  sales. With nothing pending, prices are at base and an install couldn't lower them, so the cap is
+  longer: at least an hour (`NOTHING_PENDING_MIN_MINUTES`). If nothing is within that either, the
+  cheapest reachable one is saved for, so the loop always moves. A 5-minute cap there once stalled
+  BN10's loop; no cap at all then saved 6.3h for one $126T QLink while a favor-banking install
+  waited. That install's enabler purchase is no longer blocked by savings. Once none is left, whatever is affordable gets bought and, with `autoInstall`, the
+  install resets the 1.9× inflation. The gang survives installs and keeps earning, so short
+  cycles of buy, install, buy beat saving hours for one inflated augmentation. An earlier version
+  dropped the most expensive augmentation outright when it was too far away. That fell back to
+  slow half-of-cash buying in cheap-first order. Once the wind-down has started nothing is held,
+  so growing cash can't flip the hold back on. The Red Pill is always waited for. With no
+  monitoring data there's no limit. `tools/status.js` shows pending count, time since the last
+  install and the switches, and warns when AUGMENTS mode can't install.
+- **When the focus runs out** (`secondaryAugmentationStats`, default the four combat stats and
+  their exp; `focusStatsFor`). Once no `augmentationFocus` augmentation is left reachable at any
+  price, AUGMENTS widens to every useful stat, which includes these. Daedalus takes 1500 in every
+  combat stat in place of 2500 hacking, and The Covenant and Illuminati have combat routes too.
+  BN10's loop had bought every hacking augmentation Slum Snakes sells and then stalled: $18T in
+  cash, 25M rep, nothing bought. It's a new key so that it reaches existing `/etc/faction.txt`
+  files, where the old keys' written values win over changed defaults.
 - **The shared savings target** (`development/libraries/savings.ts`, `/var/savings.txt`). The
   faction daemon writes the augmentation's price plus any donation still needed, every tick, and
   removes it otherwise. Hacknet, stock and purchased-server daemons spend only above
@@ -1410,7 +1460,10 @@ picks the best-scoring one. No non-formula fallback exists here (unlike
 Hacknet) — without `Formulas.exe`, `gang_daemon.ts` just idles.
 
 - **`gang_decisions.ts`** — pure, `ns`-free (mirrors `hacknet_decisions.ts`).
-  `decideMemberTask` maximizes `moneyGain` for most members;
+  `decideMemberTask` maximizes `moneyGain` for most members, never picks
+  "Unassigned" or "Territory Warfare" (a fresh member earns $0 at every
+  task, and that tie once left it idle on "Unassigned"), and trains
+  (Train Combat / Train Hacking) while no task pays anything yet;
   `GangGenInfo.wantedPenalty` is a *multiplier* (1.0 = no penalty at all,
   dropping toward 0 as wanted level outgrows respect — confirmed live: a
   healthy gang sat between 0.979 and 1.000, never anywhere near 0), so
@@ -1549,7 +1602,21 @@ fingerprints each managed daemon on home (`MANAGED_DAEMONS`): the daemon's file 
 imports, transitively (`fingerprint`, `importedScripts`). When a fingerprint changes and then holds
 for one more check (`decideReloads`, so a restart never lands mid-sync), it kills that daemon and
 runs it again with the same threads and arguments. Workers, one-shot tools, bootstrap and the
-reloader itself are never restarted. A change to the reloader still needs a manual restart.
+reloader itself are never restarted this way. The reloader reloads itself (`ns.spawn`) when its
+own code changes.
+
+It also **revives crashed daemons** (`decideRevivals`). A managed daemon it saw running that
+disappears is started again with the same threads and args, at most 3 times an hour. The warning
+includes the dead script's last 5 log lines, from `ns.getRecentScripts()`, so the crash is
+visible. After 3 it logs one error and stops. Runs with `--once` finish on purpose and are never
+tracked. Nothing else stops a managed daemon: an install or `test_restart` kills the reloader
+too. So a daemon you kill by hand comes back; kill the reloader first.
+
+The reloader also revives daemons it never saw. `boot.js` writes the daemons it started to
+`/var/expected_daemons.txt`, and the reloader loads that list when it starts. After a game
+restart the game brings back only some scripts, and a fresh reloader used to have nothing to
+compare against. BN10's second run sat 49 minutes without the scheduler, faction, sleeve,
+hacknet, study and stock daemons.
 
 ## Health check: `tools/status.ts`
 
@@ -1675,10 +1742,304 @@ augmentations at factions that can't take donations yet (see "Donations" above).
   partial placement is fine, unlike an HWGW batch. When over target (after lowering the fraction
   or setting `enabled: false`), it kills the smallest processes first. The scheduler already
   works from live free RAM, so it simply batches with whatever is left.
-- **Config** `/etc/share.txt`: `enabled` (default true), `fleetFraction` (default **0.5**). Half
-  the fleet suits BN9, where HWGW batches earn almost nothing. Where hacking pays, about 0.1 fits
-  better.
+- **Config** `/etc/share.txt`: `enabled` (default true), `fleetFraction` (default **0.1**). The bonus
+  is logarithmic (1 + ln(threads)/25; each doubling adds about 2.8%). On BN10's ~4.9 PB fleet, 50%
+  gave ×1.533 rep and 10% gives ×1.468, while 10% frees about 1.9 PB for batches, whose hacking exp
+  scales with threads. The old 0.5 suited BN9, where HWGW batches earned almost nothing.
 - **GROW_STATS:** the target drops to 0 while the scheduler approach is GROW_STATS (see
   "Grow-stats mode"), since the player isn't doing rep work then.
 - **Diagnosability:** every tick logs fleet size, target, running threads, the predicted bonus,
   and the game's actual `ns.getSharePower()`.
+
+## Grinding only to the favor target; the free work slot
+
+Rep is ground only as far as cash can't buy it. Past that, the player's time goes to training.
+- **A planned faction stops at its favor target** (`favorPlan`, `decideWorkTarget`, `repTargets`).
+  That's the rep this run that lifts it to donation favor (150) at the next install. Daedalus is
+  included, so The Red Pill takes the favor route too. The rest is bought with a donation after
+  the install.
+- **Donatable factions are never ground**, since cash buys their rep. Nor is NeuroFlux Governor:
+  its rep is part of its cost through donations. The earlier NeuroFlux work fallback is gone.
+- **Sleeves follow the same `repTargets`.** The first one joins the player's faction while it's short of its target.
+- **The free work slot** (`workSlotFree`, `/var/work_slot.txt`). With no work target, no invite
+  work, no karma crime and no slot-claiming eligibility action, `study_daemon.ts` takes the slot
+  as it does in GROW_STATS. It uses the gym for Daedalus's combat route when that's sooner, and
+  studies otherwise. Hacknet hashes follow what it trains. When cash can't cover the training
+  runway, it commits the best money crime (`bestMoneyCrime`, Mug without Formulas.exe) instead of
+  leaving the player idle. BN10's second run sat idle at $16.7K right after an install.
+  Before either, a free slot **writes a missing program** (`pickProgramToCreate`). That's the
+  first port opener, then Formulas.exe, whose hacking level is met and that cash can't buy yet;
+  the program shopper buys whatever cash covers. Installs wipe programs, and nothing used to
+  write them, so right after an install few servers could be rooted until cash came back.
+- **Share follows faction work** (`shareWanted`). It runs while the player or any sleeve works a
+  faction, since share multiplies all faction-work rep, a sleeve's included. Otherwise the RAM
+  goes back to batches. Without the status files it falls back to the old rule: off in GROW_STATS
+  and GANG.
+
+## FACTION_GRIND mode and the training planner
+
+`Approach.FACTION_GRIND` (6) is the long rep phase, for when AUGMENTS has nothing left it can
+reach:
+- **Batches** run as in HACK.
+- **Rep is ground only up to favor targets,** as in every mode.
+- **Installs whenever that finishes the grind sooner** (`grindAllowsInstall`, `grindInstallPays`),
+  and otherwise once every favor target is met. Favor grows with the log of total rep earned, and
+  rep gain is ×(1 + favor/100). So an install banks this run's rep as favor and speeds up the
+  rest, while the rep still needed stays the same (`installNowEstimate`). BN10's BitRunners at
+  106K of 462K: 0 → 83.6 favor, 6.0h → 3.4h, including `grindInstallOverheadMinutes` (10) of
+  recovery. Every favor-plan faction being ground is measured (`measureGrinds`): the player's work
+  target and each sleeve's faction, from actual rep growth over 10 minutes (`measuredRepPerMin`),
+  so share and every worker count. They run in parallel, so an install pays when the *last* one to
+  finish finishes sooner. This holds in every mode: when it pays and nothing is pending, the
+  cheapest buyable augmentation is bought so the install can happen (`pickInstallEnabler`). Rep
+  toward an augmentation's own requirement never counts, because an install wipes it; only favor
+  targets accumulate. An earlier rule held every install until all targets were met; that's the
+  slow way, because each run's first rep banks the most favor.
+- `tools/status.js` shows the grind: rep/min, time to the favor target, and what installing now
+  would do.
+- **The Hacknet builds** (the install loop isn't active), and share runs for the player's and the
+  sleeves' faction work.
+- Switch with `run tools/set_scheduler_approach.js FACTION_GRIND`. Automatic switching is planned.
+
+**Train or grind** (`development/libraries/training_plan.ts`, `planTraining`). Rep from work is
+linear in the stats it uses, while each level costs exponentially more exp, so some training
+first can reach a target sooner. The planner works in 5-minute chunks. Each round tries every
+stat for 1 to 6 more chunks (levels floor, so one chunk can show nothing) and keeps the choice
+that cuts total time most. It stops when nothing saves time, or at 10 hours.
+`tools/train_eval.js [faction]` runs it with the real formulas and reports:
+- rep/min from `factionGains` for each work type the faction offers, at its favor;
+- exp/min from `gymGains` (the best gym per stat) and `universityGains` (Algorithms,
+  Leadership);
+- levels from `calculateSkill`.
+
+Nothing is wired to act on it yet. Exp earned while grinding and sleeves' shared exp aren't
+counted, which biases the plan toward grinding.
+
+## Buying sleeves and memory (BitNode 10)
+
+`sleeve_daemon.ts`, via `decideSleeveInvestment`, spends `investSpendFraction` (0.5) of the cash
+above the shared savings target:
+- **A new sleeve from The Covenant** (`ns.sleeve.purchaseSleeve`, BitNode 10 only; members only),
+  when `getSleeveCost()` fits. The game's source (`SleeveCovenantPurchases.tsx`) says it costs
+  $10T × 10ⁿ, where n is the number already bought, at most 5. It needs BN10, membership and cash,
+  with no rep. A refusal's message is logged once per change and shown in the status.
+- **Both last** beyond BN10. Memory is never reset: `Sleeve.prestige` sets sync to at least the
+  memory value. The count is min(3, SF10 level + (1 in BN10)) + `sleevesFromCovenant`, so
+  finishing BN10 turns its free sleeve into Source-File 10's, and every sleeve with its memory
+  carries over.
+- **Then one memory upgrade** at a time for the sleeve with the least memory
+  (`upgradeMemory`, `getMemoryUpgradeCost`), up to 20 per tick. Memory is the sync a sleeve keeps
+  through an install.
+
+Getting The Covenant's invite back after an install is the faction daemon's job: combat stats
+through `pursueWantedInvites`.
+
+## Sleeves train for the gang's karma crime
+
+Sleeves start each BitNode with reset stats. In BN10's second run, five sleeves were on Homicide
+at low success, with about 11.6h to go. In the karma phase each sleeve now gets the player's
+comparison (`sleeveTrainingPaysOff`, which uses `trainingPaysOff`):
+- **Stat:** the one whose +10 levels raise the crime's chance most (`gangTrainingStat` with the
+  sleeve's own `crimeSuccessChance`).
+- **Gym time:** gym exp at Powerhouse Gym, scaled by the sleeve's sync, with `calculateExp` for
+  the levels.
+- **Time left:** the remaining karma at today's *total* rate, from monitoring's karma gauge over
+  10 minutes, or the player's crime alone without that data.
+
+The sleeve trains (`gym` goal: travel to Sector-12, then `setToGymWorkout`) when its crime after
+training earns more karma in the time left than crime now. It's re-decided every tick. Its chance
+only rises while training, so the decision doesn't flip back and forth.
+
+## Commands queued by Claude: `src/claude/commands.txt`
+
+`reloader.ts` runs commands queued in the repo (`runQueuedCommands`, `pendingCommands`).
+`src/claude/commands.txt` is copied to `dist/` and pushed by filesync like any `.txt`. Its format
+is `{"commands": [{"id", "script", "args"?, "note"?}]}`. Each check, every id not yet in
+`/var/claude_commands_done.txt` is run with `ns.run(script, 1, ...args)` and echoed to the
+terminal as `[Claude] Ran ...`. Only `tools/*.js` and the managed daemons are allowed (anything
+else is refused and reported). A command that can't start for lack of RAM is retried for 30 checks.
+Ids are never reused: add new entries, don't edit old ones.
+
+## Sleeves with no rep left to earn train for the player
+
+The game refuses two sleeves at one faction (`setToFactionWork`; a sleeve may share the player's
+faction). So once every rep target has a worker, the remaining sleeves train (`trainingFor`,
+`playerTraining`). The player gets a share of their exp, scaled by sync:
+- **Gym** on the combat stat a wanted invite waits on (the faction daemon's
+  `inviteAction "...: gymWorkout <stat>"`).
+- **Otherwise the study config's class** (Algorithms at ZB), for hacking. Hacking contracts earn
+  rep in proportion to hacking level.
+
+Below $100M cash they commit money crimes instead, since classes and the gym cost money. Goals
+are re-decided every tick, so a new rep target (say, a faction just joined) takes a training
+sleeve back to faction work. The hacknet puts Improve Studying first while sleeves study.
+
+## Sleeve augmentations
+
+`sleeve_daemon.ts` buys augmentations for sleeves (`buySleeveAugs`, `pickSleeveAug`) in any BitNode
+with sleeves. It runs after Covenant sleeves and memory, within the same `investSpendFraction` of
+cash above the savings target. It takes the cheapest augmentation that raises a multiplier sleeves
+use (`SLEEVE_USEFUL_STATS`: skills, exp, faction rep, crime, work money), up to 20 per tick, for
+sleeves with no shock (the game requires it). The game's source shows a player install doesn't
+clear them (`prestigeAugmentation` doesn't call `Sleeve.prestige`); only a new BitNode does. Each
+purchase resets that sleeve's exp. The status shows each sleeve's count.
+
+## Saving for a Covenant sleeve
+
+In BN10, as a Covenant member, the faction daemon makes the next sleeve the shared savings target
+once it's within `sleeveSaveMinutes` (480, 8 hours) of income (`sleeveSavings`). Every spender holds back,
+including the faction daemon's own augmentation buying (The Red Pill still comes first). Installs
+wait, and `sleeve_daemon.ts` buys the sleeve with the full balance (savings reason
+`SLEEVE_SAVINGS_REASON`). Each sleeve costs 10× the last ($10T, $100T, $1Q, $10Q, $100Q), so the
+later ones only come within reach once income is in the hundreds of trillions per minute.
+
+## Nothing ends a BitNode on its own
+
+Finishing a BitNode is the player's call. BN10 is replayed partly to buy Covenant sleeves before
+leaving. Nothing calls `destroyW0r1dD43m0n`, and `backdoor_daemon.ts` excludes `w0r1d_d43m0n`
+(`selectBackdoorTargets`), since backdooring it is the other way a BitNode ends. Before that
+exclusion, an automatic Red Pill install plus enough hacking level would have had the backdoor
+daemon end the BitNode by itself. Scheduler and hacknet targets need `maxMoney > 0`, and
+`w0r1d_d43m0n` has none, so it's never hacked either.
+
+## Corporate factions: jobs, sleeves and Company Favor
+
+One sleeve per faction means more sleeves on rep needs more factions. The corporate factions
+(ECorp, MegaCorp, …) invite at a company-rep threshold and sell strong augmentations no other
+faction does.
+- **The faction daemon** (`gatherCompanyTargets`, `pursueCompanyTargets`, default on) looks at
+  every corporate faction not joined that sells a useful augmentation not owned. It applies at
+  the employer each tick (`applyToCompany`), which is how a job is got and how promotions happen;
+  both are logged. It publishes `companyTargets` (rep against the invite's
+  `companyReputation` requirement, nearest first) in `/var/faction_reps.txt`.
+- **Sleeves** (`company` goal) work those companies after faction rep and before training. One
+  sleeve per company, which the game's `setToCompanyWork` enforces, and only where the player
+  holds a job. Each invite won becomes a faction rep target, which pulls a sleeve onto it.
+- **The hacknet** buys **Company Favor** (+5 favor at that company for the rest of the BitNode)
+  for the nearest company target while nobody's training. Favor speeds up company rep the way it
+  does faction rep.
+- **Status** shows `company rep toward invites: …`.
+
+## Root and backdoors after an install
+
+An install removes root access and backdoors from every server, but the supervisor's saved
+`rootStatus: ROOTED` was sticky: `computeRootStatus` never downgrades it. After an install the
+rooter (which nukes only ROOTABLE servers) never re-nuked, the backdoor daemon crashed on servers
+it had no root on, and lost backdoors were never redone, since `backdoorInstalled` was still true.
+`loadStateFromDisk` now checks each saved server against the game (`hasRootAccess`,
+`getServer().backdoorInstalled`). Every install restarts the supervisor, so this covers each one.
+The scheduler and backdoor daemon also check `hasRootAccess` themselves before acting, and a
+failed `installBackdoor` no longer crashes the daemon.
+
+## Sticky scheduler target; staying in a BitNode
+
+- **`keepTarget`:** a new top pick from target_selector only replaces the scheduler's target after
+  it's been held 20 minutes (`TARGET_MIN_HOLD_MS`). It switches at once if the current target
+  loses root, or with `targetOverride`. After an install, rising hacking level re-ranks servers
+  every few minutes, and retargeting each time restarted prep from scratch. BN10's second run
+  fired 2 batches in 31 minutes and earned $0 from hacking.
+- **`pursueRedPill`** (`/etc/faction.txt`, default true): when false, The Red Pill is dropped from
+  the faction daemon's catalog. That removes it as a rep target, from the favor plan, from
+  priority work and from savings, so a BitNode kept on purpose (BN10 for Covenant sleeves) isn't
+  ground toward its end.
+
+## Targets ranked by money, discounted for prep
+
+`target_selector.ts` weights each server as maxMoney × hack chance at min security
+(`chanceWhenPrepped`) × `prepDiscount`. `prepDiscount` is H ÷ (H + prep), with H = 30 minutes,
+so it's 1 for a prepped server and falls smoothly without reaching 0. Prep is estimated
+(`prepTimeEstimate`) as one weaken at current security plus 2 rounds at min security. The old
+maxMoney ÷ minSecurity placeholder remains as the fallback. An earlier discount hit 0 once prep
+filled the horizon. That ranked every big server last (ecorp at security 99 after an install),
+so none was ever prepped and none ever ranked higher, a chicken-and-egg that kept BN10 batching
+$1–5B servers at hacking 6871.
+
+Batches fire about once a second whatever the target, and a big fleet keeps many in flight, so a
+prepped server earns in proportion to its money; weaken time only matters for the one-time prep.
+The placeholder ignored prep: after an install it sent the scheduler to ecorp and megacorp, whose
+prep outlasted the time to the next install, so hacking earned $0. Ranking by money per weaken
+time then overcorrected to foodnstuff ($50M): 128 TB idle at $1.8B/min.
+
+## The install-loop flag means "an install is near"
+
+`/var/install_loop.txt`'s `active` is true only while something is pending, or the
+saved-for augmentation is within the short `maxFocusWaitMinutes` cap. It used to be true
+whenever anything was left to buy, so during a long save (BN10: 9.3h for QLink) the Hacknet,
+wiped by the last install, stayed at 0 servers. Under its income policy the Hacknet also ignores
+the savings target, like gang equipment, since its spending is already capped at `incomeShare`
+(5%) of income.
+
+## Multi-target batching
+
+The scheduler batches up to `MAX_TARGETS` (24) targets at once (`selectTargets`, `hwgw.ts`). They
+come from `rankedTargets`: target_selector's ranking, rooted servers only, with the stock target
+first in STOCK_TARGETING. A `targetOverride` means that one target alone. Each tick the targets
+go best first:
+- **Not yet prepped:** a non-blocking `prepStep`, sized by `prepThreadsNeeded` (just the weaken or
+  grow threads that step needs, capped by free RAM). The target is skipped until that step lands.
+- **Prepped:** a batch. A batch that doesn't fit means the fleet is full this tick, so the loop
+  stops.
+- **Prep runs only** until a target is first ready, and again after a batch reports drift, since
+  mid-batch money dips by design.
+- **The 20-minute hold** only protects a target still being prepped. A prepped small target gives
+  its slot to a better-ranked one at once; the hold had kept 7 small targets while ecorp waited.
+- **target_selector scans the network itself** (`scanNetwork`) and checks each server live: NPC,
+  hacking level met, money > 0. The supervisor's list and cached eligibility lagged (crawler
+  pushes timing out, hacking level stale after an install), which left ecorp, megacorp and blade
+  out of the ranking entirely at hacking 6845.
+
+Before this, the blocking `prep()` tied the scheduler to one target. That capped income at what
+one server can give: BN10 ran at 1% of 137 TB on the-hub at hacking 6541. Target ranking now
+scores hack chance at **minimum** security (`chanceWhenPrepped`, formulas). After an install
+ecorp sits at security 99, about 1% chance at current security, so it had ranked about 100×
+too low. Status warns when batches fire while the fleet is under 30% used, and lists every
+batched target.
+
+**Root in the target selector (scorer v4).** The game reports 0% hack chance for a server
+without root. megacorp, ecorp and blade (5 ports each) stayed unrooted after an install: the
+openers came back while the supervisor's root records were stale, and the rooter only runs on
+triggers. So they scored 0 all run. `target_selector.ts` now roots any eligible server the owned
+openers allow (`root` from `rooter.ts`), and scores hack chance as if rooted; the scheduler only
+uses rooted targets regardless. The ranking file records `scorer` and per-server `factors`
+(max money, chance, prep discount). `status.js --verbose` shows both, plus the three richest
+servers' rank, root and security, so a big server sinking out of view is visible.
+
+**Programs ignore the savings target.** `program_shopper.ts` buys port openers and Formulas.exe
+with any cash, not just cash above the savings target, because they gate rooting and every
+formula. A $126T QLink save held back HTTPWorm and SQLInject for a whole run. Meanwhile the study
+daemon didn't write them, since cash "could buy" them, so megacorp, ecorp and blade could never
+be rooted. Status raises an ERROR for any missing opener while cash is at least $1B, and
+`--verbose` lists the programs owned.
+
+**Several batches per target per tick** (`batchesPerTick`, `hwgw.ts`): as many 4-action windows
+(4 × `spacingMs`) as fit in the 1 s tick, each batch offset by one window so they land in order.
+At spacing 200 that's 1, as before; at 50 it's 5. One per tick left a 2 PB fleet at 1% use, with
+BN10's hacking down to $39T/min.
+
+## Hash spending: a decision order, fed by the scheduler
+
+`hacknet_daemon.ts` buys hash upgrades through `chooseHashUpgrade` (`hacknet_decisions.ts`). It
+takes the first step that applies:
+1. **Improve Gym Training / Improve Studying,** only while a goal is blocked on that stat and
+   someone trains it. Gym counts while the faction daemon trains for an invite or karma, while a
+   sleeve has a `gym` goal, or while a study-daemon gym session meets an invite's combat
+   requirement. Studying counts in GROW_STATS, or while an invite needs hacking.
+2. **Company Favor,** while sleeves work toward a corporate invite.
+3. **Reduce Minimum Security on the top earner,** only while its hack chance is under 95%.
+4. **Increase Maximum Money on the top earner** (+2% per level, compounding).
+5. **Sell for Money,** past `hashDrainAboveFraction` of capacity while saving for something
+   costlier.
+
+Hashes are saved for the first applicable step rather than spent lower down. Cache is bought
+when that step costs more than the sell line. All these upgrades, and hashes themselves, reset
+at an install, so nothing is held back beyond that.
+
+The "top earner" comes from the scheduler, which writes `/var/scheduler_targets.txt` every 5 s:
+each target's state, batches in the last minute, and planned take per batch (hackFraction × max
+money × chance). `tools/status.js` shows the income per target and its share.
+`hashSpendTargetOverride` still forces a server.
+
+This replaced a fixed priority list plus patches: an activity reorder, Company Favor first, and
+overflow only above 90% to a configured upgrade. That spent every hash on Improve Studying at
+hacking 13,900, so maximum money was never bought. The `hashSpendPriority`,
+`overflowHashUpgrade` and `hashDrainUpgrade` keys are no longer read.

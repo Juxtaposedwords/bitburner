@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget } from "development/metadata/share_decisions";
+import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget, shareWanted } from "development/metadata/share_decisions";
 
 describe("shareThreadTarget", () => {
   it("is `fraction` of fleet RAM in whole threads", () => {
@@ -72,5 +72,19 @@ describe("planShareKills", () => {
 
   it("kills nothing when already at or under the target", () => {
     expect(planShareKills([{ pid: 1, threads: 5 }], 10)).toEqual([]);
+  });
+});
+
+describe("shareWanted", () => {
+  it("runs while the player works a faction", () => {
+    expect(shareWanted(true, [])).toBe(true);
+  });
+
+  it("runs while a sleeve works a faction and the player trains", () => {
+    expect(shareWanted(false, ["crime for money: Shoplift", "faction work: Volhaven"])).toBe(true);
+  });
+
+  it("stops when nobody does faction work", () => {
+    expect(shareWanted(false, ["crime for money: Shoplift"])).toBe(false);
   });
 });

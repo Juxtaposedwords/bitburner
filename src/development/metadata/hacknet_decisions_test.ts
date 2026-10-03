@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideHashSpend, decideNodeInvestment, hashCapacityBound, pickHashUpgrade, prioritizeForActivity } from "development/metadata/hacknet_decisions";
+import { chooseHashUpgrade, decideNodeInvestment, nodePolicy } from "development/metadata/hacknet_decisions";
 
 describe("decideNodeInvestment", () => {
   it("buys a new node when it's the cheapest affordable option", () => {
@@ -178,90 +178,6 @@ describe("decideNodeInvestment", () => {
   });
 });
 
-describe("pickHashUpgrade", () => {
-  it("picks the first affordable name in priority order", () => {
-    const upgrade = pickHashUpgrade(
-      ["Reduce Minimum Security", "Sell for Money"],
-      100,
-      { "Reduce Minimum Security": 50, "Sell for Money": 4 }
-    );
-
-    expect(upgrade).toBe("Reduce Minimum Security");
-  });
-
-  it("skips an unaffordable higher-priority name for the next affordable one", () => {
-    const upgrade = pickHashUpgrade(
-      ["Reduce Minimum Security", "Sell for Money"],
-      10,
-      { "Reduce Minimum Security": 50, "Sell for Money": 4 }
-    );
-
-    expect(upgrade).toBe("Sell for Money");
-  });
-
-  it("skips a name with no known cost (unrecognized/typo'd in config)", () => {
-    const upgrade = pickHashUpgrade(["Nonexistent Upgrade", "Sell for Money"], 10, { "Sell for Money": 4 });
-
-    expect(upgrade).toBe("Sell for Money");
-  });
-
-  it("returns undefined when nothing in the priority list is affordable", () => {
-    const upgrade = pickHashUpgrade(["Sell for Money"], 1, { "Sell for Money": 4 });
-
-    expect(upgrade).toBeUndefined();
-  });
-
-  it("returns undefined for an empty priority list", () => {
-    expect(pickHashUpgrade([], 100, { "Sell for Money": 4 })).toBeUndefined();
-  });
-});
-
-describe("decideHashSpend", () => {
-  const priority = ["Improve Studying", "Improve Gym Training"];
-  const costs = { "Improve Studying": 100, "Improve Gym Training": 60, "Sell for Money": 4 };
-
-  it("buys the first affordable priority upgrade", () => {
-    expect(decideHashSpend(priority, 150, 1000, costs, "Sell for Money", 0.9)).toEqual({ upgrade: "Improve Studying", reason: "priority" });
-  });
-
-  it("falls through to a cheaper priority upgrade", () => {
-    expect(decideHashSpend(priority, 80, 1000, costs, "Sell for Money", 0.9)).toEqual({ upgrade: "Improve Gym Training", reason: "priority" });
-  });
-
-  it("holds hashes below the drain threshold when no priority upgrade is affordable", () => {
-    expect(decideHashSpend(priority, 50, 1000, costs, "Sell for Money", 0.9)).toBeUndefined();
-  });
-
-  it("drains near capacity when no priority upgrade is affordable", () => {
-    const expensive = { ...costs, "Improve Studying": 5000, "Improve Gym Training": 5000 };
-    expect(decideHashSpend(priority, 950, 1000, expensive, "Sell for Money", 0.9)).toEqual({ upgrade: "Sell for Money", reason: "drain" });
-  });
-
-  it("never drains through the priority list, even if listed there", () => {
-    expect(decideHashSpend(["Sell for Money"], 50, 1000, costs, "Sell for Money", 0.9)).toBeUndefined();
-  });
-
-  it("does not drain without hash capacity", () => {
-    expect(decideHashSpend([], 50, 0, costs, "Sell for Money", 0)).toBeUndefined();
-  });
-});
-
-describe("hashCapacityBound", () => {
-  const priority = ["Improve Studying", "Improve Gym Training"];
-
-  it("is true when every priority upgrade costs more than the pre-drain threshold", () => {
-    expect(hashCapacityBound(priority, { "Improve Studying": 1000, "Improve Gym Training": 950 }, 1000, 0.9)).toBe(true);
-  });
-
-  it("is false when any priority upgrade still fits", () => {
-    expect(hashCapacityBound(priority, { "Improve Studying": 1000, "Improve Gym Training": 800 }, 1000, 0.9)).toBe(false);
-  });
-
-  it("is false with no recognized priority upgrades", () => {
-    expect(hashCapacityBound(priority, {}, 1000, 0.9)).toBe(false);
-  });
-});
-
 describe("decideNodeInvestment needCapacity", () => {
   const nodes = [
     { index: 0, level: 10, ram: 8, cores: 2, levelCost: 10, ramCost: 10, coreCost: 10, cacheCost: 500 },
@@ -313,23 +229,55 @@ describe("decideNodeInvestment maxPayback", () => {
   });
 });
 
-describe("prioritizeForActivity", () => {
-  const priority = ["Improve Studying", "Improve Gym Training", "Company Favor"];
-
-  it("puts Improve Gym Training first at the gym", () => {
-    expect(prioritizeForActivity(priority, "gym")).toEqual(["Improve Gym Training", "Improve Studying", "Company Favor"]);
+describe("nodePolicy", () => {
+  it("buys nothing during the install loop", () => {
+    expect(nodePolicy(true, 1e12, 10)).toEqual({ kind: "none" });
   });
 
-  it("keeps Improve Studying first in class", () => {
-    expect(prioritizeForActivity(priority, "class")).toEqual(priority);
+  it("caps each purchase at budgetMinutes of income, and the total at incomeShare of it", () => {
+    expect(nodePolicy(false, 1.2e12, 10, 0.05, 5 / 60)).toEqual({ kind: "income", maxItemCost: 1.2e13, tickBudget: 5e9 });
   });
 
-  it("leaves the order alone with no activity", () => {
-    expect(prioritizeForActivity(priority, "none")).toEqual(priority);
-    expect(prioritizeForActivity(priority, undefined)).toEqual(priority);
+  it("falls back to the payback test without income data or a budget", () => {
+    expect(nodePolicy(false, undefined, 10)).toEqual({ kind: "payback" });
+    expect(nodePolicy(false, 1e12, 0)).toEqual({ kind: "payback" });
+  });
+});
+
+describe("decideNodeInvestment maxItemCost", () => {
+  it("skips anything over the cap", () => {
+    const nodes = [{ index: 0, level: 1, ram: 1, cores: 1, levelCost: 500, ramCost: 50, coreCost: 5000 }];
+    const { decision } = decideNodeInvestment(1e6, 0, 1, 1e9, true, nodes, undefined, false, undefined, 100);
+    expect(decision).toEqual({ kind: "upgrade", index: 0, upgrade: "ram" });
+  });
+});
+
+describe("chooseHashUpgrade", () => {
+  const costs = { "Improve Studying": 500, "Improve Gym Training": 500, "Company Favor": 200, "Reduce Minimum Security": 300, "Increase Maximum Money": 300, "Sell for Money": 4 };
+  const base = { numHashes: 1000, capacity: 5000, costs, gymForGoal: false, classForGoal: false, sellAboveFraction: 0.9 };
+  const earner = { host: "megacorp", chance: 1 };
+
+  it("puts hashes into the top earner's max money when no goal needs training", () => {
+    expect(chooseHashUpgrade({ ...base, topEarner: earner }).buy).toMatchObject({ upgrade: "Increase Maximum Money", target: "megacorp" });
   });
 
-  it("never adds an upgrade that isn't configured", () => {
-    expect(prioritizeForActivity(["Improve Studying"], "gym")).toEqual(["Improve Studying"]);
+  it("trains first while a goal is blocked on a trained stat", () => {
+    expect(chooseHashUpgrade({ ...base, topEarner: earner, gymForGoal: true }).buy?.upgrade).toBe("Improve Gym Training");
+  });
+
+  it("lowers min security only while the top earner's hack chance is low", () => {
+    expect(chooseHashUpgrade({ ...base, topEarner: { host: "ecorp", chance: 0.6 } }).buy).toMatchObject({ upgrade: "Reduce Minimum Security", target: "ecorp" });
+  });
+
+  it("saves for the wanted upgrade instead of spending lower down", () => {
+    const r = chooseHashUpgrade({ ...base, numHashes: 400, topEarner: earner, gymForGoal: true });
+    expect(r.buy).toBeUndefined();
+    expect(r.wanted?.upgrade).toBe("Improve Gym Training");
+  });
+
+  it("sells near capacity while saving for something unaffordable", () => {
+    const r = chooseHashUpgrade({ ...base, numHashes: 4600, costs: { ...costs, "Increase Maximum Money": 9000 }, topEarner: earner });
+    expect(r.buy?.upgrade).toBe("Sell for Money");
+    expect(r.wanted?.upgrade).toBe("Increase Maximum Money");
   });
 });

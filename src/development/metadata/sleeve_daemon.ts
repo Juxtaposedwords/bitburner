@@ -1,27 +1,47 @@
 import { NS } from "@ns";
+import { effectiveReserve, readSavings } from "development/libraries/savings";
 import { readApproach } from "development/libraries/approach";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { loadJsonConfig } from "development/libraries/config";
 import { createLogger, Logger, LOG_LEVEL } from "development/libraries/logs";
-import { FACTION_REPS_PATH, FactionRepsFile } from "development/metadata/faction_decisions";
+import { CombatStat, FACTION_REPS_PATH, FactionRepsFile, gangTrainingStat, SLEEVE_SAVINGS_REASON } from "development/metadata/faction_decisions";
+import { effectiveSkillMult, skillMultiplier } from "development/libraries/skill_progress";
+import { averageRatePerMin, readSeries } from "development/libraries/timeseries";
+import {
+  CONFIG_PATH as STUDY_CONFIG_PATH,
+  DEFAULT_CONFIG as STUDY_DEFAULT_CONFIG,
+  GYM_CITY,
+  StudyConfig,
+  UNIVERSITY_CITY,
+} from "development/metadata/study_decisions";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/gang_decisions";
 import { Approach } from "development/metadata/scheduler";
 import {
   bestCrimeBy,
+  COVENANT,
   decideSleeveGoals,
+  decideSleeveInvestment,
   describeGoal,
+  pickSleeveAug,
+  SLEEVE_STATE_PATH,
   SleeveGoal,
   SleeveMemory,
-  SLEEVE_STATE_PATH,
-  sleevesAvailable,
   SLEEVES_PATH,
+  sleevesAvailable,
   SleevesFile,
+  sleeveTrainingPaysOff,
   syncPaysOff,
   taskMatchesGoal,
   updateSyncRate,
 } from "development/metadata/sleeve_decisions";
 
 type CrimeTypeType = Parameters<NS["sleeve"]["setToCommitCrime"]>[1];
+type GymLocationNameType = Parameters<NS["sleeve"]["setToGymWorkout"]>[1];
+type GymTypeType = Parameters<NS["sleeve"]["setToGymWorkout"]>[2];
+type CityNameType = Parameters<NS["sleeve"]["travel"]>[1];
+type CompanyNameType = Parameters<NS["sleeve"]["setToCompanyWork"]>[1];
+type UniversityNameType = Parameters<NS["sleeve"]["setToUniversityCourse"]>[1];
+type UniversityClassType = Parameters<NS["sleeve"]["setToUniversityCourse"]>[2];
 type FactionNameType = Parameters<NS["sleeve"]["setToFactionWork"]>[1];
 type FactionWorkTypeType = Parameters<NS["sleeve"]["setToFactionWork"]>[2];
 
@@ -36,9 +56,102 @@ type FactionWorkTypeType = Parameters<NS["sleeve"]["setToFactionWork"]>[2];
  * 10) - ns.sleeve throws otherwise. Every sleeve function costs 4 GB, which
  * a big home absorbs easily; it launches after the income daemons.
  */
-type SleeveConfig = { enabled: boolean; maxShock: number; minSync: number };
+type SleeveConfig = {
+  enabled: boolean;
+  maxShock: number;
+  minSync: number;
+  // BitNode 10: fraction of cash above the shared savings target spent on
+  // new sleeves and memory upgrades (decideSleeveInvestment).
+  investSpendFraction: number;
+};
 
-const DEFAULT_CONFIG: SleeveConfig = { enabled: true, maxShock: 0, minSync: 100 };
+const DEFAULT_CONFIG: SleeveConfig = { enabled: true, maxShock: 0, minSync: 100, investSpendFraction: 0.5 };
+// Memory upgrades bought per tick at most, re-deciding after each.
+const MAX_MEMORY_UPGRADES_PER_TICK = 20;
+// Sleeve augmentations bought per tick at most, re-deciding after each.
+const MAX_SLEEVE_AUGS_PER_TICK = 20;
+// getAugmentationStats results never change - cached by name.
+const augStatsCache = new Map<string, Record<string, number>>();
+
+/**
+ * Buys sleeve augmentations (pickSleeveAug): the cheapest useful one each
+ * round, within investSpendFraction of cash above the savings target,
+ * after this tick's sleeve and memory purchases. Any BitNode with sleeves.
+ */
+async function buySleeveAugs(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
+  const statsOf = (name: string): Record<string, number> => {
+    let stats = augStatsCache.get(name);
+    if (!stats) {
+      stats = ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>;
+      augStatsCache.set(name, stats);
+    }
+    return stats;
+  };
+  for (let i = 0; i < MAX_SLEEVE_AUGS_PER_TICK; i++) {
+    const budget = Math.max(0, ns.getServerMoneyAvailable("home") - effectiveReserve(0, readSavings(ns))) * config.investSpendFraction;
+    const options = Array.from({ length: ns.sleeve.getNumSleeves() }, (_, index) => {
+      const shock = ns.sleeve.getSleeve(index).shock;
+      return ns.sleeve.getSleevePurchasableAugs(index).map((aug) => ({ index, name: aug.name, cost: aug.cost, stats: statsOf(aug.name), shock }));
+    }).flat();
+    const pick = pickSleeveAug(options, budget);
+    if (!pick) return;
+    if (!ns.sleeve.purchaseSleeveAug(pick.index, pick.name)) {
+      await log.warn(`[Sleeve] Couldn't buy ${pick.name} for sleeve ${pick.index}.`);
+      return;
+    }
+    await log.info(`[Sleeve] Bought ${pick.name} for sleeve ${pick.index} ($${(pick.cost / 1e9).toFixed(2)}B).`);
+  }
+}
+
+// The game's last answer to purchaseSleeve - logged only when it changes.
+let lastSleeveMessage: string | undefined;
+
+/**
+ * BitNode 10: buy a sleeve from The Covenant and upgrade memory, within
+ * investSpendFraction of cash above the savings target. Returns what the
+ * status file shows about it, or undefined outside BitNode 10.
+ */
+async function investInSleeves(ns: NS, log: Logger, config: SleeveConfig, node: number | undefined, factions: string[]): Promise<SleevesFile["shop"]> {
+  if (node !== 10) return undefined;
+  const covenantMember = factions.includes(COVENANT);
+  for (let i = 0; i < MAX_MEMORY_UPGRADES_PER_TICK; i++) {
+    const money = ns.getServerMoneyAvailable("home");
+    const savings = readSavings(ns);
+    // The faction daemon saving for this sleeve (sleeveSavings): every other
+    // spender is holding back for it, so buy with the full balance.
+    const savingForSleeve = savings?.reason === SLEEVE_SAVINGS_REASON;
+    const budget = savingForSleeve ? money : Math.max(0, money - effectiveReserve(0, savings)) * config.investSpendFraction;
+    const memory = Array.from({ length: ns.sleeve.getNumSleeves() }, (_, index) => ({
+      index,
+      memory: ns.sleeve.getSleeve(index).memory,
+      upgradeCost: ns.sleeve.getMemoryUpgradeCost(index, 1),
+    }));
+    const decision = decideSleeveInvestment(node, covenantMember, budget, ns.sleeve.getSleeveCost(), memory);
+
+    if (decision.buySleeve) {
+      // Needs only BN10, Covenant membership and cash; a refusal's message
+      // says which (logged once per change).
+      const result = ns.sleeve.purchaseSleeve();
+      if (result.success) {
+        await log.info(`[Sleeve] Bought a new sleeve from ${COVENANT} (now ${ns.sleeve.getNumSleeves()}).`);
+        lastSleeveMessage = undefined;
+        continue;
+      }
+      if (result.message !== lastSleeveMessage) {
+        lastSleeveMessage = result.message;
+        await log.info(`[Sleeve] Couldn't buy a sleeve yet: ${result.message}`);
+      }
+    }
+    if (decision.memoryFor === undefined) break;
+    const upgrade = ns.sleeve.upgradeMemory(decision.memoryFor, 1);
+    if (!upgrade.success) {
+      await log.warn(`[Sleeve] Memory upgrade for sleeve ${decision.memoryFor} failed: ${upgrade.message}`);
+      break;
+    }
+    await log.info(`[Sleeve] Upgraded sleeve ${decision.memoryFor}'s memory to ${ns.sleeve.getSleeve(decision.memoryFor).memory}.`);
+  }
+  return { nextSleeveCost: ns.sleeve.getSleeveCost(), lastMessage: lastSleeveMessage };
+}
 const CONFIG_PATH = "/etc/sleeve.txt";
 const TICK_INTERVAL_MS = 10_000;
 // faction_daemon.ts writes every 5s; allow a few missed writes.
@@ -46,7 +159,7 @@ const REPS_MAX_AGE_MS = 60_000;
 // Used without Formulas.exe, when crimes can't be ranked per sleeve.
 const FALLBACK_CRIME = "Mug";
 
-function readRepGaps(ns: NS): { repGaps: Record<string, number>; playerFaction?: string } {
+function readRepGaps(ns: NS): { repGaps: Record<string, number>; playerFaction?: string; companies?: string[] } {
   const raw = ns.read(FACTION_REPS_PATH);
   if (!raw) return { repGaps: {} };
   try {
@@ -54,7 +167,7 @@ function readRepGaps(ns: NS): { repGaps: Record<string, number>; playerFaction?:
     if (Date.now() - file.writtenAt > REPS_MAX_AGE_MS) return { repGaps: {} };
     const repGaps: Record<string, number> = {};
     for (const [faction, target] of Object.entries(file.repTargets ?? {})) repGaps[faction] = target - (file.reps[faction] ?? 0);
-    return { repGaps, playerFaction: file.workTarget };
+    return { repGaps, playerFaction: file.workTarget, companies: (file.companyTargets ?? []).map((c) => c.company) };
   } catch {
     return { repGaps: {} };
   }
@@ -94,6 +207,18 @@ function workTypeFor(ns: NS, index: number, faction: string): string | undefined
 /** Starts `goal` on sleeve `index`; false if the game refused (e.g. a faction another worker already has). */
 function applyGoal(ns: NS, index: number, goal: SleeveGoal): boolean {
   switch (goal.kind) {
+    case "company":
+      return ns.sleeve.setToCompanyWork(index, goal.company as CompanyNameType);
+    case "study": {
+      const city = UNIVERSITY_CITY[goal.university];
+      if (city && ns.sleeve.getSleeve(index).city !== city && !ns.sleeve.travel(index, city as CityNameType)) return false;
+      return ns.sleeve.setToUniversityCourse(index, goal.university as UniversityNameType, goal.course as UniversityClassType);
+    }
+    case "gym": {
+      const city = GYM_CITY[goal.gym];
+      if (city && ns.sleeve.getSleeve(index).city !== city && !ns.sleeve.travel(index, city as CityNameType)) return false;
+      return ns.sleeve.setToGymWorkout(index, goal.gym as GymLocationNameType, goal.stat as GymTypeType);
+    }
     case "karmaCrime":
     case "moneyCrime":
       return ns.sleeve.setToCommitCrime(index, goal.crime as CrimeTypeType);
@@ -120,6 +245,84 @@ function loadMemory(ns: NS): Record<string, SleeveMemory> {
 }
 
 /** Karma per ms from the player's own crime, if committing one (it keeps going while a sleeve syncs). */
+// Gym sleeves train at; levels probed per stint (as faction_daemon.ts's TRAINING_PROBE_LEVELS).
+const SLEEVE_GYM = "Powerhouse Gym";
+const SLEEVE_TRAINING_PROBE_LEVELS = 10;
+const CYCLES_PER_MIN = 300;
+
+/**
+ * Minutes until the gang karma requirement at today's total karma rate
+ * (player and sleeves, from monitoring's karma gauge over 10 minutes),
+ * else the player's crime alone. Infinity when nothing lowers karma.
+ */
+function karmaHorizonMs(ns: NS, karma: number): number {
+  const remaining = karma - GANG_KARMA_REQUIREMENT;
+  const series = readSeries(ns, "gauge/karma");
+  const perMin = series ? -(averageRatePerMin(series, Math.floor(Date.now() / 1000), 600) ?? 0) : 0;
+  const perMs = perMin > 0 ? perMin / 60_000 : playerKarmaRate(ns);
+  return perMs > 0 ? remaining / perMs : Infinity;
+}
+
+/**
+ * A gym stint for sleeve `index` before its karma crime, when it pays off
+ * over the karma still to go (sleeveTrainingPaysOff): the combat stat whose
+ * +10 levels raise the crime's chance most (gangTrainingStat), its gym exp
+ * scaled by the sleeve's sync. Needs Formulas.exe.
+ */
+function karmaTraining(ns: NS, index: number, crime: string, horizonMs: number): { stat: string; gym: string } | undefined {
+  if (!ns.fileExists("Formulas.exe", "home")) return undefined;
+  const person = ns.sleeve.getSleeve(index);
+  const chance = (skills: typeof person.skills): number => ns.formulas.work.crimeSuccessChance({ ...person, skills }, crime as CrimeTypeType);
+  const chanceNow = chance(person.skills);
+  const boost = (stat: CombatStat): number => chance({ ...person.skills, [stat]: person.skills[stat] + SLEEVE_TRAINING_PROBE_LEVELS });
+  const stat = gangTrainingStat(chanceNow, 1, person.skills, boost);
+  if (!stat) return undefined;
+
+  const gymType = ns.enums.GymType[stat];
+  const expKey = `${gymType}Exp` as "strExp" | "defExp" | "dexExp" | "agiExp";
+  const expPerMin = ns.formulas.work.gymGains(person, gymType, SLEEVE_GYM as GymLocationNameType)[expKey] * CYCLES_PER_MIN * (person.sync / 100);
+  const { mult } = skillMultiplier(stat, person.mults[stat], readBitNodeInfo(ns)?.multipliers, () =>
+    effectiveSkillMult(person.skills[stat], (m) => ns.formulas.skills.calculateSkill(person.exp[stat], m))
+  );
+  if (mult === undefined || !(expPerMin > 0)) return undefined;
+  const expNeeded = ns.formulas.skills.calculateExp(person.skills[stat] + SLEEVE_TRAINING_PROBE_LEVELS, mult) - person.exp[stat];
+  const trainMs = (Math.max(0, expNeeded) / expPerMin) * 60_000;
+  const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+  return sleeveTrainingPaysOff(horizonMs, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? { stat: gymType, gym: SLEEVE_GYM } : undefined;
+}
+
+// Classes and the gym cost money per second; below this cash, sleeves
+// with nothing else to do commit money crimes instead.
+const SLEEVE_TRAINING_MIN_CASH = 100e6;
+
+/** The combat stat a wanted invite is training for (the faction daemon's inviteAction "...: gymWorkout <stat>"), if any. */
+function readInviteGymStat(ns: NS): string | undefined {
+  const raw = ns.read(FACTION_REPS_PATH);
+  if (!raw) return undefined;
+  try {
+    const file = JSON.parse(raw) as FactionRepsFile;
+    if (Date.now() - file.writtenAt > REPS_MAX_AGE_MS) return undefined;
+    return /gymWorkout (\w+)/.exec(file.inviteAction ?? "")?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Training for a sleeve with no rep target left, for the player's share of
+ * its exp: the gym on a wanted invite's combat stat, else the study
+ * config's class (Algorithms at ZB by default, for hacking). undefined -
+ * a money crime - while cash can't comfortably pay for it.
+ */
+function playerTraining(ns: NS, inviteStat: string | undefined): SleeveGoal | undefined {
+  if (ns.getServerMoneyAvailable("home") < SLEEVE_TRAINING_MIN_CASH) return undefined;
+  if (inviteStat && inviteStat in ns.enums.GymType) {
+    return { kind: "gym", stat: ns.enums.GymType[inviteStat as keyof typeof ns.enums.GymType], gym: SLEEVE_GYM, purpose: "invite" };
+  }
+  const study = loadJsonConfig<StudyConfig>(ns, STUDY_CONFIG_PATH, STUDY_DEFAULT_CONFIG);
+  return { kind: "study", course: study.course, university: study.university };
+}
+
 function playerKarmaRate(ns: NS): number {
   const work = ns.singularity.getCurrentWork();
   if (work?.type !== "CRIME") return 0;
@@ -160,23 +363,40 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
 
   // Same condition as faction_daemon.ts's karma crime (Approach.GANG).
   const gangAvailable = info?.node === 2 || (info?.sourceFiles["2"] ?? 0) >= 1;
-  const karma = ns.getPlayer().karma;
+  const player = ns.getPlayer();
+  const karma = player.karma;
   const chasingKarma = readApproach(ns) === Approach.GANG && gangAvailable && karmaBlocksGang(karma, info?.node);
 
-  const { repGaps, playerFaction } = readRepGaps(ns);
+  // Only factions the player is in now: right after an install the faction
+  // daemon's last file (under a minute old) still lists factions the
+  // install left, and setToFactionWork throws for those.
+  const horizonMs = chasingKarma ? karmaHorizonMs(ns, karma) : Infinity;
+  const inviteStat = readInviteGymStat(ns);
+  const { repGaps: allGaps, playerFaction, companies } = readRepGaps(ns);
+  const repGaps = Object.fromEntries(Object.entries(allGaps).filter(([faction]) => (player.factions as string[]).includes(faction)));
   const goals = decideSleeveGoals(sleeves, {
     karmaCrimeFor: (index) => (chasingKarma ? crimeFor(ns, index, "karma") : undefined),
     syncFirstFor: (index) => chasingKarma && syncFirst(ns, index, sleeves[index].sync, memory[index] ?? {}, config, karma),
+    karmaTrainingFor: (index) => (chasingKarma ? karmaTraining(ns, index, crimeFor(ns, index, "karma"), horizonMs) : undefined),
+    trainingFor: () => playerTraining(ns, inviteStat),
     moneyCrimeFor: (index) => crimeFor(ns, index, "money"),
     repGaps,
     playerFaction,
+    // Only companies the player works for: a sleeve's company work uses the player's position there.
+    companies: (companies ?? []).filter((c) => (player.jobs as Partial<Record<string, string>>)[c] !== undefined),
     maxShock: config.maxShock,
     minSync: config.minSync,
   });
 
   for (const [index, goal] of goals.entries()) {
     if (taskMatchesGoal(ns.sleeve.getTask(index), goal)) continue;
-    if (applyGoal(ns, index, goal)) {
+    let applied = false;
+    try {
+      applied = applyGoal(ns, index, goal);
+    } catch (error) {
+      await log.warn(`[Sleeve] Sleeve ${index}: couldn't start ${describeGoal(goal)}: ${String(error).split("\n")[0]}`);
+    }
+    if (applied) {
       await log.info(`[Sleeve] Sleeve ${index}: ${describeGoal(goal)}.`);
     } else if (goal.kind === "faction") {
       // The game refused the faction (e.g. the player just started working
@@ -186,8 +406,11 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
     }
   }
 
+  const shop = await investInSleeves(ns, log, config, info?.node, player.factions as string[]);
+  await buySleeveAugs(ns, log, config);
   const status: SleevesFile = {
-    sleeves: sleeves.map((s, i) => ({ ...s, goal: describeGoal(goals[i]), syncPerMin: memory[i]?.syncPerMin })),
+    shop,
+    sleeves: sleeves.map((s, i) => ({ ...s, goal: describeGoal(goals[i]), syncPerMin: memory[i]?.syncPerMin, memory: ns.sleeve.getSleeve(i).memory, augs: ns.sleeve.getSleeveAugmentations(i).length })),
     writtenAt: Date.now(),
   };
   ns.write(SLEEVES_PATH, JSON.stringify(status), "w");

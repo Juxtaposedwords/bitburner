@@ -12,6 +12,8 @@ import * as server_metadata_pb from "development/metadata/server_metadata";
  */
 
 const HOME = "home";
+// Backdooring this ends the BitNode - see selectBackdoorTargets.
+export const WORLD_DAEMON = "w0r1d_d43m0n";
 const TICK_INTERVAL_MS = 5000;
 
 /**
@@ -28,6 +30,10 @@ const TICK_INTERVAL_MS = 5000;
 export function selectBackdoorTargets(servers: server_metadata_pb.Metadata[]): server_metadata_pb.Metadata[] {
   return servers.filter(
     (server) =>
+      // Never w0r1d_d43m0n: backdooring it destroys the BitNode. Finishing a
+      // BitNode is the player's decision (e.g. BN10 is kept running to buy
+      // Covenant sleeves) - The Red Pill install that reveals it is automatic.
+      server.hostname !== WORLD_DAEMON &&
       server.rootStatus === server_metadata_pb.RootStatus.ROOTED &&
       server.hackStatus === server_metadata_pb.HackStatus.HACKABLE &&
       server.kind === server_metadata_pb.ServerKind.NPC &&
@@ -49,7 +55,12 @@ async function backdoor(ns: NS, pathFromHome: string): Promise<boolean> {
     if (!ns.singularity.connect(hop)) return false;
   }
 
-  await ns.singularity.installBackdoor();
+  try {
+    await ns.singularity.installBackdoor();
+  } catch {
+    ns.singularity.connect(HOME);
+    return false;
+  }
   ns.singularity.connect(HOME);
   return true;
 }
@@ -74,11 +85,14 @@ export async function main(ns: NS): Promise<void> {
 
     for (const server of targets) {
       if (!server.hostname || !server.pathFromHome) continue;
+      // The supervisor's ROOTED can run ahead of the game's (e.g. right after
+      // an install, before the rooter re-nukes) - installBackdoor throws then.
+      if (!ns.hasRootAccess(server.hostname)) continue;
 
       await log.info(`[Backdoor] Backdooring ${server.hostname}...`);
       const ok = await backdoor(ns, server.pathFromHome);
       if (!ok) {
-        await log.warn(`[Backdoor] Failed to connect to ${server.hostname}; leaving it for the next pass.`);
+        await log.warn(`[Backdoor] Couldn't reach or backdoor ${server.hostname}; leaving it for the next pass.`);
         continue;
       }
 

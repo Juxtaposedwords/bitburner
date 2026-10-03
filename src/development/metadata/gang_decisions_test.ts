@@ -232,6 +232,13 @@ describe("decideTerritoryWarfareAssignment", () => {
   it("assigns nobody once no rival holds territory", () => {
     expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 12, 6, false)).toBe(0);
   });
+
+  it("always leaves minEarners members earning, and puts the rest on warfare early", () => {
+    expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 3, 12, true, 3)).toBe(0);
+    expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 7, 12, true, 3)).toBe(4);
+    expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 12, 12, true, 3)).toBe(9);
+    expect(decideTerritoryWarfareAssignment(GangPosture.GROWING, false, 12, 6, true, 3)).toBe(6);
+  });
 });
 
 describe("decideTerritoryReadiness", () => {
@@ -389,5 +396,20 @@ describe("ascensionThreshold", () => {
 
   it("never goes below the normal bar", () => {
     expect(ascensionThreshold(10, 12, 1.1, 1.05)).toBe(1.1);
+  });
+});
+
+describe("decideMemberTask never idles", () => {
+  const policy = { minWantedPenalty: 0.9, wantedReductionFraction: 0.2 };
+  const zero = (name: string) => ({ name, moneyGain: 0, wantedLevelGain: 0, respectGain: 0 });
+
+  it("trains a member for whom nothing pays yet, instead of picking Unassigned", () => {
+    const options = [zero("Unassigned"), zero("Mug People"), zero("Territory Warfare")];
+    expect(decideMemberTask(0, 10, 1, policy, options, "Train Combat")).toBe("Train Combat");
+  });
+
+  it("never picks Unassigned or Territory Warfare even when they look best", () => {
+    const options = [{ ...zero("Unassigned"), moneyGain: 5 }, { ...zero("Mug People"), moneyGain: 1 }];
+    expect(decideMemberTask(0, 10, 1, policy, options, "Train Combat")).toBe("Mug People");
   });
 });

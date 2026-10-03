@@ -31,9 +31,9 @@ export const GYM_CITY: Record<string, string> = {
 };
 
 /**
- * Written by study_daemon.ts every tick, read by hacknet_daemon.ts to put
- * the hash upgrade that boosts the current activity first (see
- * hacknet_decisions.ts's prioritizeForActivity). "none" outside GROW_STATS.
+ * Written by study_daemon.ts every tick, read by hacknet_daemon.ts: a class
+ * or gym session toward a blocked goal gets that training hash upgrade
+ * (chooseHashUpgrade). "none" when not training.
  */
 export const ACTIVITY_PATH = "/var/study_activity.txt";
 export type ActivityFile = { kind: "class" | "gym" | "none"; writtenAt: number };
@@ -109,4 +109,29 @@ export function chooseTraining(hackingMinutes: number, combat: CombatNeed[], com
   if (unfinished.length === 0) return undefined;
   const combatMinutes = unfinished.reduce((sum, c) => sum + c.minutes, 0);
   return combatMinutes < hackingMinutes ? unfinished[0] : undefined;
+}
+
+/**
+ * Programs the player can write (ns.singularity.createProgram): hacking
+ * level needed, and the darkweb price that makes buying the alternative.
+ * Port openers in order, then Formulas.exe.
+ */
+export const CREATABLE_PROGRAMS: { name: string; level: number; cost: number }[] = [
+  { name: "BruteSSH.exe", level: 50, cost: 500e3 },
+  { name: "FTPCrack.exe", level: 100, cost: 1.5e6 },
+  { name: "relaySMTP.exe", level: 250, cost: 5e6 },
+  { name: "HTTPWorm.exe", level: 500, cost: 30e6 },
+  { name: "SQLInject.exe", level: 750, cost: 250e6 },
+  { name: "Formulas.exe", level: 1000, cost: 5e9 },
+];
+
+/**
+ * The program to write with a free work slot: the first one not owned
+ * whose hacking level is met and that cash can't simply buy (the program
+ * shopper buys those). Writing costs only time - right after an install,
+ * with programs gone and cash near zero, it's how port openers come back
+ * (BN10's second run sat with BruteSSH/FTPCrack unbought at $144K).
+ */
+export function pickProgramToCreate(owned: (name: string) => boolean, hackingLevel: number, money: number): string | undefined {
+  return CREATABLE_PROGRAMS.find((p) => !owned(p.name) && hackingLevel >= p.level && money < p.cost)?.name;
 }

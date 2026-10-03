@@ -57,6 +57,19 @@ export function windowPoints(series: Series, now: number, windowSec: number): Po
 }
 
 /**
+ * Average per-minute change over the window, between its first and last
+ * non-null points: positive for a rising series; undefined with fewer than
+ * two points.
+ */
+export function averageRatePerMin(series: Series, now: number, windowSec: number): number | undefined {
+  const points = windowPoints(series, now, windowSec).filter((p): p is { t: number; v: number } => p.v !== null);
+  if (points.length < 2) return undefined;
+  const first = points[0];
+  const last = points[points.length - 1];
+  return (last.v - first.v) / ((last.t - first.t) / 60);
+}
+
+/**
  * Signed per-minute rate of a cumulative counter, one entry per point after
  * the first non-null one. Each rate is measured against the previous
  * non-null point, so a gap spreads its change over the gap's duration
@@ -128,4 +141,22 @@ export function parseWindow(raw: string): number | undefined {
   const unit = match[2] === "s" ? 1 : match[2] === "h" ? 3600 : 60;
   const seconds = Math.round(n * unit);
   return seconds > 0 ? seconds : undefined;
+}
+
+/**
+ * Money earned per minute over the window: the sum of every money-source
+ * counter that rose (gang, hacking, hacknet, ...). "total" is net of
+ * spending, and "stock" rises on sales of shares bought earlier, so neither
+ * counts. Undefined without monitoring data.
+ */
+export function incomePerMin(ns: NS, windowSec: number): number | undefined {
+  const now = Math.floor(Date.now() / 1000);
+  let total: number | undefined;
+  for (const id of listSeries(ns)) {
+    if (!id.startsWith("counter/") || id === "counter/total" || id === "counter/stock") continue;
+    const series = readSeries(ns, id);
+    const rate = series ? averageRatePerMin(series, now, windowSec) : undefined;
+    if (rate !== undefined) total = (total ?? 0) + Math.max(0, rate);
+  }
+  return total;
 }

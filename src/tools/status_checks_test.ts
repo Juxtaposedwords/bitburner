@@ -59,11 +59,47 @@ describe("checkStatus", () => {
     expect(found).toContain("WARN: Sleeve 0 is idle.");
   });
 
+  it("flags a stale hacknet status file", () => {
+    expect(messages(base({ hacknetWrittenAt: NOW - 49 * 60_000 }))).toContain("WARN: /var/hacknet_status.txt is 49m old - its daemon may have stopped.");
+  });
+
   it("reports karma progress with an ETA", () => {
     const faction = { karmaCrime: "Homicide (80% success, karma -11791 / -54000)", writtenAt: NOW };
     expect(messages(base({ faction, rates: { hacking: 1, karma: 44 } }))).toContain(
       "info: Gang karma: Homicide (80% success, karma -11791 / -54000), ~16.0h to go."
     );
+  });
+});
+
+describe("missing programs", () => {
+  it("errors when openers are missing despite cash", () => {
+    expect(messages(base({ cash: 1.49e13, missingPrograms: ["HTTPWorm.exe", "SQLInject.exe"] }))[0]).toMatch(/^ERROR: Missing HTTPWorm.exe, SQLInject.exe with \$14.9T cash/);
+    expect(checkStatus(base({ cash: 1e5, missingPrograms: ["SQLInject.exe"] }))).toEqual([]);
+  });
+});
+
+describe("idle fleet", () => {
+  it("warns when batches fire but most of the fleet is idle", () => {
+    expect(messages(base({ fleetUsedFraction: 0.01 }))).toContain(
+      "WARN: Fleet 1% used while batches fire on silver-helix - the targets can't use the RAM (too few, or too small)."
+    );
+    expect(checkStatus(base({ fleetUsedFraction: 0.8 }))).toEqual([]);
+    // Income above its baseline: low use is just cheap batches.
+    expect(checkStatus(base({ fleetUsedFraction: 0.02, rates: { hacking: 3e14 }, hackingBaseline: 1e14 }))).toEqual([]);
+  });
+});
+
+describe("augment loop", () => {
+  it("warns when AUGMENTS mode can't install", () => {
+    const augmentLoop = { augmentsMode: true, autoPurchase: true, autoInstall: false, pending: 4 };
+    expect(messages(base({ augmentLoop }))).toContain(
+      "WARN: AUGMENTS mode, but autoInstall is off in /etc/faction.txt - the buy-and-install loop can't run (4 augmentation(s) pending)."
+    );
+  });
+
+  it("is quiet outside AUGMENTS or with both switches on", () => {
+    expect(checkStatus(base({ augmentLoop: { augmentsMode: false, autoPurchase: false, autoInstall: false, pending: 0 } }))).toEqual([]);
+    expect(checkStatus(base({ augmentLoop: { augmentsMode: true, autoPurchase: true, autoInstall: true, pending: 0 } }))).toEqual([]);
   });
 });
 
@@ -75,6 +111,20 @@ describe("income collapse and falling cash", () => {
 
   it("notes falling cash", () => {
     expect(messages(base({ rates: { hacking: 1e9, cash: -7.7e9 } }))).toContain("info: Cash is falling $7.7B/min - spending exceeds income.");
+  });
+
+  it("says when falling cash is going into stocks", () => {
+    const spending = [{ category: "stock", perMin: 4.08e10 }];
+    expect(messages(base({ rates: { hacking: 1e9, cash: -6.02e10, netWorth: 1e10 }, spending }))).toContain(
+      "info: Cash is falling $60.2B/min (top spending: stock $40.8B/min), but net worth is rising $10.0B/min - cash is going into stocks."
+    );
+  });
+
+  it("names the biggest spending when cash falls", () => {
+    const spending = [{ category: "servers", perMin: 1.2e11 }, { category: "gang_expenses", perMin: 5.7e9 }];
+    expect(messages(base({ rates: { hacking: 1e9, cash: -1.15e11 }, spending }))).toContain(
+      "info: Cash is falling $115B/min (top spending: servers $120B/min, gang_expenses $5.7B/min) - spending exceeds income."
+    );
   });
 });
 

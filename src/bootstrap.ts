@@ -35,6 +35,7 @@ const HOME = "home";
 // Reliable early money at low combat stats; it repeats on its own.
 const CRIME = "Mug";
 const TICK_MS = 10_000;
+const STATUS_FILE = "/var/bootstrap_status.txt";
 
 const OPENERS: [string, (ns: NS, host: string) => void][] = [
   ["BruteSSH.exe", (ns, host) => ns.brutessh(host)],
@@ -162,11 +163,14 @@ export async function main(ns: NS): Promise<void> {
 
     // One status line per tick (ns.print is free) - `tail bootstrap.js`.
     const rooted = hosts.filter((host) => ns.hasRootAccess(host)).length;
-    ns.print(
+    const line =
       `money=$${ns.getServerMoneyAvailable(HOME).toFixed(0)} hacking=${ns.getHackingLevel()} ` +
-        `home=${ns.getServerMaxRam(HOME)}/${required.toFixed(0)} GB rooted=${rooted}/${hosts.length} ` +
-        `target=${target ?? "none"} workerThreads=${threads} tor=${ns.hasTorRouter()}`
-    );
+      `home=${ns.getServerMaxRam(HOME)}/${required.toFixed(0)} GB rooted=${rooted}/${hosts.length} ` +
+      `target=${target ?? "none"} workerThreads=${threads} tor=${ns.hasTorRouter()}`;
+    ns.print(line);
+    // Also as a file (ns.write is free): `cat /var/bootstrap_status.txt`
+    // works while home has no room for tools/status.js.
+    ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} ${line}\n`, "w");
 
     await ns.asleep(TICK_MS);
   }

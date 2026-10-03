@@ -21,7 +21,17 @@ export type StatusSnapshot = {
   expected: { script: string; core: boolean }[];
   cash: number;
   // Per-minute rates over the recent window, from monitoring; undefined without data.
-  rates: { hacking?: number; gang?: number; gangExpenses?: number; cash?: number; karma?: number };
+  rates: { hacking?: number; gang?: number; gangExpenses?: number; cash?: number; karma?: number; netWorth?: number };
+  // AUGMENTS mode's buy-and-install loop: the faction config switches it depends on.
+  augmentLoop?: { augmentsMode: boolean; autoPurchase: boolean; autoInstall: boolean; pending: number };
+  // Port openers / Formulas.exe not owned (status.ts checks them on home).
+  missingPrograms?: string[];
+  // Share of the fleet's RAM in use (rooted servers incl. home), 0-1.
+  fleetUsedFraction?: number;
+  // When hacknet_daemon.ts last wrote /var/hacknet_status.txt.
+  hacknetWrittenAt?: number;
+  // Per-minute spend by money-source category (positive numbers), biggest first.
+  spending?: { category: string; perMin: number }[];
   // Hacking income per minute over a longer baseline window (3h), to spot a collapse.
   hackingBaseline?: number;
   savings?: { amount: number; reason: string };
@@ -71,6 +81,7 @@ export type SchedulerSummary = {
   noFit: number;
   batchesPerMin?: number;
   lastWarning?: string;
+  targets: string[];
 };
 
 /** What the scheduler's recent log says: current target, batch rate, and the latest warning. */
@@ -87,6 +98,8 @@ export function summarizeScheduler(lines: string[]): SchedulerSummary {
   return {
     target: lastTarget ? (lastTarget[1] ?? lastTarget[2] ?? lastTarget[3] ?? lastTarget[4])?.trim() : undefined,
     fired: fired.length,
+    // Every target batched in the window (the scheduler runs several).
+    targets: [...new Set(fired.map((l) => /Fired batch on ([^:]+):/.exec(l)?.[1]).filter((t): t is string => !!t))],
     prep: lines.filter((l) => l.includes("Prep ")).length,
     notHackable: lines.filter((l) => l.includes("not hackable")).length,
     noFit: lines.filter((l) => l.includes("doesn't fit")).length,
@@ -124,6 +137,7 @@ function staleChecks(s: StatusSnapshot): Finding[] {
   stale("/var/faction_reps.txt", s.faction?.writtenAt);
   stale("/var/gang_status.txt", s.gang?.writtenAt);
   stale("/var/sleeves.txt", s.sleeves?.writtenAt);
+  stale("/var/hacknet_status.txt", s.hacknetWrittenAt);
   return findings;
 }
 
@@ -154,8 +168,46 @@ function incomeChecks(s: StatusSnapshot): Finding[] {
       message: `Hacking income dropped to ${formatMoney(s.rates.hacking)}/min from ${formatMoney(s.hackingBaseline)}/min over 3h - see the scheduler section.`,
     });
   }
+  // Missing openers with plenty of cash: the richest servers can't be
+  // rooted. BN10 went a whole run without HTTPWorm/SQLInject because the
+  // shopper held them back for a $126T savings target.
+  if (s.missingPrograms && s.missingPrograms.length > 0 && s.cash >= 1e9) {
+    findings.push({
+      level: "ERROR",
+      message: `Missing ${s.missingPrograms.join(", ")} with ${formatMoney(s.cash)} cash - servers needing them can't be rooted or hacked. Check tools/program_shopper.js.`,
+    });
+  }
+  // Batches running but most of the fleet idle: the targets can't use it
+  // (one small target, or not enough of them). BN10 sat at 1% of 137 TB on
+  // the-hub at hacking 6541 with no warning.
+  const sched = summarizeScheduler(s.schedulerLogTail);
+  // Only while hacking income is below its 3h baseline: at high hacking
+  // level batches need few threads, so low use alone isn't a problem.
+  const hackingWeak = s.rates.hacking === undefined || s.hackingBaseline === undefined || s.rates.hacking < s.hackingBaseline;
+  if (s.fleetUsedFraction !== undefined && sched.fired > 0 && s.fleetUsedFraction < 0.3 && hackingWeak) {
+    findings.push({
+      level: "WARN",
+      message: `Fleet ${(s.fleetUsedFraction * 100).toFixed(0)}% used while batches fire on ${sched.target ?? "?"} - the targets can't use the RAM (too few, or too small).`,
+    });
+  }
+  if (s.augmentLoop?.augmentsMode && !(s.augmentLoop.autoPurchase && s.augmentLoop.autoInstall)) {
+    const off = [!s.augmentLoop.autoPurchase && "autoPurchaseAugmentations", !s.augmentLoop.autoInstall && "autoInstall"].filter(Boolean).join(" and ");
+    findings.push({
+      level: "WARN",
+      message: `AUGMENTS mode, but ${off} is off in /etc/faction.txt - the buy-and-install loop can't run (${s.augmentLoop.pending} augmentation(s) pending).`,
+    });
+  }
   if (s.rates.cash !== undefined && s.rates.cash < 0) {
-    findings.push({ level: "info", message: `Cash is falling ${formatMoney(-s.rates.cash)}/min - spending exceeds income.` });
+    const top = (s.spending ?? []).slice(0, 3).map((x) => `${x.category} ${formatMoney(x.perMin)}/min`);
+    findings.push({
+      level: "info",
+      message:
+        `Cash is falling ${formatMoney(-s.rates.cash)}/min${top.length > 0 ? ` (top spending: ${top.join(", ")})` : ""}` +
+        // Buying shares counts as "stock" spending but keeps the value; net worth (cash + stocks) says whether money is really going.
+        (s.rates.netWorth !== undefined && s.rates.netWorth >= 0
+          ? `, but net worth is rising ${formatMoney(s.rates.netWorth)}/min - cash is going into stocks.`
+          : " - spending exceeds income."),
+    });
   }
   if (s.savings && s.savings.amount > s.cash) {
     const gap = s.savings.amount - s.cash;

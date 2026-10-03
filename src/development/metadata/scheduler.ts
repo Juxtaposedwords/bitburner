@@ -13,6 +13,7 @@ export enum Approach {
     STOCK_TARGETING = 3,
     AUGMENTS = 4,
     GANG = 5,
+    FACTION_GRIND = 6,
 }
 
 export interface GetSchedulerConfigRequest {

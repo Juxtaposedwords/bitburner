@@ -102,6 +102,9 @@ export type GangConfig = {
   // engages real clashes - see the module doc above.
   posture: "CONSOLIDATE" | "GROWING";
   territoryWarfareMembers: number;
+  // Members always kept earning (respect for recruits, wanted level, some
+  // income) however many territoryWarfareMembers asks for.
+  minEarningMembers: number;
   // Safety margin before actually engaging clashes - comfortably past
   // the 0.5 break-even point, not just barely favorable.
   minClashWinChance: number;
@@ -137,6 +140,7 @@ export const DEFAULT_CONFIG: GangConfig = {
   trainingReadyMargin: 0.95,
   posture: "CONSOLIDATE",
   territoryWarfareMembers: 2,
+  minEarningMembers: 3,
   minClashWinChance: 0.65,
   maxCasualties: 1,
   maxEquipmentCost: 4e9,
@@ -215,7 +219,8 @@ function assignTasks(ns: NS, gang: GangGenInfo, config: GangConfig, memberNames:
       memberNames.length,
       gang.wantedPenalty,
       { minWantedPenalty: config.minWantedPenalty, wantedReductionFraction: config.wantedReductionFraction },
-      options
+      options,
+      gang.isHacking ? "Train Hacking" : "Train Combat"
     );
 
     if (chosen && chosen !== member.task) ns.gang.setMemberTask(name, chosen);
@@ -499,7 +504,8 @@ async function tick(ns: NS, log: Logger, config: GangConfig): Promise<void> {
     standDown,
     memberNames.length,
     config.territoryWarfareMembers,
-    rivalPowers.length > 0
+    rivalPowers.length > 0,
+    config.minEarningMembers
   );
   const territoryMembers = memberNames.slice(0, territoryWarfareCount);
   const remainingMembers = memberNames.slice(territoryWarfareCount);

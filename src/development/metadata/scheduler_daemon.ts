@@ -11,8 +11,17 @@ import {
   computeBatchPlan,
   decidePrepAction,
   DEFAULT_MAX_HACK_FRACTION,
+  HeldTarget,
+  homeWorkerCapacity,
+  homeWorkerRam,
   HostCapacity,
   nextHackFraction,
+  prepThreadsNeeded,
+  batchesPerTick,
+  SCHEDULER_TARGETS_PATH,
+  SchedulerTargetsFile,
+  TargetIncome,
+  selectTargets,
 } from "development/metadata/hwgw";
 import * as player_metadata_pb from "development/metadata/player_metadata";
 import * as scheduler_pb from "development/metadata/scheduler";
@@ -24,9 +33,9 @@ const HACK_WORKER = "development/metadata/hack_worker.js";
 const GROW_WORKER = "development/metadata/grow_worker.js";
 const WEAKEN_WORKER = "development/metadata/weaken_worker.js";
 
-// Reserved for development by default — hack/grow/weaken threads only ever
-// run here below config.homeFallbackHackingLevel, and even then never dip
-// into the last config.homeReservedRamGb. See "Worker hosts" below.
+// Workers use home's RAM beyond a reserve for the daemons and tools
+// (homeWorkerRam): config.homeReservedRamGb below
+// config.homeFallbackHackingLevel, a larger one past it.
 const HOME = "home";
 
 /**
@@ -124,17 +133,38 @@ export function createHandlers(
  * uses that same normal ranking directly.
  */
 export function resolveTarget(ns: NS, config: scheduler_pb.SchedulerConfig): string | undefined {
-  if (config.targetOverride) return config.targetOverride;
-
-  if (config.approach === scheduler_pb.Approach.STOCK_TARGETING) {
-    const stockWeightsFile = readWeightsFile(ns, loadStockTargetConfig(ns).weightsPath);
-    const stockTarget = stockWeightsFile?.weights[0]?.hostname;
-    if (stockTarget) return stockTarget;
-  }
-
-  const weightsFile = readWeightsFile(ns, loadTargetSelectorConfig(ns).weightsPath);
-  return weightsFile?.weights[0]?.hostname;
+  return rankedTargets(ns, config)[0];
 }
+
+/**
+ * Every usable target, best first: config.targetOverride alone if set;
+ * else (STOCK_TARGETING) the stock-linked pick first, then
+ * target_selector.ts's ranking - only servers actually rooted. The
+ * supervisor's ROOTED status is computed from port openers owned, not from
+ * a nuke having happened: right after a restart the top pick can be
+ * unrooted, and every worker aimed at it crashes ("no root access").
+ */
+export function rankedTargets(ns: NS, config: scheduler_pb.SchedulerConfig): string[] {
+  if (config.targetOverride) return [config.targetOverride];
+  const out: string[] = [];
+  if (config.approach === scheduler_pb.Approach.STOCK_TARGETING) {
+    const stockTarget = readWeightsFile(ns, loadStockTargetConfig(ns).weightsPath)?.weights[0]?.hostname;
+    if (stockTarget) out.push(stockTarget);
+  }
+  for (const w of readWeightsFile(ns, loadTargetSelectorConfig(ns).weightsPath)?.weights ?? []) {
+    if (w.hostname && !out.includes(w.hostname)) out.push(w.hostname);
+  }
+  return out.filter((host) => ns.hasRootAccess(host));
+}
+
+// Minimum time on a target before a better-ranked one replaces it (selectTargets).
+const TARGET_MIN_HOLD_MS = 20 * 60_000;
+// Most targets batched at once; the best get RAM first (selectTargets), and
+// a batch that doesn't fit stops the tick, so extra slots only use RAM the
+// better targets left idle. Each target gets at most one batch a tick, so
+// more targets is how a big fleet gets used: at 8, BN10 ran 15% of 177 TB.
+const MAX_TARGETS = 24;
+
 
 // --- Worker hosts: everywhere except `home` and Hacknet servers --------
 
@@ -161,7 +191,9 @@ async function listWorkerHosts(ns: NS): Promise<string[]> {
         server.hostname !== HOME &&
         server.kind !== server_metadata_pb.ServerKind.HACKNET
     )
-    .map((server) => server.hostname as string);
+    .map((server) => server.hostname as string)
+    // Actually nuked, not just nukeable (see resolveTarget).
+    .filter((host) => ns.hasRootAccess(host));
 }
 
 /** Copies the three worker scripts to `host` if they're not already there. `ns.exec` requires the script to already exist on the destination — it doesn't copy for you. */
@@ -183,21 +215,21 @@ async function currentHackingLevel(ns: NS): Promise<number> {
 
 /**
  * The worker-host pool for this tick: every rooted server except `home`,
- * plus — below config.homeFallbackHackingLevel — home itself, with
- * config.homeReservedRamGb held back so development always has headroom.
- * Early on, home may be the only significant RAM source before enough is
- * rooted/purchased elsewhere; past that hacking level, home reverts to
- * fully reserved, same as it stays for every other purpose in this
- * codebase. Sorted most-room-first for allocateAcrossHosts' greedy fill.
+ * plus home's RAM beyond its reserve (homeWorkerRam). Sorted
+ * most-room-first for allocateAcrossHosts' greedy fill.
  */
+/** homeWorkerRam's config-driven arguments: fallback level and reserved GB. */
+function homeReserveArgs(config: scheduler_pb.SchedulerConfig): [number, number] {
+  return [
+    config.homeFallbackHackingLevel ?? DEFAULT_CONFIG.homeFallbackHackingLevel ?? 50,
+    config.homeReservedRamGb ?? DEFAULT_CONFIG.homeReservedRamGb ?? 5,
+  ];
+}
+
 async function getWorkerCapacities(ns: NS, config: scheduler_pb.SchedulerConfig): Promise<HostCapacity[]> {
   const capacities = hostCapacities(ns, await listWorkerHosts(ns));
-
-  const fallbackLevel = config.homeFallbackHackingLevel ?? DEFAULT_CONFIG.homeFallbackHackingLevel ?? 50;
-  if ((await currentHackingLevel(ns)) < fallbackLevel) {
-    const reserved = config.homeReservedRamGb ?? DEFAULT_CONFIG.homeReservedRamGb ?? 5;
-    capacities.push({ host: HOME, freeRam: ns.getServerMaxRam(HOME) - ns.getServerUsedRam(HOME) - reserved });
-  }
+  const level = await currentHackingLevel(ns);
+  capacities.push({ host: HOME, freeRam: homeWorkerRam(ns.getServerMaxRam(HOME), ns.getServerUsedRam(HOME), level, ...homeReserveArgs(config)) });
 
   return capacities.filter((c) => c.freeRam > 0).sort((a, b) => b.freeRam - a.freeRam);
 }
@@ -229,8 +261,15 @@ async function adjustHackFraction(ns: NS, log: Logger, target: string, config: s
   if (now - tuning.lastAdjustMs < Math.max(MIN_ADJUST_INTERVAL_MS, ns.getWeakenTime(target))) return;
 
   const hosts = await listWorkerHosts(ns);
-  const maxRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0);
-  const usedRam = hosts.reduce((sum, host) => sum + ns.getServerUsedRam(host), 0);
+  // Home counts with its worker share: what workers may have there, and
+  // what they use now (daemons excluded).
+  const homeCapacity = homeWorkerCapacity(ns.getServerMaxRam(HOME), await currentHackingLevel(ns), ...homeReserveArgs(config));
+  const homeWorkers = ns
+    .ps(HOME)
+    .filter((p) => [HACK_WORKER, GROW_WORKER, WEAKEN_WORKER].includes(p.filename.replace(/^\//, "")))
+    .reduce((sum, p) => sum + ns.getScriptRam(p.filename) * p.threads, 0);
+  const maxRam = hosts.reduce((sum, host) => sum + ns.getServerMaxRam(host), 0) + homeCapacity;
+  const usedRam = hosts.reduce((sum, host) => sum + ns.getServerUsedRam(host), 0) + Math.min(homeWorkers, homeCapacity);
   const utilization = maxRam > 0 ? usedRam / maxRam : 1;
   const next = nextHackFraction(
     tuning.hackFraction,
@@ -254,82 +293,72 @@ async function adjustHackFraction(ns: NS, log: Logger, target: string, config: s
 // --- Prep and batch firing ----------------------------------------------
 
 /**
- * Weakens/grows `target` until it sits at min-security/max-money — batch
- * math is only valid from that baseline. Fires across every worker host
- * with room, not just the single biggest one — unlike a batch's four
- * coordinated actions, prep doesn't need an exact thread count to make
- * progress, just as many threads as it can get, so there's no need for
- * allocateAcrossHosts' split-a-request-across-hosts bookkeeping: each host
- * just runs as many threads as its own free RAM allows.
+ * One non-blocking prep step on `target`: weaken toward min security, or
+ * grow toward max money, with only the threads that step needs
+ * (prepThreadsNeeded), capped by free RAM across every worker host.
+ * Returns how long until it lands (the target is skipped until then), 0
+ * if it's already prepped. Prep used to block the whole scheduler until
+ * done, which tied it to one target at a time.
  */
-async function prep(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<void> {
-  while (true) {
-    const security = ns.getServerSecurityLevel(target);
-    const minSecurity = ns.getServerMinSecurityLevel(target);
-    const money = ns.getServerMoneyAvailable(target);
-    const maxMoney = ns.getServerMaxMoney(target);
+async function prepStep(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<number> {
+  const security = ns.getServerSecurityLevel(target);
+  const minSecurity = ns.getServerMinSecurityLevel(target);
+  const money = ns.getServerMoneyAvailable(target);
+  const maxMoney = ns.getServerMaxMoney(target);
+  const action = decidePrepAction(security, minSecurity, money, maxMoney);
+  if (action === "done") return 0;
 
-    const action = decidePrepAction(security, minSecurity, money, maxMoney);
-    if (action === "done") {
-      await log.info(`[Scheduler] ${target} at min-security/max-money; starting batches.`);
-      return;
-    }
-
-    const capacities = await getWorkerCapacities(ns, config);
-    if (capacities.length === 0) {
-      await log.warn("[Scheduler] No worker hosts with free RAM yet; waiting.");
-      await ns.asleep(BATCH_CHECK_INTERVAL_MS);
-      continue;
-    }
-
-    const script = action === "weaken" ? WEAKEN_WORKER : GROW_WORKER;
-    const scriptRam = ns.getScriptRam(script);
-    // getScriptRam returns 0 if the file doesn't exist (on whatever host
-    // the calling script itself runs on, here always home, since no host
-    // arg is passed) - dividing free RAM by that gives Infinity threads,
-    // which ns.exec then rejects outright ("threads must be a positive
-    // integer, was Infinity"), crashing the whole daemon. Seen live right
-    // after a restart, presumably a transient file-sync race. Treat it
-    // the same as "no capacity yet" - wait and retry, rather than crash.
-    if (!(scriptRam > 0)) {
-      await log.warn(`[Scheduler] ${script} not found on home (getScriptRam returned ${scriptRam}); waiting for it to sync.`);
-      await ns.asleep(BATCH_CHECK_INTERVAL_MS);
-      continue;
-    }
-
-    let totalThreads = 0;
-    const hostsUsed: string[] = [];
-    for (const { host, freeRam } of capacities) {
-      const threads = Math.floor(freeRam / scriptRam);
-      if (threads <= 0) continue;
-
-      ensureWorkersDeployed(ns, host);
-      // stock: true always, harmless when target isn't stock-linked (see
-      // hack_worker.ts's doc) - the prerequisite for Approach.STOCK_TARGETING
-      // (or just an already-stock-linked HACK target) to have any effect.
-      ns.exec(script, host, threads, target, 0, true);
-      totalThreads += threads;
-      hostsUsed.push(host);
-    }
-
-    await log.debug(
-      `[Scheduler] Prep ${action} on ${target}: security=${security.toFixed(2)}/${minSecurity.toFixed(2)} money=$${money.toFixed(0)}/$${maxMoney.toFixed(0)} ` +
-        `${totalThreads} thread(s) across ${hostsUsed.length} host(s) (${hostsUsed.join(", ")}).`
-    );
-
-    const waitMs = (action === "weaken" ? ns.getWeakenTime(target) : ns.getGrowTime(target)) + 200;
-    await ns.asleep(waitMs);
+  const script = action === "weaken" ? WEAKEN_WORKER : GROW_WORKER;
+  const scriptRam = ns.getScriptRam(script);
+  // getScriptRam returns 0 for a file not synced yet - dividing by it would
+  // ask ns.exec for Infinity threads. Wait for the sync instead.
+  if (!(scriptRam > 0)) {
+    await log.warn(`[Scheduler] ${script} not found on home (getScriptRam returned ${scriptRam}); waiting for it to sync.`);
+    return BATCH_CHECK_INTERVAL_MS * 5;
   }
+  const growMultiplier = maxMoney / Math.max(money, 1);
+  let remaining = prepThreadsNeeded(
+    action,
+    security - minSecurity,
+    ns.weakenAnalyze(1),
+    action === "grow" ? ns.growthAnalyze(target, Math.max(1, growMultiplier)) : 0
+  );
+
+  let totalThreads = 0;
+  for (const { host, freeRam } of await getWorkerCapacities(ns, config)) {
+    if (remaining <= 0) break;
+    const threads = Math.min(remaining, Math.floor(freeRam / scriptRam));
+    if (threads <= 0) continue;
+    ensureWorkersDeployed(ns, host);
+    // stock: true always, harmless when target isn't stock-linked (see hack_worker.ts's doc).
+    if (ns.exec(script, host, threads, target, 0, true) !== 0) {
+      totalThreads += threads;
+      remaining -= threads;
+    }
+  }
+  if (totalThreads === 0) return BATCH_CHECK_INTERVAL_MS * 5;
+
+  await log.debug(
+    `[Scheduler] Prep ${action} on ${target}: security=${security.toFixed(2)}/${minSecurity.toFixed(2)} money=$${money.toFixed(0)}/$${maxMoney.toFixed(0)} ` +
+      `${totalThreads} thread(s)${remaining > 0 ? ` (${remaining} more needed - no room)` : ""}.`
+  );
+  return (action === "weaken" ? ns.getWeakenTime(target) : ns.getGrowTime(target)) + 200;
 }
 
 /**
  * Computes a fresh batch plan against `target`'s live state and, if the
- * pool of worker hosts (never `home`) has room for all four actions
+ * pool of worker hosts (home beyond its reserve included) has room for all four actions
  * somewhere, fires it. Skips silently otherwise — the next tick naturally
  * retries, no pre-computed concurrent-batch depth needed. The four actions
  * don't need to land on the same host as each other, or as the target.
  */
-async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: scheduler_pb.SchedulerConfig): Promise<"ok" | "drifted" | "noFit"> {
+async function fireBatchIfRoom(
+  ns: NS,
+  log: Logger,
+  target: string,
+  config: scheduler_pb.SchedulerConfig,
+  offsetMs = 0
+): Promise<"ok" | "fired" | "drifted" | "noFit"> {
   const hackFraction = config.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1;
   const spacingMs = config.spacingMs ?? DEFAULT_CONFIG.spacingMs ?? 200;
 
@@ -424,16 +453,37 @@ async function fireBatchIfRoom(ns: NS, log: Logger, target: string, config: sche
     }
   };
 
-  fireOn(HACK_WORKER, hack, plan.hackDelayMs);
-  fireOn(WEAKEN_WORKER, weaken1, plan.weaken1DelayMs);
-  fireOn(GROW_WORKER, grow, plan.growDelayMs);
-  fireOn(WEAKEN_WORKER, weaken2, plan.weaken2DelayMs);
+  // offsetMs staggers several batches fired in one tick so each one's four
+  // actions land in their own window (batchesPerTick).
+  fireOn(HACK_WORKER, hack, plan.hackDelayMs + offsetMs);
+  fireOn(WEAKEN_WORKER, weaken1, plan.weaken1DelayMs + offsetMs);
+  fireOn(GROW_WORKER, grow, plan.growDelayMs + offsetMs);
+  fireOn(WEAKEN_WORKER, weaken2, plan.weaken2DelayMs + offsetMs);
 
   const summarize = (group: Allocation[]): string => (group.length > 0 ? group.map((a) => `${a.threads}@${a.host}`).join("+") : "0");
   await log.info(
     `[Scheduler] Fired batch on ${target}: H${summarize(hack)}/W${summarize(weaken1)}/G${summarize(grow)}/W${summarize(weaken2)}.`
   );
-  return "ok";
+  return "fired";
+}
+
+const TARGETS_WRITE_INTERVAL_MS = 5000;
+
+/** Publishes each target's state and income (SCHEDULER_TARGETS_PATH), dropping fire times older than a minute. */
+function writeTargetIncome(ns: NS, hosts: string[], prepped: Set<string>, firedAt: Map<string, number[]>, hackFraction: number, now: number): void {
+  for (const [host, times] of firedAt) {
+    const recent = times.filter((t) => now - t < 60_000);
+    if (recent.length === 0 || !hosts.includes(host)) firedAt.delete(host);
+    else firedAt.set(host, recent);
+  }
+  const targets: TargetIncome[] = hosts.map((host) => {
+    const batchesPerMin = firedAt.get(host)?.length ?? 0;
+    const chance = ns.hackAnalyzeChance(host);
+    const takePerBatch = hackFraction * ns.getServerMaxMoney(host) * chance;
+    return { host, state: prepped.has(host) ? "batching" : "prepping", batchesPerMin, takePerBatch, incomePerMin: batchesPerMin * takePerBatch, chance };
+  });
+  const file: SchedulerTargetsFile = { targets, writtenAt: now };
+  ns.write(SCHEDULER_TARGETS_PATH, JSON.stringify(file), "w");
 }
 
 export async function main(ns: NS): Promise<void> {
@@ -449,7 +499,14 @@ export async function main(ns: NS): Promise<void> {
   const server = rpc.NewServer(ns, scheduler_pb.SchedulerServicePort);
   scheduler_pb.RegisterSchedulerService(server, handlers);
 
-  let currentTarget: string | undefined;
+  // The targets being batched (selectTargets), and when each one's prep
+  // step lands (prepStep) - skipped until then.
+  let targets: HeldTarget[] = [];
+  const busyUntil = new Map<string, number>();
+  const prepped = new Set<string>();
+  // Batch fire times per target over the last minute (writeTargetIncome).
+  const firedAt = new Map<string, number[]>();
+  let lastTargetsWrite = 0;
   // Auto-scaled hackFraction (adjustHackFraction), starting from the saved
   // value, else the config's.
   const tuning: Tuning = {
@@ -464,40 +521,69 @@ export async function main(ns: NS): Promise<void> {
     // RPC patches survive this reload too.
     state.config = loadConfig(ns);
 
-    const target = resolveTarget(ns, state.config);
-    if (!target) {
+    // HACK, STOCK_TARGETING, GROW_STATS, AUGMENTS, GANG and FACTION_GRIND
+    // all run the same HWGW batching; the approach only changes which
+    // targets rank first (STOCK_TARGETING) or what the player and money do.
+    const approach = state.config.approach;
+    if (approach === scheduler_pb.Approach.CRIME) return;
+
+    // Several targets at once (selectTargets), best first. Each tick the
+    // best gets its prep step or batch first and lower ones use what's
+    // left; a batch that doesn't fit means the fleet is full this tick.
+    // One target at a time capped income at what one server can give:
+    // BN10 ran 1% of 137 TB at hacking 6541.
+    const now = Date.now();
+    const ranked = rankedTargets(ns, state.config);
+    const prepping = new Set(targets.map((t) => t.host).filter((host) => !prepped.has(host)));
+    const next = selectTargets(targets, ranked, state.config.targetOverride ? 1 : MAX_TARGETS, now, TARGET_MIN_HOLD_MS, prepping);
+    const names = next.map((t) => t.host).join(", ");
+    if (names !== targets.map((t) => t.host).join(", ")) await log.info(`[Scheduler] Targets: ${names || "(none)"}.`);
+    targets = next;
+    for (const host of [...busyUntil.keys()]) if (!targets.some((t) => t.host === host)) busyUntil.delete(host);
+    for (const host of [...prepped]) if (!targets.some((t) => t.host === host)) prepped.delete(host);
+    if (targets.length === 0) {
       await log.warn("[Scheduler] No target available yet (waiting on target_selector.js); skipping tick.");
       return;
     }
 
-    if (target !== currentTarget) {
-      await log.info(`[Scheduler] Retargeting ${currentTarget ?? "(none)"} -> ${target}.`);
-      currentTarget = target;
-      await prep(ns, log, target, state.config);
-    }
-
-    // HACK, STOCK_TARGETING, GROW_STATS and AUGMENTS all run the identical
-    // HWGW batch loop. STOCK_TARGETING only changes which target
-    // resolveTarget() picks; GROW_STATS changes what the *player* does
-    // (study_daemon.ts puts them in a university class); AUGMENTS changes how
-    // money is spent (faction_daemon.ts). The fleet keeps earning in all four.
-    const approach = state.config.approach;
-    if (
-      approach === scheduler_pb.Approach.HACK ||
-      approach === scheduler_pb.Approach.STOCK_TARGETING ||
-      approach === scheduler_pb.Approach.GROW_STATS ||
-      approach === scheduler_pb.Approach.AUGMENTS ||
-      approach === scheduler_pb.Approach.GANG
-    ) {
-      const auto = state.config.autoHackFraction ?? DEFAULT_CONFIG.autoHackFraction;
-      const batchConfig = auto ? { ...state.config, hackFraction: tuning.hackFraction } : state.config;
-      const result = await fireBatchIfRoom(ns, log, target, batchConfig);
-      if (result === "drifted") {
-        await log.warn(`[Scheduler] ${target} drifted off min-security/max-money; re-prepping before more batches.`);
-        await prep(ns, log, target, state.config);
+    const auto = state.config.autoHackFraction ?? DEFAULT_CONFIG.autoHackFraction;
+    const batchConfig = auto ? { ...state.config, hackFraction: tuning.hackFraction } : state.config;
+    for (const { host } of targets) {
+      if ((busyUntil.get(host) ?? 0) > now) continue;
+      // Prep until first ready, then only after a batch reports drift -
+      // mid-batch a target's money dips by design until its grow lands.
+      if (!prepped.has(host)) {
+        const prepMs = await prepStep(ns, log, host, state.config);
+        if (prepMs > 0) {
+          busyUntil.set(host, now + prepMs);
+          continue;
+        }
+        prepped.add(host);
+        await log.info(`[Scheduler] ${host} at min-security/max-money; starting batches.`);
       }
-      if (result === "noFit") tuning.noFitSinceAdjust = true;
-      if (auto) await adjustHackFraction(ns, log, target, state.config, tuning);
+      // Several batches per target per tick, each offset by a full batch
+      // window (4 x spacing) so they land in order. One per tick capped a
+      // 2 PB fleet at 1% use (BN10: hacking fell to $39T/min).
+      const spacing = batchConfig.spacingMs ?? DEFAULT_CONFIG.spacingMs ?? 200;
+      const perTick = batchesPerTick(BATCH_CHECK_INTERVAL_MS, spacing);
+      let result: "ok" | "fired" | "drifted" | "noFit" = "fired";
+      for (let k = 0; k < perTick && result === "fired"; k++) {
+        result = await fireBatchIfRoom(ns, log, host, batchConfig, k * 4 * spacing);
+        if (result === "fired") firedAt.set(host, [...(firedAt.get(host) ?? []), now]);
+      }
+      if (result === "drifted") {
+        prepped.delete(host);
+        await log.warn(`[Scheduler] ${host} drifted off min-security/max-money; re-prepping before more batches.`);
+      }
+      if (result === "noFit") {
+        tuning.noFitSinceAdjust = true;
+        break;
+      }
+    }
+    if (auto) await adjustHackFraction(ns, log, targets[0].host, state.config, tuning);
+    if (now - lastTargetsWrite >= TARGETS_WRITE_INTERVAL_MS) {
+      lastTargetsWrite = now;
+      writeTargetIncome(ns, targets.map((t) => t.host), prepped, firedAt, batchConfig.hackFraction ?? DEFAULT_CONFIG.hackFraction ?? 0.1, now);
     }
     // CRIME: defined in the schema, not implemented yet (see scheduler.proto).
   }, BATCH_CHECK_INTERVAL_MS);

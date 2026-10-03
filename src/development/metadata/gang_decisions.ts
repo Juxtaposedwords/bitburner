@@ -46,17 +46,26 @@ export function decideMemberTask(
   totalMembers: number,
   wantedPenalty: number,
   policy: WantedPolicy,
-  options: TaskOption[]
+  optionsIn: TaskOption[],
+  trainingTask?: string
 ): string | undefined {
-  if (options.length === 0) return undefined;
+  // Never idle, and never Territory Warfare (assigned separately). A new,
+  // weak member earns $0 at everything, and on that tie "Unassigned" (the
+  // game's idle state, listed first) won - leaving the member idle.
+  const options = optionsIn.filter((o) => !NON_WORK_TASKS.includes(o.name));
+  if (options.length === 0) return trainingTask;
 
   const reservedForWantedControl =
     wantedPenalty < policy.minWantedPenalty ? Math.max(1, Math.round(totalMembers * policy.wantedReductionFraction)) : 0;
 
-  return memberIndex < reservedForWantedControl
-    ? options.reduce((best, o) => (o.wantedLevelGain < best.wantedLevelGain ? o : best)).name
-    : options.reduce((best, o) => (o.moneyGain > best.moneyGain ? o : best)).name;
+  if (memberIndex < reservedForWantedControl) return options.reduce((best, o) => (o.wantedLevelGain < best.wantedLevelGain ? o : best)).name;
+  const best = options.reduce((b, o) => (o.moneyGain > b.moneyGain ? o : b));
+  // Nothing pays yet: train until the member's stats make crime pay.
+  return best.moneyGain > 0 || !trainingTask ? best.name : trainingTask;
 }
+
+/** Tasks decideMemberTask never picks: idle, and Territory Warfare (assigned by decideTerritoryWarfareAssignment). */
+export const NON_WORK_TASKS = ["Unassigned", "Territory Warfare"];
 
 // `augmentation`: a gang augmentation (ns.gang.getEquipmentType ===
 // "Augmentation") - kept through ascension, unlike regular equipment.
@@ -202,18 +211,25 @@ export function selectBestAscensionCandidate(candidates: AscensionCandidate[], m
  * standDown overrides posture at runtime without touching the config
  * file the user set it in. Also zero once no rival holds any territory
  * (100% ours): there's nobody left to clash with, so power training would
- * only take members off earning.
+ * only take members off earning. And always leaves `minEarners` members
+ * earning: recruiting needs respect, which warfare doesn't earn - a fresh
+ * BN10 gang put all its first recruits on Territory Warfare (the config
+ * still asked for last run's late-game count) and stalled at respect 1.
+ * Warfare still starts early with the rest: power takes time to build,
+ * the last recruits cost the most respect, and territory raises respect
+ * gains too.
  */
 export function decideTerritoryWarfareAssignment(
   posture: GangPosture,
   standDown: boolean,
   totalMembers: number,
   desiredCount: number,
-  rivalsHoldTerritory = true
+  rivalsHoldTerritory = true,
+  minEarners = 0
 ): number {
   if (posture !== GangPosture.GROWING || standDown || !rivalsHoldTerritory) return 0;
 
-  return Math.min(desiredCount, totalMembers);
+  return Math.max(0, Math.min(desiredCount, totalMembers - minEarners));
 }
 
 /**

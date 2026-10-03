@@ -2,6 +2,18 @@ import { PlayerRequirement } from "@ns";
 import { describe, expect, it } from "vitest";
 import {
   AugmentationInfo,
+  focusPriceLimit,
+  focusStatsFor,
+  describeUnmetRequirements,
+  combatBlocksInvite,
+  companyRepRequirement,
+  companyTargets,
+  sleeveSavings,
+  grindInstallPays,
+  pickInstallEnabler,
+  grindAllowsInstall,
+  workSlotFree,
+  installLoopActive,
   decideAugmentationPurchase,
   decideCrimeForKills,
   decideDonation,
@@ -87,7 +99,7 @@ describe("decideWorkTarget", () => {
 
   it("goes back to the smallest gap once The Red Pill's rep is reached or it's owned", () => {
     const catalog = [
-      aug({ name: "NeuroFlux Governor", faction: "Sector-12", repReq: 1000 }),
+      aug({ name: "CashRoot Starter Kit", faction: "Sector-12", repReq: 1000 }),
       aug({ name: "The Red Pill", faction: "Daedalus", repReq: 2.5e6 }),
     ];
 
@@ -110,9 +122,9 @@ describe("decideWorkTarget", () => {
     expect(decideWorkTarget(["CyberSec"], { CyberSec: 0 }, catalog, ["Owned"])).toBeUndefined();
   });
 
-  it("still considers NeuroFlux Governor even though it's in the owned list", () => {
+  it("never grinds rep for NeuroFlux Governor - its rep is bought with donations", () => {
     const catalog = [aug({ name: NEUROFLUX_GOVERNOR, faction: "CyberSec", repReq: 500 })];
-    expect(decideWorkTarget(["CyberSec"], { CyberSec: 0 }, catalog, [NEUROFLUX_GOVERNOR])).toBe("CyberSec");
+    expect(decideWorkTarget(["CyberSec"], { CyberSec: 0 }, catalog, [NEUROFLUX_GOVERNOR])).toBeUndefined();
   });
 
   it("skips a faction whose reputation already meets every requirement (nothing left to work toward)", () => {
@@ -640,6 +652,31 @@ describe("decideWorkTarget with a favor plan", () => {
     ];
     expect(decideWorkTarget(joined, { "Sector-12": 990 }, catalog, [], plan)).toBe("Illuminati");
   });
+
+  it("stops at the favor target instead of grinding on toward the augmentation", () => {
+    const plan = [{ faction: "Illuminati", augmentation: "QLink", rep: 462000, target: 462000 }];
+    expect(decideWorkTarget(["Illuminati"], { Illuminati: 462000 }, catalog, [], plan)).toBeUndefined();
+  });
+
+  it("never works a faction that already takes donations", () => {
+    expect(decideWorkTarget(["The Covenant"], { "The Covenant": 0 }, catalog, [], [], new Set(["The Covenant"]))).toBeUndefined();
+  });
+
+  it("takes The Red Pill's faction only up to its favor target", () => {
+    const redPill = [aug({ name: "The Red Pill", faction: "Daedalus", repReq: 5e6 })];
+    const plan = [{ faction: "Daedalus", augmentation: "The Red Pill", rep: 100000, target: 462000 }];
+    expect(decideWorkTarget(["Daedalus"], { Daedalus: 100000 }, redPill, [], plan)).toBe("Daedalus");
+    const met = [{ ...plan[0], rep: 462000 }];
+    expect(decideWorkTarget(["Daedalus"], { Daedalus: 462000 }, redPill, [], met)).toBeUndefined();
+  });
+});
+
+describe("wantedInviteFactions alsoWanted", () => {
+  it("adds The Covenant for sleeves even with no augmentation wanted there, unless joined", () => {
+    const offered = { "The Covenant": ["SPTN-97 Gene Modification"] };
+    expect(wantedInviteFactions(["The Covenant"], [], offered, ["SPTN-97 Gene Modification"], ["The Covenant"])).toEqual(["The Covenant"]);
+    expect(wantedInviteFactions(["The Covenant"], ["The Covenant"], offered, [], ["The Covenant"])).toEqual([]);
+  });
 });
 
 describe("wantedInviteFactions", () => {
@@ -669,6 +706,15 @@ describe("priorityFocus", () => {
 
   it("picks the most expensive reachable augmentation in focus, holding cheaper ones", () => {
     expect(priorityFocus(catalog, {}, [], donatable, focus)?.name).toBe("QLink");
+  });
+
+  it("picks the cheapest reachable when asked", () => {
+    expect(priorityFocus(catalog, {}, [], donatable, focus, Infinity, true)?.name).toBe("SPTN-97 Gene Modification");
+  });
+
+  it("picks the dearest one under the price limit, and none when all are over", () => {
+    expect(priorityFocus(catalog, {}, [], donatable, focus, 1e12)?.name).toBe("SPTN-97 Gene Modification");
+    expect(priorityFocus(catalog, {}, [], donatable, focus, 1e9)).toBeUndefined();
   });
 
   it("moves to the next once it's owned", () => {
@@ -823,6 +869,11 @@ describe("repTargets", () => {
     });
   });
 
+  it("drops a planned faction once its favor target is met, and donatable factions", () => {
+    const plan = [{ faction: "Illuminati", augmentation: "QLink", rep: 462000, target: 462000 }];
+    expect(repTargets(joined, { Illuminati: 462000, "The Covenant": 5000 }, catalog, ["Owned"], plan, new Set(["The Covenant"]))).toEqual({});
+  });
+
   it("skips NeuroFlux-only, fully owned, and already-reached factions", () => {
     expect(repTargets(joined, { "The Covenant": 1.3e6 }, catalog, ["Owned", "QLink"], [])).toEqual({});
   });
@@ -856,5 +907,195 @@ describe("usefulCatalog", () => {
   it("means a faction selling only useless augmentations is no work target", () => {
     const list = usefulCatalog([{ ...hacknet, repReq: 25000 }, { ...hacking, repReq: 400000 }], useful);
     expect(decideWorkTarget(["Netburners", "Slum Snakes"], { Netburners: 0, "Slum Snakes": 0 }, list, [])).toBe("Slum Snakes");
+  });
+});
+
+describe("focusPriceLimit", () => {
+  it("is cash plus maxMinutes of income", () => {
+    expect(focusPriceLimit(100, 10, 30)).toBe(400);
+  });
+
+  it("allows a longer save with nothing pending - an hour at least", () => {
+    expect(focusPriceLimit(100, 10, 5, 0)).toBe(100 + 10 * 60);
+    expect(focusPriceLimit(100, 10, 30, 0)).toBe(100 + 10 * 360);
+    expect(focusPriceLimit(100, 10, 30, 2)).toBe(400);
+  });
+
+  it("has no limit without income data or with the limit off", () => {
+    expect(focusPriceLimit(100, undefined, 30)).toBe(Infinity);
+    expect(focusPriceLimit(100, 10, 0)).toBe(Infinity);
+  });
+});
+
+describe("focusStatsFor", () => {
+  const focus = ["hacking"];
+  const fallback = ["hacking", "strength"];
+
+  it("doesn't narrow outside GROW_STATS/AUGMENTS", () => {
+    expect(focusStatsFor(false, true, focus, fallback)).toBeUndefined();
+  });
+
+  it("narrows to the focus while a focus augmentation is reachable", () => {
+    expect(focusStatsFor(true, false, focus, fallback)).toEqual(focus);
+  });
+
+  it("widens to every useful stat once the focus is exhausted", () => {
+    expect(focusStatsFor(true, true, focus, fallback)).toEqual(fallback);
+  });
+});
+
+describe("installLoopActive", () => {
+  it("runs in AUGMENTS with both switches on while something is pending or left to buy", () => {
+    expect(installLoopActive(true, true, true, 3, false)).toBe(true);
+    expect(installLoopActive(true, true, true, 0, true)).toBe(true);
+  });
+
+  it("is over once nothing is pending or left, outside AUGMENTS, or with a switch off", () => {
+    expect(installLoopActive(true, true, true, 0, false)).toBe(false);
+    expect(installLoopActive(false, true, true, 3, true)).toBe(false);
+    expect(installLoopActive(true, true, false, 3, true)).toBe(false);
+  });
+});
+
+describe("workSlotFree", () => {
+  it("is free with no work target, invite work, karma crime, or slot-claiming eligibility action", () => {
+    expect(workSlotFree(undefined, "none", false, "none")).toBe(true);
+    expect(workSlotFree(undefined, "none", false, "applyToCompany")).toBe(true);
+  });
+
+  it("is taken by any of them", () => {
+    expect(workSlotFree("Daedalus", "none", false, "none")).toBe(false);
+    expect(workSlotFree(undefined, "gymWorkout", false, "none")).toBe(false);
+    expect(workSlotFree(undefined, "none", true, "none")).toBe(false);
+    expect(workSlotFree(undefined, "none", false, "workForCompany")).toBe(false);
+  });
+});
+
+describe("grindAllowsInstall", () => {
+  it("waits while any favor target is unmet", () => {
+    const plan = [
+      { faction: "Daedalus", augmentation: "The Red Pill", rep: 462000, target: 462000 },
+      { faction: "Illuminati", augmentation: "QLink", rep: 100000, target: 462000 },
+    ];
+    expect(grindAllowsInstall(plan)).toBe(false);
+  });
+
+  it("allows it early once an install finishes the grind sooner", () => {
+    const plan = [{ faction: "BitRunners", augmentation: "x", rep: 105846, target: 462490 }];
+    const grind = { faction: "BitRunners", gap: 356644, repPerMin: 990, etaMinutes: 360, favor: 0, installFavor: 83.6, installEtaMinutes: 206 };
+    expect(grindAllowsInstall(plan, [grind])).toBe(true);
+    expect(grindAllowsInstall(plan, [{ ...grind, installEtaMinutes: 400 }])).toBe(false);
+  });
+
+  it("decides on the last of several parallel grinds to finish", () => {
+    const g = (faction: string, eta: number, after: number) => ({ faction, gap: 1, repPerMin: 1, etaMinutes: eta, favor: 0, installFavor: 0, installEtaMinutes: after });
+    // The player's grind gains a lot, a sleeve's barely loses: the last finishes sooner.
+    expect(grindInstallPays([g("BitRunners", 360, 206), g("NiteSec", 100, 110)])).toBe(true);
+    // A short grind that only gets the install's overhead added doesn't make it worth it.
+    expect(grindInstallPays([g("BitRunners", 60, 70)])).toBe(false);
+    expect(grindInstallPays([])).toBe(false);
+  });
+
+  it("allows it once all are met, or with nothing to grind", () => {
+    expect(grindAllowsInstall([{ faction: "Daedalus", augmentation: "The Red Pill", rep: 5e5, target: 462000 }])).toBe(true);
+    expect(grindAllowsInstall([])).toBe(true);
+  });
+});
+
+describe("pickInstallEnabler", () => {
+  const catalog = [
+    aug({ name: NEUROFLUX_GOVERNOR, faction: "The Covenant", price: 5.5e6, repReq: 1482 }),
+    aug({ name: "SPTN-97 Gene Modification", faction: "The Covenant", price: 2.4e10, repReq: 2.5e6 }),
+    aug({ name: "BrachiBlades", faction: "The Syndicate", price: 4.5e8, repReq: 25000 }),
+  ];
+
+  it("picks the cheapest buyable augmentation, NeuroFlux included", () => {
+    expect(pickInstallEnabler(catalog, { "The Covenant": 641140, "The Syndicate": 30000 }, [NEUROFLUX_GOVERNOR], 1e12)?.name).toBe(NEUROFLUX_GOVERNOR);
+  });
+
+  it("skips anything short on rep or unaffordable", () => {
+    expect(pickInstallEnabler(catalog, { "The Covenant": 1000, "The Syndicate": 30000 }, [], 1e12)?.name).toBe("BrachiBlades");
+    expect(pickInstallEnabler(catalog, { "The Covenant": 641140 }, [], 1e6)).toBeUndefined();
+  });
+});
+
+describe("sleeveSavings", () => {
+  it("saves for the next Covenant sleeve within maxMinutes of income, in BitNode 10 as a member", () => {
+    // $10Q within an hour once income reaches ~$170T/min; at $277B/min it's weeks away.
+    expect(sleeveSavings(10, true, 1e16, 3.5e11, 2e14, 60)).toBe(1e16);
+    expect(sleeveSavings(10, true, 1e16, 3.5e11, 2.77e11, 60)).toBe(0);
+  });
+
+  it("doesn't outside BitNode 10, as a non-member, with all bought, or turned off", () => {
+    expect(sleeveSavings(9, true, 1e16, 1e17, 1e15, 60)).toBe(0);
+    expect(sleeveSavings(10, false, 1e16, 1e17, 1e15, 60)).toBe(0);
+    expect(sleeveSavings(10, true, Infinity, 1e17, 1e15, 60)).toBe(0);
+    expect(sleeveSavings(10, true, 1e16, 1e17, 1e15, 0)).toBe(0);
+  });
+});
+
+describe("company targets", () => {
+  it("reads the company rep an invite needs", () => {
+    expect(companyRepRequirement([{ type: "companyReputation", company: "ECorp", reputation: 400000 } as PlayerRequirement])).toEqual({
+      company: "ECorp",
+      reputation: 400000,
+    });
+    expect(companyRepRequirement([{ type: "money", money: 1 } as PlayerRequirement])).toBeUndefined();
+  });
+
+  it("keeps invites still short of their rep, nearest first", () => {
+    const t = (faction: string, rep: number) => ({ faction, company: faction, rep, needed: 400000 });
+    expect(companyTargets([t("ECorp", 100000), t("MegaCorp", 390000), t("NWO", 400000)]).map((c) => c.faction)).toEqual(["MegaCorp", "ECorp"]);
+  });
+});
+
+describe("combatBlocksInvite", () => {
+  const snap = (combat: number, hacking = 2000) =>
+    ({
+      money: 1e15,
+      skills: { hacking, strength: combat, defense: combat, dexterity: combat, agility: combat, charisma: 1, intelligence: 0 },
+      karma: 0,
+      numPeopleKilled: 0,
+      city: "Sector-12",
+      jobs: {},
+      companyReps: {},
+    }) as Parameters<typeof combatBlocksInvite>[1];
+  const covenantCombat = [{ type: "skills", skills: { strength: 850, defense: 850, dexterity: 850, agility: 850 } } as PlayerRequirement];
+
+  it("is true while an invite needs more of a combat stat", () => {
+    expect(combatBlocksInvite(covenantCombat, snap(500))).toBe(true);
+  });
+
+  it("is false once the combat stats are met, or with no combat requirement", () => {
+    expect(combatBlocksInvite(covenantCombat, snap(900))).toBe(false);
+    expect(combatBlocksInvite([{ type: "skills", skills: { hacking: 850 } } as PlayerRequirement], snap(10, 100))).toBe(false);
+  });
+});
+
+describe("describeUnmetRequirements", () => {
+  const snap = {
+    money: 1e12,
+    skills: { hacking: 612, strength: 900, defense: 900, dexterity: 900, agility: 900, charisma: 1, intelligence: 0 },
+    karma: 0,
+    numPeopleKilled: 0,
+    city: "Sector-12",
+    jobs: {},
+    companyReps: {},
+  } as Parameters<typeof describeUnmetRequirements>[1];
+
+  it("lists only what's unmet, in plain words", () => {
+    const covenant = [
+      { type: "numAugmentations", numAugmentations: 20 },
+      { type: "money", money: 75e9 },
+      { type: "skills", skills: { hacking: 850, strength: 850 } },
+    ] as PlayerRequirement[];
+    expect(describeUnmetRequirements(covenant, snap, 14)).toEqual(["20 installed augs (have 14)", "hacking 850 (have 612)"]);
+  });
+
+  it("shows an unmet either-or as one of (...)", () => {
+    const illuminati = [
+      { type: "someCondition", conditions: [{ type: "skills", skills: { hacking: 1500 } }, { type: "skills", skills: { strength: 1200 } }] },
+    ] as PlayerRequirement[];
+    expect(describeUnmetRequirements(illuminati, snap, 30)).toEqual(["one of (hacking 1500 (have 612) | strength 1200 (have 900))"]);
   });
 });

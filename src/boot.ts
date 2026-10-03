@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { EXPECTED_DAEMONS_PATH } from "development/libraries/reload_plan";
 import { CORE_SCRIPTS, requiredHomeRam } from "development/libraries/bootstrap_plan";
 import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import * as rpc from "development/libraries/rpc";
@@ -64,6 +65,26 @@ const ONE_SHOT = [
 const ONE_SHOT_TIMEOUT_MS = 60_000;
 
 /** Launches `script` unless it's already running; true if it's running afterwards. */
+const BOOTSTRAP_WORKER = "bootstrap_worker.js";
+
+/** Kills `script` on every server reachable from home; returns how many servers had it. */
+function killEverywhere(ns: NS, script: string): number {
+  const seen = new Set(["home"]);
+  const queue = ["home"];
+  let killed = 0;
+  while (queue.length > 0) {
+    const host = queue.shift() as string;
+    if (ns.scriptKill(script, host)) killed++;
+    for (const next of ns.scan(host)) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return killed;
+}
+
 function launchIfNotRunning(ns: NS, script: string): boolean {
   if (ns.scriptRunning(script)) {
     ns.tprint(`[Boot] ${script} already running, skipping.`);
@@ -95,6 +116,18 @@ export async function main(ns: NS): Promise<void> {
   // big enough. Only when the full system isn't already up: a boot re-run
   // after a RAM upgrade must not start bootstrap beside it (bootstrap stops
   // every worker on its servers).
+  // RAM 0 means the game can't load the script (a missing file, or an
+  // import its dependencies don't provide - e.g. files changed while the
+  // game was closed never reached it). That's an error to fix, not a small
+  // home: treating it as one once started bootstrap on a 16 TB home.
+  const unloadable = CORE_SCRIPTS.filter((script) => !(ns.getScriptRam(script, "home") > 0));
+  if (unloadable.length > 0) {
+    ns.tprint(
+      `[Boot] ERROR: the game can't load ${unloadable.join(", ")} (RAM 0 - missing or out-of-date files). ` +
+        "Let filesync push everything (or re-run the watch), then run boot.js again."
+    );
+    return;
+  }
   const requiredRam = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, "home")));
   const homeRam = ns.getServerMaxRam("home");
   if (homeRam < requiredRam && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
@@ -102,6 +135,14 @@ export async function main(ns: NS): Promise<void> {
     launchIfNotRunning(ns, BOOTSTRAP_SCRIPT);
     return;
   }
+
+  // Starting the full system: clear what a bootstrap left behind. Killing
+  // bootstrap.js by hand leaves its workers filling every server - BN10's
+  // second run had 16 TB of home taken by them, so the scheduler couldn't
+  // start ("insufficient RAM").
+  if (ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) ns.scriptKill(BOOTSTRAP_SCRIPT, "home");
+  const killed = killEverywhere(ns, BOOTSTRAP_WORKER);
+  if (killed > 0) ns.tprint(`[Boot] Stopped leftover ${BOOTSTRAP_WORKER} on ${killed} server(s).`);
 
   for (const script of DAEMONS) {
     launchIfNotRunning(ns, script);
@@ -163,11 +204,16 @@ export async function main(ns: NS): Promise<void> {
   // didn't fit needs (in BN10 the backdoor daemon took the program
   // shopper's RAM, so nothing bought RAM or programs). The program shopper
   // re-runs boot after each home RAM upgrade, which picks up from here.
+  const started = [...DAEMONS];
   for (const [script, available] of ordered) {
     if (!available) continue;
     if (!launchIfNotRunning(ns, script)) {
       ns.tprint(`[Boot] Holding off on everything after ${script} until home has more RAM.`);
       break;
     }
+    started.push(script);
   }
+  // For the reloader: revive these whenever they're missing, even after a
+  // game restart it never saw them through (EXPECTED_DAEMONS_PATH).
+  ns.write(EXPECTED_DAEMONS_PATH, JSON.stringify(started), "w");
 }

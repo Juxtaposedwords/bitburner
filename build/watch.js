@@ -18,6 +18,12 @@ async function syncStatic() {
   return syncDirectory.async(path.resolve(src), path.resolve(dist), {
     exclude: (file) => {
       const { ext } = path.parse(file);
+      // Compiled output (a .js with a .ts source) belongs to tsc, not this
+      // static sync. Without this, deleteOrphaned saw dist/foo.js as an
+      // orphan (no src/foo.js) and deleted whatever tsc -w had already
+      // emitted at startup - a race that left scheduler/faction daemon
+      // imports missing in the game, and tsc -w never re-emits them.
+      if (ext === '.js' && fs.existsSync(path.join(src, file.replace(/\.js$/, '.ts')))) return true;
       return ext && !allowedFiletypes.includes(ext);
     },
     async afterEachSync(event) {

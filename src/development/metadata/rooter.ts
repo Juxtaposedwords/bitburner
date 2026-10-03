@@ -4,7 +4,7 @@ import { Codes } from "development/libraries/status";
 import { ROOTER_MARKER_PATH } from "development/metadata/dispatch";
 import * as server_metadata_pb from "development/metadata/server_metadata";
 
-const PORT_OPENERS: { program: string; open: (ns: NS, host: string) => boolean }[] = [
+export const PORT_OPENERS: { program: string; open: (ns: NS, host: string) => boolean }[] = [
   { program: "BruteSSH.exe", open: (ns, host) => ns.brutessh(host) },
   { program: "FTPCrack.exe", open: (ns, host) => ns.ftpcrack(host) },
   { program: "relaySMTP.exe", open: (ns, host) => ns.relaysmtp(host) },
@@ -21,7 +21,7 @@ export function selectRootable(servers: server_metadata_pb.Metadata[]): server_m
 }
 
 /** Opens every port-opener program the player currently owns against `host`, then nukes it. */
-function root(ns: NS, host: string): boolean {
+export function root(ns: NS, host: string): boolean {
   for (const { program, open } of PORT_OPENERS) {
     if (ns.fileExists(program, "home")) open(ns, host);
   }

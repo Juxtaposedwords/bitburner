@@ -59,8 +59,11 @@ async function purchasePass(ns: NS, log: Logger, spendFraction: number, repeatRa
 
   for (const program of PORT_OPENER_PROGRAMS) {
     // 0 = already owned, -1 = no TOR yet. Either way, nothing to buy.
+    // Port openers ignore the savings target: they cost at most $250M and
+    // gate rooting everything - a $126T QLink save once blocked HTTPWorm
+    // and SQLInject for a whole run, leaving megacorp/ecorp/blade unrooted.
     const cost = ns.singularity.getDarkwebProgramCost(program);
-    if (cost > 0 && cost <= spendable()) {
+    if (cost > 0 && cost <= ns.getServerMoneyAvailable("home")) {
       if (ns.singularity.purchaseProgram(program)) {
         await log.info(`[ProgramShopper] Purchased ${program} for $${cost.toLocaleString()}.`);
       }
@@ -76,7 +79,8 @@ async function purchasePass(ns: NS, log: Logger, spendFraction: number, repeatRa
   } while (repeatRam);
 
   const formulasCost = ns.singularity.getDarkwebProgramCost(FORMULAS);
-  if (formulasCost > 0 && formulasCost <= spendable()) {
+  // Like the port openers, not held back by savings: every planning formula needs it.
+  if (formulasCost > 0 && formulasCost <= ns.getServerMoneyAvailable("home")) {
     if (ns.singularity.purchaseProgram(FORMULAS)) {
       await log.info(`[ProgramShopper] Purchased ${FORMULAS} for $${formulasCost.toLocaleString()}.`);
     }

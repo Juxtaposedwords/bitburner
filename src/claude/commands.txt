@@ -1,0 +1,168 @@
+{
+  "commands": [
+    {
+      "id": "2026-10-01-gang-warfare-12",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/gang.txt",
+        "territoryWarfareMembers",
+        "12"
+      ],
+      "note": "territory first; minEarningMembers keeps 3 earning"
+    },
+    {
+      "id": "2026-10-02-start-scheduler_daemon",
+      "script": "development/metadata/scheduler_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-start-faction_daemon",
+      "script": "development/metadata/faction_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-start-sleeve_daemon",
+      "script": "development/metadata/sleeve_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-start-hacknet_daemon",
+      "script": "development/metadata/hacknet_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-start-study_daemon",
+      "script": "development/metadata/study_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-start-stock_daemon",
+      "script": "development/metadata/stock_daemon.js",
+      "note": "was not running after the game restart"
+    },
+    {
+      "id": "2026-10-02-gang-max-casualties-3",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/gang.txt",
+        "maxCasualties",
+        "3"
+      ],
+      "note": "lift the stand-down after one casualty; allow up to 3"
+    },
+    {
+      "id": "2026-10-02-approach-augments",
+      "script": "tools/set_scheduler_approach.js",
+      "args": [
+        "AUGMENTS"
+      ],
+      "note": "gang is built (100% territory); start the buy-and-install loop"
+    },
+    {
+      "id": "2026-10-02-no-red-pill",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/faction.txt",
+        "pursueRedPill",
+        "false"
+      ],
+      "note": "stay in BN10 for Covenant sleeves: stop grinding Daedalus for The Red Pill"
+    },
+    {
+      "id": "2026-10-03-sleeve-save-480",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/faction.txt",
+        "sleeveSaveMinutes",
+        "480"
+      ],
+      "note": "save for the 4th Covenant sleeve once it's within 8h of income"
+    },
+    {
+      "id": "2026-10-03-retarget-force",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank targets with hack chance at min security"
+    },
+    {
+      "id": "2026-10-03-retarget-force-2",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank with live hacking level and money"
+    },
+    {
+      "id": "2026-10-03-retarget-force-3",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank (hacknet-server crash fixed)"
+    },
+    {
+      "id": "2026-10-03-retarget-force-4",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank from a live network scan (big servers)"
+    },
+    {
+      "id": "2026-10-03-retarget-force-5",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank with the smooth prep discount (big servers back in)"
+    },
+    {
+      "id": "2026-10-03-retarget-force-6",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank with scorer v3 (factors recorded)"
+    },
+    {
+      "id": "2026-10-03-rooter-run",
+      "script": "development/metadata/rooter.js",
+      "note": "re-nuke servers left unrooted after the install"
+    },
+    {
+      "id": "2026-10-03-retarget-force-7",
+      "script": "development/metadata/target_selector.js",
+      "args": [
+        "--force"
+      ],
+      "note": "re-rank (v4: roots what it can, chance as rooted)"
+    },
+    {
+      "id": "2026-10-03-install-now",
+      "script": "tools/install_now.js",
+      "note": "install the 4 pending augmentations now (QLink et al.), stocks sold first"
+    },
+    {
+      "id": "2026-10-03-spacing-50",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/scheduler.txt",
+        "spacingMs",
+        "50"
+      ],
+      "note": "5 staggered batches per target per second"
+    },
+    {
+      "id": "2026-10-03-overflow-max-money",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/hacknet.txt",
+        "overflowHashUpgrade",
+        "\"Increase Maximum Money\""
+      ],
+      "note": "hash overflow raises the best target's max money"
+    }
+  ]
+}

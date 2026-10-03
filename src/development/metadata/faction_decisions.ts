@@ -50,8 +50,86 @@ export type FactionRepsFile = {
   // Rep/min for each work type the work target offers, by formula (see
   // bestWorkType) - `cat` the file to compare field work vs hacking contracts.
   workGains?: Record<string, number>;
+  // The work slot is at the gym (a wanted invite's combat stats, or karma
+  // crime training) - hacknet_daemon.ts spends hashes on Improve Gym
+  // Training then, as it does for study_daemon.ts's gym sessions.
+  gymTraining?: boolean;
+  // Every favor-plan faction being ground (the player's and the sleeves'):
+  // measured rep/min, time left, and what installing now would do
+  // (installNowEstimate).
+  grinds?: GrindStatus[];
+  // Corporate factions worth joining (they sell augmentations still
+  // wanted): company rep toward each invite. Sleeves work these companies
+  // and the hacknet buys Company Favor for the nearest (companyTargets).
+  companyTargets?: CompanyTarget[];
+  // For tools/status.js --verbose: what blocks each wanted invite
+  // (describeUnmetRequirements), favor per joined faction, the ones taking
+  // donations, and installed augmentations (invites count these).
+  inviteBlockers?: Record<string, string[]>;
+  favors?: Record<string, number>;
+  donatable?: string[];
+  installedAugs?: number;
   writtenAt: number;
 };
+
+export type GrindStatus = {
+  faction: string;
+  gap: number;
+  repPerMin: number;
+  etaMinutes: number;
+  favor: number;
+  installFavor: number;
+  installEtaMinutes: number;
+};
+
+/**
+ * Whether installing now finishes the favor grinds sooner: the last one to
+ * finish (they run in parallel - player and sleeves on different
+ * factions) finishes earlier after the install (installNowEstimate: the
+ * favor it banks speeds up the rest by more than the install costs).
+ * Only favor targets count - they accumulate across installs, while rep
+ * toward an augmentation's requirement is wiped by one.
+ */
+export function grindInstallPays(grinds: GrindStatus[] | undefined): boolean {
+  if (!grinds || grinds.length === 0) return false;
+  const lastNow = Math.max(...grinds.map((g) => g.etaMinutes));
+  const lastAfter = Math.max(...grinds.map((g) => g.installEtaMinutes));
+  return lastAfter < lastNow;
+}
+
+/**
+ * AUGMENTS' buy-and-install loop, written by faction_daemon.ts every tick.
+ * While it's active an install is minutes away and wipes the Hacknet, so
+ * hacknet_daemon.ts buys no nodes; once it's over (nothing left to buy but
+ * NeuroFlux, or another mode) a long stretch without installs follows,
+ * and building the Hacknet pays.
+ */
+/**
+ * Whether the player's work slot is free, written by faction_daemon.ts
+ * every tick. Free once no faction needs grinding (every favor target met,
+ * the rest bought with donations), no invite needs work, and no karma
+ * crime runs - study_daemon.ts then trains or studies with the time.
+ */
+export const WORK_SLOT_PATH = "/var/work_slot.txt";
+export type WorkSlotFile = { free: boolean; writtenAt: number };
+
+// Eligibility actions that occupy the work slot (the rest are instant).
+const SLOT_CLAIMING_ELIGIBILITY = ["workForCompany", "gymWorkout", "commitCrime"];
+
+export function workSlotFree(workTarget: string | undefined, inviteActionKind: string, karmaCrime: boolean, eligibilityActionKind: string): boolean {
+  return !workTarget && inviteActionKind === "none" && !karmaCrime && !SLOT_CLAIMING_ELIGIBILITY.includes(eligibilityActionKind);
+}
+
+export const INSTALL_LOOP_PATH = "/var/install_loop.txt";
+export type InstallLoopFile = { active: boolean; writtenAt: number };
+
+/**
+ * Whether the install loop is running: AUGMENTS with auto purchase and
+ * auto install on, and something pending or still left to buy.
+ */
+export function installLoopActive(augmentsMode: boolean, autoPurchase: boolean, autoInstall: boolean, pendingCount: number, leftToBuy: boolean): boolean {
+  return augmentsMode && autoPurchase && autoInstall && (pendingCount > 0 || leftToBuy);
+}
 
 /**
  * The work type earning the most rep, from ns.formulas.work.factionGains
@@ -183,6 +261,17 @@ export function favorPlan(
   return plan;
 }
 
+/**
+ * Whether FACTION_GRIND may install: every favor target met (or none to
+ * meet), or an install now finishes the current grind sooner
+ * (grindInstallPays). Favor grows with the log of rep, so the first rep of
+ * a run banks the most favor, and each install speeds up the rest: BN10's
+ * BitRunners grind went from 6.0h to 3.4h by installing at 106K of 462K.
+ */
+export function grindAllowsInstall(plan: FavorPlanEntry[], grinds?: GrindStatus[]): boolean {
+  return plan.every((entry) => entry.rep >= entry.target) || grindInstallPays(grinds);
+}
+
 /** Every planned faction has reached its favor target - installing now banks the favor. False for an empty plan. */
 export function favorPlanReady(plan: FavorPlanEntry[]): boolean {
   return plan.length > 0 && plan.every((entry) => entry.rep >= entry.target);
@@ -194,11 +283,21 @@ export function favorPlanReady(plan: FavorPlanEntry[]): boolean {
  * ns.singularity.getAugmentationsFromFaction - it works for unjoined
  * factions too.
  */
-export function wantedInviteFactions(candidates: string[], joinedFactions: string[], offered: Record<string, string[]>, owned: string[]): string[] {
+export function wantedInviteFactions(
+  candidates: string[],
+  joinedFactions: string[],
+  offered: Record<string, string[]>,
+  owned: string[],
+  alsoWanted: string[] = []
+): string[] {
   const ownedSet = new Set(owned);
-  return candidates.filter(
+  const byAugmentations = candidates.filter(
     (faction) => !joinedFactions.includes(faction) && (offered[faction] ?? []).some((name) => name !== NEUROFLUX_GOVERNOR && !ownedSet.has(name))
   );
+  // `alsoWanted`: worth joining for something other than augmentations -
+  // The Covenant while BitNode 10 still sells sleeves there.
+  const extra = alsoWanted.filter((faction) => !joinedFactions.includes(faction) && !byAugmentations.includes(faction));
+  return [...byAugmentations, ...extra];
 }
 
 /**
@@ -216,29 +315,44 @@ export function wantedInviteFactions(candidates: string[], joinedFactions: strin
  * Then `plan` (favorPlan): a faction still short of its favor target wins
  * next, the closest one first, so each gets worked only as far as the favor
  * needs and the work slot moves on.
+ *
+ * Rep is only ever ground up to the point where cash takes over: a planned
+ * faction (Daedalus too) stops at its favor target, the rest bought by
+ * donation after the next install, and a `donatable` faction (favor
+ * already there) is never worked at all. Past that the work slot is free
+ * for training (see WorkSlotFile).
  */
 export function decideWorkTarget(
   joinedFactions: string[],
   reps: Record<string, number>,
   catalog: AugmentationInfo[],
   owned: string[],
-  plan: FavorPlanEntry[] = []
+  plan: FavorPlanEntry[] = [],
+  donatable: Set<string> = new Set()
 ): string | undefined {
   const ownedSet = new Set(owned);
+  const grindable = joinedFactions.filter((faction) => !donatable.has(faction));
+  const planFor = (faction: string): FavorPlanEntry | undefined => plan.find((entry) => entry.faction === faction);
 
   const redPill = catalog.find(
-    (aug) => aug.name === RED_PILL && joinedFactions.includes(aug.faction) && !ownedSet.has(aug.name) && (reps[aug.faction] ?? 0) < aug.repReq
+    (aug) =>
+      aug.name === RED_PILL &&
+      grindable.includes(aug.faction) &&
+      !ownedSet.has(aug.name) &&
+      (reps[aug.faction] ?? 0) < (planFor(aug.faction)?.target ?? aug.repReq)
   );
   if (redPill) return redPill.faction;
 
-  const unfinished = plan.filter((entry) => entry.rep < entry.target && joinedFactions.includes(entry.faction));
+  const unfinished = plan.filter((entry) => entry.rep < entry.target && grindable.includes(entry.faction));
   if (unfinished.length > 0) return unfinished.reduce((a, b) => (b.target - b.rep < a.target - a.rep ? b : a)).faction;
 
   let best: { faction: string; gap: number } | undefined;
-  for (const faction of joinedFactions) {
+  for (const faction of grindable) {
+    // A planned faction stops at its favor target: the rest is bought with a donation after the next install.
+    if (planFor(faction)) continue;
     const currentRep = reps[faction] ?? 0;
     const gaps = catalog
-      .filter((aug) => aug.faction === faction && (aug.name === NEUROFLUX_GOVERNOR || !ownedSet.has(aug.name)))
+      .filter((aug) => aug.faction === faction && isWanted(aug, ownedSet))
       .map((aug) => aug.repReq - currentRep)
       .filter((gap) => gap > 0);
 
@@ -390,7 +504,9 @@ export function priorityFocus(
   reps: Record<string, number>,
   owned: string[],
   donatable: Set<string>,
-  focus: string[]
+  focus: string[],
+  maxPrice = Infinity,
+  cheapest = false
 ): AugmentationInfo | undefined {
   const redPill = redPillFocus(catalog, reps, owned, donatable);
   if (redPill || focus.length === 0) return redPill;
@@ -401,10 +517,45 @@ export function priorityFocus(
       isWanted(aug, ownedSet) &&
       matchesFocus(aug.stats, focus) &&
       aug.prereqs.every((prereq) => ownedSet.has(prereq)) &&
-      ((reps[aug.faction] ?? 0) >= aug.repReq || donatable.has(aug.faction))
+      ((reps[aug.faction] ?? 0) >= aug.repReq || donatable.has(aug.faction)) &&
+      aug.price <= maxPrice
   );
   if (reachable.length === 0) return undefined;
-  return reachable.reduce((a, b) => (b.price > a.price ? b : a));
+  return reachable.reduce((a, b) => (cheapest ? b.price < a.price : b.price > a.price) ? b : a);
+}
+
+/**
+ * The stats that decide what's bought, or undefined for no narrowing
+ * (outside GROW_STATS/AUGMENTS). `focus` normally; `fallback` (every useful
+ * stat) once `focusExhausted` - no focus augmentation left reachable at any
+ * price - so AUGMENTS keeps buying instead of stalling with cash and rep.
+ */
+export function focusStatsFor(narrowed: boolean, focusExhausted: boolean, focus: string[], fallback: string[]): string[] | undefined {
+  if (!narrowed) return undefined;
+  return focusExhausted ? fallback : focus;
+}
+
+/**
+ * The most an AUGMENTS focus may cost: cash plus `maxMinutes` of income
+ * (Infinity when income is unknown or there is no limit). Each purchase
+ * raises every later price 1.9x, so past some point reinstalling (which
+ * resets that, while the gang keeps earning) beats saving. priorityFocus
+ * picks the most expensive augmentation under it, so each cycle buys the
+ * dearest reachable ones first, while prices are lowest.
+ */
+/** focusPriceLimit's minimum horizon while nothing is pending. */
+export const NOTHING_PENDING_MIN_MINUTES = 60;
+
+export function focusPriceLimit(money: number, incomePerMin: number | undefined, maxMinutes: number, pendingCount = 1): number {
+  if (incomePerMin === undefined || maxMinutes <= 0) return Infinity;
+  // Nothing pending: prices are at base and an install can't make anything
+  // cheaper, so allow a longer save - an hour at least (the caller falls
+  // back to the cheapest reachable when even that finds nothing). A plain
+  // 5-minute cap here once stalled BN10's loop (nothing saved for, bought
+  // or installed while servers spent the cash); no cap at all then saved
+  // 6.3h for one $126T QLink.
+  const minutes = pendingCount === 0 ? Math.max(NOTHING_PENDING_MIN_MINUTES, maxMinutes * 12) : maxMinutes;
+  return money + Math.max(0, incomePerMin) * minutes;
 }
 
 /**
@@ -434,6 +585,26 @@ export function pendingAugmentations(ownedWithQueued: string[], installed: strin
  * spent a $100B Daedalus savings on augmentations and installed. So while
  * reserveMoney > 0, installs wait.
  */
+/**
+ * The cheapest augmentation buyable right now (rep met, prereqs owned,
+ * affordable; NeuroFlux counts), bought only so an install that's wanted
+ * can happen - the game won't install with nothing pending. BN10 sat 18.7h
+ * with The Covenant and BitRunners one install away from donation favor:
+ * nothing wanted was buyable, NeuroFlux was only allowed in the pre-install
+ * spend-down, and that only starts once something is pending.
+ */
+export function pickInstallEnabler(catalog: AugmentationInfo[], reps: Record<string, number>, owned: string[], money: number): AugmentationInfo | undefined {
+  const ownedSet = new Set(owned);
+  const buyable = catalog.filter(
+    (aug) =>
+      (aug.name === NEUROFLUX_GOVERNOR || !ownedSet.has(aug.name)) &&
+      (reps[aug.faction] ?? 0) >= aug.repReq &&
+      aug.prereqs.every((p) => ownedSet.has(p)) &&
+      aug.price <= money
+  );
+  return buyable.length === 0 ? undefined : buyable.reduce((a, b) => (b.price < a.price ? b : a));
+}
+
 export function decideInstallReady(purchaseDecision: PurchaseDecision, pendingAugmentations: string[], reserveMoney: number): boolean {
   return reserveMoney <= 0 && purchaseDecision.kind === "none" && pendingAugmentations.length > 0;
 }
@@ -812,10 +983,11 @@ export function gangTrainingStat(
 }
 
 /**
- * Rep worth reaching at each joined faction: its favor-plan target while
- * that's unmet (see favorPlan), otherwise the largest requirement among its
- * wanted augmentations (not owned, not NeuroFlux). Only factions still
- * short of it are listed. Published for sleeve_daemon.ts, so sleeves earn
+ * Rep worth reaching at each joined faction: its favor-plan target (see
+ * favorPlan; met means done - donations cover the rest after the install),
+ * otherwise the largest requirement among its wanted augmentations (not
+ * owned, not NeuroFlux). Donatable factions are skipped. Only factions
+ * still short of it are listed. Published for sleeve_daemon.ts, so sleeves earn
  * rep where it buys something, without re-deriving the faction logic.
  */
 export function repTargets(
@@ -823,13 +995,15 @@ export function repTargets(
   reps: Record<string, number>,
   catalog: AugmentationInfo[],
   owned: string[],
-  plan: FavorPlanEntry[]
+  plan: FavorPlanEntry[],
+  donatable: Set<string> = new Set()
 ): Record<string, number> {
   const ownedSet = new Set(owned);
   const targets: Record<string, number> = {};
   for (const faction of joinedFactions) {
+    if (donatable.has(faction)) continue;
     const rep = reps[faction] ?? 0;
-    const planned = plan.find((entry) => entry.faction === faction && entry.rep < entry.target);
+    const planned = plan.find((entry) => entry.faction === faction);
     const wanted = catalog.filter((aug) => aug.faction === faction && isWanted(aug, ownedSet)).map((aug) => aug.repReq);
     const target = planned ? planned.target : wanted.length > 0 ? Math.max(...wanted) : 0;
     if (target > rep) targets[faction] = target;
@@ -867,4 +1041,125 @@ export function decideEligibilityStandDown(attempts: number, maxAttempts: number
 /** Once any one city faction is joined, the whole category stops (see faction_daemon.ts's pursueCityFactions doc for why). */
 export function hasAnyCityFaction(joinedFactions: string[]): boolean {
   return CITY_FACTION_NAMES.some((faction) => joinedFactions.includes(faction));
+}
+
+/** The shared savings reason while saving for a Covenant sleeve - sleeve_daemon.ts buys it with the full balance. */
+export const SLEEVE_SAVINGS_REASON = "Covenant sleeve";
+
+/**
+ * Cash to save for the next Covenant sleeve, or 0. BitNode 10 only (the
+ * only place they're sold), as a Covenant member, when it's within
+ * `maxMinutes` of income (cash counts). A sleeve is permanent - it carries
+ * into every later BitNode - so once it's that close it outranks
+ * augmentations and servers, which otherwise keep cash from ever reaching
+ * the price (each sleeve costs 10x the last: the fourth is $10Q). Unknown
+ * income saves only once cash alone covers it.
+ */
+export function sleeveSavings(
+  node: number | undefined,
+  covenantMember: boolean,
+  nextSleeveCost: number | undefined,
+  money: number,
+  incomePerMin: number | undefined,
+  maxMinutes: number
+): number {
+  if (node !== 10 || !covenantMember || !(maxMinutes > 0) || nextSleeveCost === undefined || !Number.isFinite(nextSleeveCost)) return 0;
+  const reach = money + Math.max(0, incomePerMin ?? 0) * maxMinutes;
+  return nextSleeveCost <= reach ? nextSleeveCost : 0;
+}
+
+/** A corporate faction's invite in progress: company rep at its employer against what the invite needs. */
+export type CompanyTarget = { faction: string; company: string; rep: number; needed: number };
+
+/** The company rep an invite needs, from getFactionInviteRequirements; undefined when it has no such requirement. */
+export function companyRepRequirement(requirements: PlayerRequirement[]): { company: string; reputation: number } | undefined {
+  for (const req of requirements) {
+    if (req.type === "companyReputation") return { company: req.company, reputation: req.reputation };
+  }
+  return undefined;
+}
+
+/**
+ * Corporate factions to work toward, nearest invite first: not joined,
+ * selling a useful augmentation not owned yet, and still short of the
+ * company rep their invite needs. Each one, once joined, becomes a faction
+ * rep target - another place a sleeve can earn rep (one sleeve per
+ * faction, so more factions means more sleeves on rep).
+ */
+export function companyTargets(candidates: CompanyTarget[]): CompanyTarget[] {
+  return candidates.filter((c) => c.rep < c.needed).sort((a, b) => a.needed - a.rep - (b.needed - b.rep));
+}
+
+/**
+ * Whether an invite is still blocked on combat stats: an unmet requirement
+ * (top level or everyCondition, as collectUnsatisfiedActionable reads
+ * them) asks for more of a combat stat than the player has. Combat
+ * augmentations only earn their place while some wanted invite is - BN10
+ * kept saving $12.5T for Hydroflame Left Arm after joining Daedalus and The
+ * Covenant, the invites combat was added for.
+ */
+export function combatBlocksInvite(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): boolean {
+  return collectUnsatisfiedActionable(requirements, snapshot).some((req) => combatSkillGaps(req, snapshot).length > 0);
+}
+
+/**
+ * An invite's unmet requirements as short text, for tools/status.js
+ * (top level and everyCondition flattened; a someCondition shows as
+ * "one of (...)"). numAugmentations uses `installedAugs`; types this file
+ * can't check from the snapshot (backdoors, Source-Files, ...) are listed
+ * as-is with "(unchecked)".
+ */
+export function describeUnmetRequirements(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot, installedAugs: number): string[] {
+  const fmt = (n: number): string => (n >= 1e9 ? `$${(n / 1e9).toFixed(0)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(0)}M` : `$${n.toFixed(0)}`);
+  const out: string[] = [];
+  const describe = (req: PlayerRequirement): string | undefined => {
+    switch (req.type) {
+      case "everyCondition":
+        req.conditions.forEach((c) => {
+          const text = describe(c);
+          if (text) out.push(text);
+        });
+        return undefined;
+      case "someCondition": {
+        if (evaluateRequirement(req, snapshot)) return undefined;
+        const options = req.conditions.map((c) => describeOne(c)).filter((t): t is string => !!t);
+        return options.length > 0 ? `one of (${options.join(" | ")})` : undefined;
+      }
+      default:
+        return describeOne(req);
+    }
+  };
+  const describeOne = (req: PlayerRequirement): string | undefined => {
+    switch (req.type) {
+      case "numAugmentations":
+        return installedAugs >= req.numAugmentations ? undefined : `${req.numAugmentations} installed augs (have ${installedAugs})`;
+      case "money":
+        return evaluateRequirement(req, snapshot) ? undefined : `${fmt(req.money)} cash (have ${fmt(snapshot.money)})`;
+      case "skills": {
+        const gaps = Object.entries(req.skills)
+          .map(([stat, level]) => ({ stat, level: level ?? 0, have: snapshot.skills[stat as keyof EligibilitySnapshot["skills"]] ?? 0 }))
+          .filter((g) => g.have < g.level)
+          .map((g) => `${g.stat} ${g.level} (have ${g.have})`);
+        return gaps.length > 0 ? gaps.join(", ") : undefined;
+      }
+      case "karma":
+        return evaluateRequirement(req, snapshot) ? undefined : `karma ${req.karma} (have ${snapshot.karma.toFixed(0)})`;
+      case "companyReputation":
+        return evaluateRequirement(req, snapshot) ? undefined : `${req.reputation} rep at ${req.company}`;
+      case "employedBy":
+      case "city":
+      case "numPeopleKilled":
+      case "not":
+        return evaluateRequirement(req, snapshot) ? undefined : JSON.stringify(req);
+      case "backdoorInstalled":
+        return `backdoor on ${req.server} (unchecked)`;
+      default:
+        return `${req.type} (unchecked)`;
+    }
+  };
+  for (const req of requirements) {
+    const text = describe(req);
+    if (text) out.push(text);
+  }
+  return out;
 }
