@@ -1,7 +1,7 @@
 NetscriptDefinitions.d.ts
 
 # 1. Ignore the massive downloaded Node tools (never push these)
-node_modules/
+node_modules
 
 # 2. Ignore the compiled JavaScript output (the game has this, Git doesn't need it)
 dist/
