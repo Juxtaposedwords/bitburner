@@ -1742,10 +1742,17 @@ lasting bonus:
 - Tetrads: combat stats.
 - Slum Snakes: crime success.
 
-- **Opponent choice** (`pickOpponent`): the first available opponent in the config's priority list
-  (`/etc/go.txt`: `opponents`), skipping any we beat less than `minWinRate` of the last 20 games
-  (after `minGames`). If every opponent is losing, it plays the one we beat most often. An
-  opponent the game refuses (not unlocked yet) is skipped for this run.
+- **Opponent choice** (`pickOpponentByValue`): it plays whichever opponent adds the most
+  weighted bonus per second:
+  - the gain is weight × (bonus after one more average game − bonus now) ÷ average game length
+  - the bonus curve is the game's own (`bonusFor`), which flattens as node power grows, so play
+    spreads across opponents once one is built up
+  - Illuminati on 5×5 earns ×8 difficulty
+  - the weights come from the phase (`system/phase.ts` `goWeights`): crime success and combat in
+    GANG, reputation in AUGMENTS and FACTION_GRIND, combat in GROW_STATS, hacking otherwise
+  - `/etc/go.txt` `opponentWeights` overrides them
+  - installs zero node power, which it detects from the game's own count of games played
+    (`powerNow`)
 - **Move choice** (`chooseMove`): a one-ply evaluation of every legal point, scored by:
   - captures and rescuing our chains in atari first
   - then putting enemy chains in atari, and pressure on chains with few liberties

@@ -189,59 +189,112 @@ export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = []
 
 export type GoConfig = {
   enabled: boolean;
-  // Opponents in order of how much their bonus is worth to us (the game's
-  // bonuses: Illuminati faster hack/grow/weaken, Daedalus reputation, The
-  // Black Hand hacking money, Netburners hacknet production, Tetrads
-  // combat stats, Slum Snakes crime success).
-  opponents: string[];
   boardSize: 5 | 7 | 9 | 13;
-  // An opponent we win less than this often (over at least minGames of
-  // the recent results) is skipped for the next one in the list.
-  minWinRate: number;
-  minGames: number;
   // Plies the full-width search looks ahead (chooseMoveMinimax) on boards
   // up to searchMaxBoardSize; bigger boards use the one-ply chooseMove.
   searchDepth: number;
   searchMaxBoardSize: number;
+  // Overrides for the phase's opponent weights (system/phase.ts's
+  // goWeights), e.g. {"Netburners": 0} to stop playing them.
+  opponentWeights: Record<string, number>;
 };
 
 export const DEFAULT_CONFIG: GoConfig = {
   enabled: true,
-  opponents: ["Illuminati", "Daedalus", "The Black Hand", "Netburners", "Tetrads", "Slum Snakes"],
-  boardSize: 7,
-  minWinRate: 0.25,
-  minGames: 10,
+  boardSize: 5,
   searchDepth: 3,
   searchMaxBoardSize: 5,
+  opponentWeights: {},
 };
 
-// Recent results kept per opponent (true = win).
+// Recent results kept per opponent (true = win), for the status file.
 export const RESULT_WINDOW = 20;
 
 export function recordResult(results: Record<string, boolean[]>, opponent: string, won: boolean): Record<string, boolean[]> {
   return { ...results, [opponent]: [...(results[opponent] ?? []), won].slice(-RESULT_WINDOW) };
 }
 
+/** Each opponent's komi (its difficulty) and bonus power (what its node power is worth), from the game's Go/Constants.ts. */
+export const OPPONENTS: Record<string, { komi: number; bonusPower: number }> = {
+  Netburners: { komi: 1.5, bonusPower: 1.3 },
+  "Slum Snakes": { komi: 3.5, bonusPower: 1.2 },
+  "The Black Hand": { komi: 3.5, bonusPower: 0.9 },
+  Tetrads: { komi: 5.5, bonusPower: 0.7 },
+  Daedalus: { komi: 5.5, bonusPower: 1.1 },
+  Illuminati: { komi: 7.5, bonusPower: 0.7 },
+};
+
 /**
- * The opponent to play next: the first in priority order that's
- * available and not losing too often; when every one is, the one we beat
- * most often. undefined when none is available.
+ * The bonus (a fraction, before the BitNode's and Source-File's
+ * multipliers) that `power` node power gives - the game's CalculateEffect.
+ * It flattens as power grows, so a fresh opponent soon pays more per game
+ * than one already built up.
  */
-export function pickOpponent(
-  priority: string[],
-  results: Record<string, boolean[]>,
+export function bonusFor(power: number, bonusPower: number): number {
+  return Math.log(power + 1) * Math.pow(power + 1, 0.3) * 0.002 * bonusPower;
+}
+
+/**
+ * Per opponent: node power and games since the last install (the game
+ * zeroes both on every install), and all-time totals for what a game is
+ * worth and how long it takes.
+ */
+export type OpponentRecord = { games: number; power: number; totalGames: number; totalPower: number; totalSeconds: number };
+
+// Until an opponent has been played: a score of 8, 10 seconds a game.
+const PRIOR_SCORE = 8;
+const PRIOR_SECONDS = 10;
+
+/** Node power held now: the record's, unless the game's count of games played shows an install since. */
+export function powerNow(record: OpponentRecord | undefined, gamesPlayed: number): number {
+  return record && gamesPlayed >= record.games ? record.power : 0;
+}
+
+/**
+ * The opponent to play next: the most weighted bonus gained per second -
+ * weight x (bonus after one more average game - bonus now) / average game
+ * length. `gamesPlayed` is the game's own count per opponent (wins +
+ * losses), which catches installs. undefined when no weighted opponent is
+ * available.
+ */
+export function pickOpponentByValue(
+  weights: Record<string, number>,
+  records: Record<string, OpponentRecord>,
+  gamesPlayed: Record<string, number>,
   unavailable: Set<string>,
-  minGames: number,
-  minWinRate: number
+  boardSize: number
 ): string | undefined {
-  const available = priority.filter((name) => !unavailable.has(name));
-  const winRate = (name: string): number => {
-    const r = results[name] ?? [];
-    return r.length === 0 ? 1 : r.filter(Boolean).length / r.length;
+  let best: string | undefined;
+  let bestRate = 0;
+  for (const [name, weight] of Object.entries(weights)) {
+    const details = OPPONENTS[name];
+    if (!details || !(weight > 0) || unavailable.has(name)) continue;
+    const record = records[name];
+    const perGame = record && record.totalGames > 0 ? record.totalPower / record.totalGames : PRIOR_SCORE * difficultyMultiplier(details.komi, boardSize) * 0.5;
+    const seconds = record && record.totalGames > 0 ? record.totalSeconds / record.totalGames : PRIOR_SECONDS;
+    const power = powerNow(record, gamesPlayed[name] ?? 0);
+    const rate = (weight * (bonusFor(power + perGame, details.bonusPower) - bonusFor(power, details.bonusPower))) / Math.max(1, seconds);
+    if (rate > bestRate) {
+      bestRate = rate;
+      best = name;
+    }
+  }
+  return best;
+}
+
+/** The records after a finished game; `gamesPlayed` is the game's count for that opponent including this one. */
+export function recordGame(records: Record<string, OpponentRecord>, name: string, power: number, seconds: number, gamesPlayed: number): Record<string, OpponentRecord> {
+  const record = records[name] ?? { games: 0, power: 0, totalGames: 0, totalPower: 0, totalSeconds: 0 };
+  return {
+    ...records,
+    [name]: {
+      games: gamesPlayed,
+      power: powerNow(record, gamesPlayed - 1) + power,
+      totalGames: record.totalGames + 1,
+      totalPower: record.totalPower + power,
+      totalSeconds: record.totalSeconds + seconds,
+    },
   };
-  const winnable = available.find((name) => (results[name]?.length ?? 0) < minGames || winRate(name) >= minWinRate);
-  if (winnable) return winnable;
-  return [...available].sort((a, b) => winRate(b) - winRate(a))[0];
 }
 
 /**
@@ -270,7 +323,7 @@ export function nodePowerGained(blackScore: number, komi: number, boardSize: num
 export const GO_STATUS_PATH = "/var/go_status.txt";
 export const GO_STATE_PATH = "/var/go_state.txt";
 
-export type GoStateFile = { results: Record<string, boolean[]>; nodeReset?: number };
+export type GoStateFile = { results: Record<string, boolean[]>; records: Record<string, OpponentRecord> };
 
 export type GoStatusFile = {
   opponent?: string;

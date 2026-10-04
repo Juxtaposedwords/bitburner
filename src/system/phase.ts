@@ -79,6 +79,22 @@ export type PhasePolicy = {
   grindFactions: boolean;
   // Share when no status file says whether anyone works a faction.
   shareByDefault: boolean;
+  // What each IPvGO opponent's bonus is worth now (go_daemon.ts plays the
+  // most weighted bonus per second): Illuminati faster hack/grow/weaken,
+  // The Black Hand hacking money, Daedalus reputation, Netburners hacknet
+  // production, Slum Snakes crime success, Tetrads combat stats.
+  goWeights: Record<string, number>;
+};
+
+// Money from hacking matters in every phase; the rest follows the phase.
+const GO_WEIGHTS_HACKING = { Illuminati: 1, "The Black Hand": 1, Daedalus: 0.5, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 };
+const GO_WEIGHTS_BY_APPROACH: Partial<Record<Approach, Record<string, number>>> = {
+  // Karma comes from crime: its success rate, and the combat stats behind it.
+  [Approach.GANG]: { "Slum Snakes": 1, Tetrads: 0.6, Illuminati: 0.6, "The Black Hand": 0.6, Daedalus: 0.2, Netburners: 0.2 },
+  // Reputation gates every augmentation; hacking pays for them.
+  [Approach.AUGMENTS]: { Daedalus: 1, Illuminati: 0.7, "The Black Hand": 0.7, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 },
+  [Approach.FACTION_GRIND]: { Daedalus: 1, Illuminati: 0.7, "The Black Hand": 0.7, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 },
+  [Approach.GROW_STATS]: { Tetrads: 1, Illuminati: 0.5, "The Black Hand": 0.5, Daedalus: 0.3, Netburners: 0.2, "Slum Snakes": 0.2 },
 };
 
 export function phasePolicy(approach: Approach): PhasePolicy {
@@ -89,6 +105,7 @@ export function phasePolicy(approach: Approach): PhasePolicy {
     studyForStats: approach === Approach.GROW_STATS,
     grindFactions: approach === Approach.FACTION_GRIND,
     shareByDefault: approach !== Approach.GROW_STATS && approach !== Approach.GANG,
+    goWeights: GO_WEIGHTS_BY_APPROACH[approach] ?? GO_WEIGHTS_HACKING,
   };
 }
 

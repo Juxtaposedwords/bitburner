@@ -54,3 +54,11 @@ describe("phasePolicy", () => {
     expect(phasePolicy(Approach.GROW_STATS)).toMatchObject({ studyForStats: true, focusAugmentations: true, installLoop: false });
   });
 });
+
+describe("goWeights", () => {
+  it("favors crime success while chasing gang karma, reputation in the install loop", () => {
+    const top = (w: Record<string, number>): string => Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
+    expect(top(phasePolicy(Approach.GANG).goWeights)).toBe("Slum Snakes");
+    expect(top(phasePolicy(Approach.AUGMENTS).goWeights)).toBe("Daedalus");
+  });
+});

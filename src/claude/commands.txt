@@ -424,6 +424,36 @@
         "false"
       ],
       "note": "dead nodes make positions unique; stop exploring"
+    },
+    {
+      "id": "2026-10-04-go-unset-0",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "--unset",
+        "opponents"
+      ],
+      "note": "drop keys the phase-weighted Go config no longer has"
+    },
+    {
+      "id": "2026-10-04-go-unset-1",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "--unset",
+        "minWinRate"
+      ],
+      "note": "drop keys the phase-weighted Go config no longer has"
+    },
+    {
+      "id": "2026-10-04-go-unset-2",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "--unset",
+        "useBook"
+      ],
+      "note": "drop keys the phase-weighted Go config no longer has"
     }
   ]
 }

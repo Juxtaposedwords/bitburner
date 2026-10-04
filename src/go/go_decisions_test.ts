@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, pickOpponent, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
+import { bonusFor, chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, OpponentRecord, pickOpponentByValue, powerNow, recordGame, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
 
 describe("chooseMove", () => {
   it("captures when it can", () => {
@@ -41,25 +41,46 @@ describe("evaluateMove", () => {
   });
 });
 
-describe("pickOpponent", () => {
-  const priority = ["Illuminati", "Daedalus", "Netburners"];
+describe("pickOpponentByValue", () => {
+  const record = (power: number, games: number, perGame = 100, seconds = 10): OpponentRecord => ({ games, power, totalGames: 10, totalPower: perGame * 10, totalSeconds: seconds * 10 });
 
-  it("takes the first available opponent", () => {
-    expect(pickOpponent(priority, {}, new Set(["Illuminati"]), 10, 0.25)).toBe("Daedalus");
+  it("plays the opponent the phase weights most when nothing is built up", () => {
+    expect(pickOpponentByValue({ Daedalus: 1, Netburners: 0.1 }, {}, {}, new Set(), 5)).toBe("Daedalus");
   });
 
-  it("skips an opponent we lose to too often, once there are enough games", () => {
-    const results = { Illuminati: Array(10).fill(false), Daedalus: [false, false] };
-    expect(pickOpponent(priority, results, new Set(), 10, 0.25)).toBe("Daedalus");
+  it("moves on once an opponent's bonus has flattened", () => {
+    const records = { Daedalus: record(1e6, 50) };
+    expect(pickOpponentByValue({ Daedalus: 1, Illuminati: 0.7 }, records, { Daedalus: 50 }, new Set(), 5)).toBe("Illuminati");
   });
 
-  it("falls back to the best win rate when every opponent is losing", () => {
-    const results = { Illuminati: Array(10).fill(false), Daedalus: Array(10).fill(false), Netburners: [...Array(8).fill(false), true, true] };
-    expect(pickOpponent(priority, results, new Set(), 10, 0.25)).toBe("Netburners");
+  it("treats an install (fewer games played than recorded) as zero power", () => {
+    const records = { Daedalus: record(1e6, 50) };
+    expect(powerNow(records.Daedalus, 0)).toBe(0);
+    expect(pickOpponentByValue({ Daedalus: 1, Illuminati: 0.7 }, records, { Daedalus: 0 }, new Set(), 5)).toBe("Daedalus");
   });
 
-  it("is undefined with nothing available", () => {
-    expect(pickOpponent(priority, {}, new Set(priority), 10, 0.25)).toBeUndefined();
+  it("skips unavailable, unweighted and unknown opponents", () => {
+    expect(pickOpponentByValue({ Daedalus: 1, Tetrads: 0, Nobody: 5 }, {}, {}, new Set(["Daedalus"]), 5)).toBeUndefined();
+  });
+});
+
+describe("recordGame", () => {
+  it("adds to the power since the last install, and to the totals", () => {
+    const once = recordGame({}, "Daedalus", 40, 10, 1);
+    const twice = recordGame(once, "Daedalus", 60, 12, 2);
+    expect(twice.Daedalus).toEqual({ games: 2, power: 100, totalGames: 2, totalPower: 100, totalSeconds: 22 });
+  });
+
+  it("starts the power over after an install", () => {
+    const before = recordGame(recordGame({}, "Daedalus", 40, 10, 1), "Daedalus", 60, 12, 2);
+    expect(recordGame(before, "Daedalus", 30, 10, 1).Daedalus).toMatchObject({ games: 1, power: 30, totalGames: 3 });
+  });
+});
+
+describe("bonusFor", () => {
+  it("grows ever more slowly with power", () => {
+    expect(bonusFor(0, 1)).toBe(0);
+    expect(bonusFor(100, 1) - bonusFor(0, 1)).toBeGreaterThan(bonusFor(200, 1) - bonusFor(100, 1));
   });
 });
 

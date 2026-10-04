@@ -13,17 +13,21 @@ import {
   GoStatusFile,
   MoveChoice,
   nodePowerGained,
-  pickOpponent,
+  pickOpponentByValue,
+  recordGame,
   recordResult,
 } from "go/go_decisions";
+import { readPhasePolicy } from "system/phase";
 
 /**
  * Plays IPvGO (ns.go) without stopping: each win raises the opponent
- * faction's node power, which grows a lasting bonus (hacking money,
- * reputation, hacknet production, ...). Opponents come from the config's
- * priority list (go_decisions.ts's pickOpponent); moves from chooseMove,
- * which works from the board alone - the game's analysis calls cost 8-16
- * GB each, so this daemon only pays for getBoardState and makeMove.
+ * faction's node power, which grows a bonus (hacking money, reputation,
+ * hacknet production, ...) until the next install zeroes it. The opponent
+ * is the one adding the most phase-weighted bonus per second
+ * (pickOpponentByValue, weights from system/phase.ts's goWeights); moves
+ * come from the board alone (chooseMoveMinimax / chooseMove) - the game's
+ * analysis calls cost 8-16 GB each, so this daemon only pays for
+ * getBoardState and makeMove.
  *
  * A game in progress when the daemon starts (a restart mid-game) is
  * finished, not reset: resetting a game with moves in it forfeits it.
@@ -38,9 +42,9 @@ const DISABLED_POLL_MS = 60_000;
 function readState(ns: NS): GoStateFile {
   try {
     const state = JSON.parse(ns.read(GO_STATE_PATH) || "null") as GoStateFile | null;
-    return state && typeof state.results === "object" ? state : { results: {} };
+    return state && typeof state.results === "object" ? { results: state.results, records: state.records ?? {} } : { results: {}, records: {} };
   } catch {
-    return { results: {} };
+    return { results: {}, records: {} };
   }
 }
 
@@ -131,9 +135,11 @@ export async function main(ns: NS): Promise<void> {
     }
 
     if (ns.go.getCurrentPlayer() === "None") {
-      const next = pickOpponent(config.opponents, state.results, unavailable, config.minGames, config.minWinRate);
+      const weights = { ...readPhasePolicy(ns).goWeights, ...config.opponentWeights };
+      const gamesPlayed = Object.fromEntries(Object.entries(ns.go.analysis.getStats()).map(([name, s]) => [name, s.wins + s.losses]));
+      const next = pickOpponentByValue(weights, state.records, gamesPlayed, unavailable, config.boardSize);
       if (!next) {
-        await log.warn(`[Go] No opponent available from ${config.opponents.join(", ")}; retrying later.`);
+        await log.warn(`[Go] No weighted opponent available (${JSON.stringify(weights)}); retrying later.`);
         unavailable.clear();
         await ns.asleep(DISABLED_POLL_MS);
         continue;
@@ -155,7 +161,11 @@ export async function main(ns: NS): Promise<void> {
     const opponent = ns.go.getOpponent();
     const game = await playGame(ns, log, config);
     const won = game.won;
-    state = { ...state, results: recordResult(state.results, opponent, won) };
+    const played = ns.go.analysis.getStats()[opponent];
+    state = {
+      results: recordResult(state.results, opponent, won),
+      records: recordGame(state.records, opponent, game.power, game.seconds, (played?.wins ?? 0) + (played?.losses ?? 0)),
+    };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
     writeStatus(ns, config, state, opponent);
     const bonus = ns.go.analysis.getStats()[opponent];
