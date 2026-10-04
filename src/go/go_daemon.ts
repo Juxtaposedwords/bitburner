@@ -3,32 +3,19 @@ import { loadJsonConfig } from "system/config";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
 import {
   chooseMove,
+  chooseMoveMinimax,
   DEFAULT_CONFIG,
-  difficultyMultiplier,
   describeResults,
   GO_STATE_PATH,
   GO_STATUS_PATH,
   GoConfig,
   GoStateFile,
   GoStatusFile,
+  MoveChoice,
   nodePowerGained,
   pickOpponent,
-  rankMoves,
   recordResult,
 } from "go/go_decisions";
-import {
-  BOOK_CANDIDATES,
-  BOOK_TURNS,
-  canonical,
-  GO_BOOK_PATH,
-  GoBookFile,
-  moveKey,
-  openingValue,
-  parseBook,
-  pickBookMove,
-  positionKey,
-  recordOpening,
-} from "go/go_book";
 
 /**
  * Plays IPvGO (ns.go) without stopping: each win raises the opponent
@@ -78,48 +65,32 @@ type GameResult = {
   won: boolean;
   blackScore: number;
   whiteScore: number;
-  komi: number;
-  size: number;
   power: number;
   seconds: number;
-  opening: { position: string; move: string }[];
 };
 
-type MoveChoiceWithBook = { kind: "pass" } | { kind: "move"; x: number; y: number; book?: { position: string; move: string } };
-
-/** Our move: from the opening book for the first BOOK_TURNS (book !== undefined), else the engine's best. */
-function nextMove(ns: NS, opponent: string, turn: number, book: GoBookFile | undefined): MoveChoiceWithBook {
+/** Our move: the full-width search on small boards, the one-ply engine otherwise. */
+function nextMove(ns: NS, config: GoConfig): MoveChoice {
   const board = ns.go.getBoardState();
   const history = ns.go.getMoveHistory();
-  if (!book || turn >= BOOK_TURNS) return chooseMove(board, "X", history);
-  const candidates = rankMoves(board, "X", history).slice(0, BOOK_CANDIDATES);
-  if (candidates.length === 0) return { kind: "pass" };
-  const { key, transform } = canonical(board);
-  const position = positionKey(opponent, key);
-  const keys = candidates.map((m) => moveKey(m.x, m.y, board.length, transform));
-  const pick = pickBookMove(keys, book.positions[position]);
-  return { ...candidates[pick], book: { position, move: keys[pick] } };
+  return board.length <= config.searchMaxBoardSize ? chooseMoveMinimax(board, "X", history, config.searchDepth) : chooseMove(board, "X", history);
 }
 
 /** Plays the current game to the end as black. */
-async function playGame(ns: NS, log: Logger, boardSize: number, book: GoBookFile | undefined): Promise<GameResult> {
+async function playGame(ns: NS, log: Logger, config: GoConfig): Promise<GameResult> {
   const started = Date.now();
   const opponent = ns.go.getOpponent();
   const before = ns.go.analysis.getStats()[opponent];
   const winsBefore = before?.wins ?? 0;
   // A cap on our own moves - the game ends long before this; it only
   // guards against a position the engine misreads forever.
-  const maxMoves = boardSize * boardSize * 3;
-  const opening: { position: string; move: string }[] = [];
-  let turn = 0;
+  const maxMoves = config.boardSize * config.boardSize * 3;
   for (let moves = 0; ns.go.getCurrentPlayer() !== "None"; moves++) {
     if (ns.go.getCurrentPlayer() === "White") {
       await ns.go.opponentNextTurn(false);
       continue;
     }
-    const choice: MoveChoiceWithBook = moves < maxMoves ? nextMove(ns, opponent, turn, book) : { kind: "pass" };
-    if (choice.kind === "move" && choice.book) opening.push(choice.book);
-    turn++;
+    const choice: MoveChoice = moves < maxMoves ? nextMove(ns, config) : { kind: "pass" };
     let result;
     try {
       result = choice.kind === "move" ? await ns.go.makeMove(choice.x, choice.y) : await ns.go.passTurn();
@@ -137,9 +108,6 @@ async function playGame(ns: NS, log: Logger, boardSize: number, book: GoBookFile
     won: (after?.wins ?? 0) > winsBefore,
     blackScore,
     whiteScore,
-    komi,
-    size,
-    opening,
     power: nodePowerGained(blackScore, komi, size, after?.winStreak ?? 0, before?.winStreak ?? 0),
     seconds: (Date.now() - started) / 1000,
   };
@@ -153,7 +121,6 @@ export async function main(ns: NS): Promise<void> {
   // Opponents the game refused this run (not unlocked yet).
   const unavailable = new Set<string>();
   let state = readState(ns);
-  let book = parseBook(ns.read(GO_BOOK_PATH));
 
   while (true) {
     const config = loadJsonConfig<GoConfig>(ns, CONFIG_PATH, DEFAULT_CONFIG);
@@ -186,11 +153,7 @@ export async function main(ns: NS): Promise<void> {
     }
 
     const opponent = ns.go.getOpponent();
-    const game = await playGame(ns, log, config.boardSize, config.useBook ? book : undefined);
-    if (game.opening.length > 0) {
-      book = recordOpening(book, game.opening, openingValue(game.blackScore, difficultyMultiplier(game.komi, game.size), game.won));
-      ns.write(GO_BOOK_PATH, JSON.stringify(book), "w");
-    }
+    const game = await playGame(ns, log, config);
     const won = game.won;
     state = { ...state, results: recordResult(state.results, opponent, won) };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
@@ -198,8 +161,7 @@ export async function main(ns: NS): Promise<void> {
     const bonus = ns.go.analysis.getStats()[opponent];
     await log.info(
       `[Go] ${won ? "Won" : "Lost"} against ${opponent} ${game.blackScore}-${game.whiteScore} on ${ns.go.getBoardState().length}x` +
-        ` in ${game.seconds.toFixed(0)}s, +${game.power.toFixed(1)} power (${describeResults(state.results[opponent])} recently,` +
-        ` book ${Object.keys(book.positions).length} positions)` +
+        ` in ${game.seconds.toFixed(0)}s, +${game.power.toFixed(1)} power (${describeResults(state.results[opponent])} recently)` +
         (bonus ? `; bonus ${bonus.bonusPercent.toFixed(1)}% ${bonus.bonusDescription}, streak ${bonus.winStreak}.` : ".")
     );
     await ns.asleep(BETWEEN_GAMES_MS);

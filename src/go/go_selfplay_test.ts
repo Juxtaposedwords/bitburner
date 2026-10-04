@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { chooseMove } from "go/go_decisions";
-import { area, Board, emptyPoints, play, territory } from "go/go_engine";
+import { chooseMove, chooseMoveMinimax, MoveChoice } from "go/go_decisions";
+import { area, Board, emptyPoints, opponentOf, play, Stone, territory } from "go/go_engine";
 
 // A seeded random opponent: plays any legal move that isn't filling its own territory.
 function rng(seed: number): () => number {
@@ -50,5 +50,44 @@ describe("self-play against a random opponent", () => {
     const results = Array.from({ length: 20 }, (_, i) => game(7, i + 1));
     expect(results.every((r) => r.moves < 7 * 7 * 4)).toBe(true);
     expect(results.filter((r) => r.won).length).toBeGreaterThanOrEqual(18);
+  });
+});
+
+// 5x5 as against Illuminati: random dead nodes, two white handicap stones, komi 7.5.
+function handicapBoard(seed: number): Board {
+  const random = rng(seed);
+  const b = Array.from({ length: 5 }, () => ".....".split(""));
+  const dead = Math.floor(random() * 4);
+  for (let i = 0; i < dead; i++) b[Math.floor(random() * 5)][Math.floor(random() * 5)] = "#";
+  b[1][3] = "O";
+  b[3][1] = "O";
+  return b.map((c) => c.join(""));
+}
+
+type Player = (board: Board, me: Stone, history: Board[]) => MoveChoice;
+
+function handicapGame(black: Player, seed: number): number {
+  let board = handicapBoard(seed);
+  const history: Board[] = [];
+  let passes = 0;
+  let turn: Stone = "X";
+  for (let n = 0; passes < 2 && n < 200; n++) {
+    const choice = turn === "X" ? black(board, turn, history) : chooseMove(board, turn, history);
+    if (choice.kind === "pass") passes++;
+    else {
+      passes = 0;
+      history.push(board);
+      board = play(board, choice.x, choice.y, turn, history) as Board;
+    }
+    turn = opponentOf(turn);
+  }
+  return area(board, "X", territory(board));
+}
+
+describe("search on a handicapped 5x5", () => {
+  it("holds more points than the one-ply engine against it", () => {
+    const seeds = Array.from({ length: 20 }, (_, i) => i + 1);
+    const total = (black: Player): number => seeds.reduce((sum, seed) => sum + handicapGame(black, seed), 0);
+    expect(total((b, m, h) => chooseMoveMinimax(b, m, h, 3))).toBeGreaterThan(total(chooseMove));
   });
 });

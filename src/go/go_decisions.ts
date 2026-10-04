@@ -1,4 +1,4 @@
-import { area, Board, chainAt, countStones, emptyPoints, influence, neighbors, opponentOf, play, pointKey, Stone, territory } from "go/go_engine";
+import { area, Board, chainAt, chainsOf, countStones, emptyPoints, influence, neighbors, opponentOf, play, pointKey, Stone, territory } from "go/go_engine";
 
 /**
  * Move choice and opponent choice for go_daemon.ts - pure, so both are
@@ -98,6 +98,95 @@ export function rankMoves(board: Board, me: Stone, history: Board[] = []): { kin
   return moves.sort((a, b) => b.score - a.score);
 }
 
+// Stones of a chain left in atari count this much against its owner in a
+// searched position - one more move captures them.
+const ATARI_PENALTY = 2;
+// Per separate chain: loose stones die on a small board, so connecting is
+// worth something (benchmarked: 2-8 all cut wipe-outs by half; 3 chosen).
+const CHAIN_PENALTY = 3;
+
+/**
+ * Eyes of a chain: its empty neighbors whose every on-board neighbor is
+ * one of the chain's color. Two make a group that can't be captured.
+ */
+export function eyesOf(board: Board, chain: { color: string; liberties: Set<string> }): number {
+  let eyes = 0;
+  for (const point of chain.liberties) {
+    const [x, y] = point.split(",").map(Number);
+    if (neighbors(board, x, y).every(([nx, ny]) => board[nx][ny] === chain.color)) eyes++;
+  }
+  return eyes;
+}
+
+/** How safe a chain is, per stone: alive with two eyes, in danger with few liberties. */
+function chainSafety(board: Board, chain: { color: string; stones: unknown[]; liberties: Set<string> }): number {
+  const stones = chain.stones.length;
+  if (eyesOf(board, chain) >= 2) return stones;
+  const libs = chain.liberties.size;
+  if (libs <= 1) return -ATARI_PENALTY * stones;
+  if (libs === 2) return -0.5 * stones;
+  return 0;
+}
+
+/** A position's value for `me`: area by influence, plus each side's group safety (eyes, liberties). */
+export function evaluateBoard(board: Board, me: Stone): number {
+  const enemy = opponentOf(me);
+  const owners = influence(board);
+  let value = area(board, me, owners) - area(board, enemy, owners);
+  for (const chain of chainsOf(board, me)) value += chainSafety(board, chain) - CHAIN_PENALTY;
+  for (const chain of chainsOf(board, enemy)) value -= chainSafety(board, chain) - CHAIN_PENALTY;
+  return value;
+}
+
+/** Legal moves worth considering: not filling our own territory, not self-atari unless it captures. */
+export function sensibleMoves(board: Board, me: Stone, history: Board[] = []): { x: number; y: number; next: Board }[] {
+  const owners = territory(board);
+  const enemy = opponentOf(me);
+  const out: { x: number; y: number; next: Board }[] = [];
+  for (const [x, y] of emptyPoints(board)) {
+    if (owners.get(pointKey(x, y)) === me) continue;
+    const next = play(board, x, y, me, history);
+    if (!next) continue;
+    if (chainAt(next, x, y).liberties.size === 1 && countStones(next, enemy) === countStones(board, enemy)) continue;
+    out.push({ x, y, next });
+  }
+  return out;
+}
+
+/**
+ * Full-width alpha-beta search to `depth` plies over sensibleMoves, with
+ * evaluateBoard at the leaves; either side may pass. Passes when nothing
+ * is sensible. Benchmarked on 5x5 with two white handicap stones and komi
+ * 7.5, against the one-ply chooseMove as white (60 games): one-ply scored
+ * 6.3 on average and was wiped out 22 times; depth 3 scores 9.8, is wiped
+ * out 12 times and wins 10 (from 2), at ~8 ms a move (worst ~40 ms).
+ */
+export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = [], depth = 2): MoveChoice {
+  const enemy = opponentOf(me);
+  const search = (b: Board, h: Board[], toMove: Stone, plies: number, alpha: number, beta: number): number => {
+    if (plies === 0) return evaluateBoard(b, me);
+    const moves = sensibleMoves(b, toMove, h);
+    // Passing is always allowed - the leaf as it stands.
+    let best = toMove === me ? Math.max(alpha, evaluateBoard(b, me)) : Math.min(beta, evaluateBoard(b, me));
+    for (const m of moves) {
+      const v = search(m.next, [...h, b], opponentOf(toMove), plies - 1, toMove === me ? best : alpha, toMove === me ? beta : best);
+      if (toMove === me ? v > best : v < best) best = v;
+      if (toMove === me ? best >= beta : best <= alpha) break;
+    }
+    return best;
+  };
+  let best: MoveChoice = { kind: "pass" };
+  let bestValue = -Infinity;
+  for (const m of sensibleMoves(board, me, history)) {
+    const v = search(m.next, [...history, board], enemy, depth - 1, bestValue, Infinity);
+    if (v > bestValue) {
+      bestValue = v;
+      best = { kind: "move", x: m.x, y: m.y, score: v };
+    }
+  }
+  return best;
+}
+
 export type GoConfig = {
   enabled: boolean;
   // Opponents in order of how much their bonus is worth to us (the game's
@@ -110,8 +199,10 @@ export type GoConfig = {
   // the recent results) is skipped for the next one in the list.
   minWinRate: number;
   minGames: number;
-  // Our first go_book.ts BOOK_TURNS moves come from the learned opening book.
-  useBook: boolean;
+  // Plies the full-width search looks ahead (chooseMoveMinimax) on boards
+  // up to searchMaxBoardSize; bigger boards use the one-ply chooseMove.
+  searchDepth: number;
+  searchMaxBoardSize: number;
 };
 
 export const DEFAULT_CONFIG: GoConfig = {
@@ -120,7 +211,8 @@ export const DEFAULT_CONFIG: GoConfig = {
   boardSize: 7,
   minWinRate: 0.25,
   minGames: 10,
-  useBook: true,
+  searchDepth: 3,
+  searchMaxBoardSize: 5,
 };
 
 // Recent results kept per opponent (true = win).
