@@ -1,5 +1,5 @@
 import { Board, neighbors, opponentOf, play, Point, pointKey, Stone } from "go/go_engine";
-import { DEFAULT_WEIGHTS, evaluateBoard, EvalWeights, MoveChoice, sensibleMoves } from "go/go_decisions";
+import { chooseMove, DEFAULT_WEIGHTS, evaluateBoard, EvalWeights, MoveChoice, sensibleMoves } from "go/go_decisions";
 
 /**
  * A model of how the game's IPvGO opponents choose moves, so our search can
@@ -566,7 +566,16 @@ export async function chooseMoveModeled(
   board: Board,
   me: Stone,
   history: Board[],
-  opts: { samples?: number; weights?: EvalWeights; followUp?: boolean; opponentPassed?: boolean; yieldEvery?: () => Promise<void> } = {}
+  opts: {
+    samples?: number;
+    weights?: EvalWeights;
+    followUp?: boolean;
+    // Moves each side plays on after the predicted reply before the
+    // position is scored: us by the one-ply engine, them by the model.
+    rolloutPlies?: number;
+    opponentPassed?: boolean;
+    yieldEvery?: () => Promise<void>;
+  } = {}
 ): Promise<MoveChoice> {
   const samples = opts.samples ?? 6;
   const w = opts.weights ?? DEFAULT_WEIGHTS;
@@ -580,8 +589,23 @@ export async function chooseMoveModeled(
       const draws = seededRng(1000 + i);
       const reply = predictMove(opponent, m.next, opponentOf(me), after, draws);
       const replied = reply.kind === "move" ? (play(m.next, reply.x, reply.y, opponentOf(me), after) ?? m.next) : m.next;
-      let value = evaluateBoard(replied, me, w);
-      if (opts.followUp ?? true) for (const f of sensibleMoves(replied, me, [...after, m.next])) value = Math.max(value, evaluateBoard(f.next, me, w));
+      let position = replied;
+      const line = [...after, m.next];
+      for (let ply = 0; ply < (opts.rolloutPlies ?? 0); ply++) {
+        const ours = chooseMove(position, me, line);
+        if (ours.kind === "move") {
+          line.push(position);
+          position = play(position, ours.x, ours.y, me, line) ?? position;
+        }
+        const theirs = predictMove(opponent, position, opponentOf(me), line, draws);
+        if (theirs.kind === "move") {
+          line.push(position);
+          position = play(position, theirs.x, theirs.y, opponentOf(me), line) ?? position;
+        }
+        if (ours.kind === "pass" && theirs.kind === "pass") break;
+      }
+      let value = evaluateBoard(position, me, w);
+      if (opts.followUp ?? true) for (const f of sensibleMoves(position, me, line)) value = Math.max(value, evaluateBoard(f.next, me, w));
       total += value;
     }
     if (total / samples > bestValue) {

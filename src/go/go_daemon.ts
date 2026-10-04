@@ -98,6 +98,7 @@ async function nextMove(ns: NS, config: GoConfig, strategy: Strategy, opponent: 
     return chooseMoveModeled(opponent, board, "X", history, {
       weights: strategy.weights,
       followUp: strategy.followUp ?? false,
+      rolloutPlies: strategy.rolloutPlies,
       opponentPassed,
       yieldEvery: async () => {
         await ns.asleep(0);

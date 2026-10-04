@@ -17,7 +17,8 @@ import { DEFAULT_WEIGHTS, EvalWeights } from "go/go_decisions";
 // "search": plain alpha-beta (chooseMoveMinimax); "model": answer each
 // candidate with the opponent's predicted replies (go_opponent_model.ts's
 // chooseMoveModeled), with our best follow-up when `followUp`.
-export type Strategy = { name: string; kind: "search" | "model"; depth: number; weights: EvalWeights; followUp?: boolean };
+// `rolloutPlies`: with "model", moves each side plays on (us one-ply, them by the model) before scoring.
+export type Strategy = { name: string; kind: "search" | "model"; depth: number; weights: EvalWeights; followUp?: boolean; rolloutPlies?: number };
 
 const BALANCED: Strategy = { name: "balanced", kind: "search", depth: 3, weights: DEFAULT_WEIGHTS };
 // Hunt weak groups: their chains short of liberties count double.
@@ -31,6 +32,8 @@ const LIVE: Strategy = { name: "live", kind: "search", depth: 3, weights: { ...D
 // position two moves on - best against Illuminati, worse elsewhere.
 const MODEL: Strategy = { name: "model", kind: "model", depth: 1, weights: DEFAULT_WEIGHTS };
 const MODEL_FOLLOW: Strategy = { name: "model+follow", kind: "model", depth: 1, weights: DEFAULT_WEIGHTS, followUp: true };
+// Four more moves each, played out with the model: ~130 ms a move.
+const MODEL_ROLLOUT: Strategy = { name: "rollout4", kind: "model", depth: 1, weights: DEFAULT_WEIGHTS, rolloutPlies: 4 };
 
 /**
  * Candidates per opponent, the expected best first - from 60 games each
@@ -38,7 +41,10 @@ const MODEL_FOLLOW: Strategy = { name: "model+follow", kind: "model", depth: 1, 
  * model beat every search strategy against Illuminati (125.8 vs 69.7, with
  * follow-up), Tetrads (31.3 vs 21.7), Daedalus (34.2 vs 28.3) and The
  * Black Hand (23.8 vs 22.0), and tied against Slum Snakes and Netburners.
- * The best search strategy stays as the live comparison.
+ * The best search strategy stays as the live comparison. Against
+ * Illuminati, rollouts four moves deep did better still: ~121 node power
+ * a game over 100 fresh games vs ~96 for model+follow (which stays as its
+ * comparison); they didn't help against Daedalus or Tetrads.
  */
 export const STRATEGIES: Record<string, Strategy[]> = {
   Netburners: [MODEL, BALANCED],
@@ -46,7 +52,7 @@ export const STRATEGIES: Record<string, Strategy[]> = {
   "The Black Hand": [MODEL, BALANCED],
   Tetrads: [MODEL, SOLID],
   Daedalus: [MODEL, BALANCED],
-  Illuminati: [MODEL_FOLLOW, BALANCED],
+  Illuminati: [MODEL_ROLLOUT, MODEL_FOLLOW],
 };
 
 export function strategiesFor(opponent: string): Strategy[] {

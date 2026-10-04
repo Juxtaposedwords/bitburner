@@ -244,7 +244,7 @@ export const OPPONENTS: Record<string, { komi: number; bonusPower: number; power
   "The Black Hand": { komi: 3.5, bonusPower: 0.9, powerPerGame5x5: 23.8 },
   Tetrads: { komi: 5.5, bonusPower: 0.7, powerPerGame5x5: 31.3 },
   Daedalus: { komi: 5.5, bonusPower: 1.1, powerPerGame5x5: 34.2 },
-  Illuminati: { komi: 7.5, bonusPower: 0.7, powerPerGame5x5: 125.8 },
+  Illuminati: { komi: 7.5, bonusPower: 0.7, powerPerGame5x5: 121 },
 };
 
 /**
