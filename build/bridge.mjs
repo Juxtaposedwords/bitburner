@@ -102,6 +102,8 @@ async function pull() {
       changed++;
     }
     fs.mkdirSync(MIRROR, { recursive: true });
+    // Every file the game has on home - to see whether scripts actually got there.
+    fs.writeFileSync(path.join(MIRROR, ".game_files"), [...names].sort().join("\n") + "\n");
     fs.writeFileSync(path.join(MIRROR, ".last_pull"), `${new Date().toISOString()} ${wanted.length} file(s), ${changed} changed\n`);
     // Routine pulls stay quiet (game/.last_pull records each); only the
     // first after a connect is logged.
