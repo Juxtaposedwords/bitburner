@@ -1757,6 +1757,16 @@ lasting bonus:
 - **RAM** stays about 10 GB, because the board rules are our own (`go_engine.ts`): only
   `getBoardState` and `makeMove` cost RAM (4 GB each). The game's analysis calls cost 8–16 GB
   each.
+- **Opening book** (`go_book.ts`, `/var/go_book.txt`): our first `BOOK_TURNS` moves (2 for now)
+  are learned from our own games.
+  - Each position is stored once for all eight of its rotations and reflections (canonical form,
+    keyed by opponent).
+  - From a position, it tries each of the engine's top 3 moves once, then plays the best average
+    outcome (UCB1).
+  - A game's value is its node power with the streak multiplier fixed (×1.25 for a win, ×0.5 for
+    a loss), because streaks come from earlier games, not this opening.
+  - Illuminati plays nearly the same move every time, so its openings repeat and the book
+    converges.
 - **Restarts:** a game in progress when the daemon starts is finished, not reset, since resetting
   a game with moves forfeits it.
 - **Tests:** self-play against a random opponent wins 46 of 50 games on 7×7 and 50 of 50 on

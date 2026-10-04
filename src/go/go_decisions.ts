@@ -85,16 +85,17 @@ export function evaluateMove(board: Board, x: number, y: number, me: Stone, hist
 
 /** The best move for `me`, or a pass when nothing scores above zero. Ties go to the first point found. */
 export function chooseMove(board: Board, me: Stone, history: Board[] = []): MoveChoice {
-  let best: MoveChoice = { kind: "pass" };
-  let bestScore = 0;
+  return rankMoves(board, me, history)[0] ?? { kind: "pass" };
+}
+
+/** Every move scoring above zero, best first (ties in board order) - the opening book's candidates. */
+export function rankMoves(board: Board, me: Stone, history: Board[] = []): { kind: "move"; x: number; y: number; score: number }[] {
+  const moves: { kind: "move"; x: number; y: number; score: number }[] = [];
   for (const [x, y] of emptyPoints(board)) {
     const score = evaluateMove(board, x, y, me, history);
-    if (score !== undefined && score > bestScore) {
-      bestScore = score;
-      best = { kind: "move", x, y, score };
-    }
+    if (score !== undefined && score > 0) moves.push({ kind: "move", x, y, score });
   }
-  return best;
+  return moves.sort((a, b) => b.score - a.score);
 }
 
 export type GoConfig = {
@@ -109,6 +110,8 @@ export type GoConfig = {
   // the recent results) is skipped for the next one in the list.
   minWinRate: number;
   minGames: number;
+  // Our first go_book.ts BOOK_TURNS moves come from the learned opening book.
+  useBook: boolean;
 };
 
 export const DEFAULT_CONFIG: GoConfig = {
@@ -117,6 +120,7 @@ export const DEFAULT_CONFIG: GoConfig = {
   boardSize: 7,
   minWinRate: 0.25,
   minGames: 10,
+  useBook: true,
 };
 
 // Recent results kept per opponent (true = win).
