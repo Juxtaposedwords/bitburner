@@ -1764,6 +1764,28 @@ lasting bonus:
 - **RAM** stays about 10 GB, because the board rules are our own (`go_engine.ts`): only
   `getBoardState` and `makeMove` cost RAM (4 GB each). The game's analysis calls cost 8–16 GB
   each.
+- **Strategies per opponent** (`go_strategy.ts`): each opponent gets 2–3 candidate strategies,
+  each a set of evaluation weights plus a search depth:
+  - `hunt`: their weak groups count double
+  - `solid`: connected and safe
+  - `live`: make eyes first
+  - `balanced`
+
+  The candidates follow how each AI plays (`goAI.ts`):
+
+  | Opponent | Plays | Our first candidate |
+  |---|---|---|
+  | Netburners | Mostly random, and never avoids self-atari | `hunt` |
+  | Slum Snakes | Long chains without eyes | `hunt` |
+  | The Black Hand | Surrounds anything short of liberties | `solid` |
+  | Tetrads | Close fighting | `solid` |
+  | Daedalus, Illuminati | Eyes, eye blocks, corners | `live` |
+
+  The daemon chooses among them on live games by UCB1 on node power per game, with the streak
+  part fixed. Simulated opponents (`go_sim.ts`, tuned with `GO_TUNE=1 npx vitest run
+  src/go/go_tune`) follow each AI's priority list but play far weaker than the real ones: about
+  87% of games won against simulated Daedalus, against about 57% live. So they only shortlist
+  candidates; live games decide.
 - **Search on small boards** (`chooseMoveMinimax`, used up to `searchMaxBoardSize`, 5 by
   default): a full-width alpha-beta search `searchDepth` plies deep (3 by default). The position
   score (`evaluateBoard`) is area by influence plus group safety:

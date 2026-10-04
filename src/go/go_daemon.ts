@@ -5,6 +5,7 @@ import {
   chooseMove,
   chooseMoveMinimax,
   DEFAULT_CONFIG,
+  difficultyMultiplier,
   describeResults,
   GO_STATE_PATH,
   GO_STATUS_PATH,
@@ -18,6 +19,7 @@ import {
   recordResult,
 } from "go/go_decisions";
 import { readPhasePolicy } from "system/phase";
+import { pickStrategy, recordStrategy, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
 
 /**
  * Plays IPvGO (ns.go) without stopping: each win raises the opponent
@@ -42,9 +44,11 @@ const DISABLED_POLL_MS = 60_000;
 function readState(ns: NS): GoStateFile {
   try {
     const state = JSON.parse(ns.read(GO_STATE_PATH) || "null") as GoStateFile | null;
-    return state && typeof state.results === "object" ? { results: state.results, records: state.records ?? {} } : { results: {}, records: {} };
+    return state && typeof state.results === "object"
+      ? { results: state.results, records: state.records ?? {}, strategies: state.strategies ?? {} }
+      : { results: {}, records: {}, strategies: {} };
   } catch {
-    return { results: {}, records: {} };
+    return { results: {}, records: {}, strategies: {} };
   }
 }
 
@@ -60,6 +64,12 @@ function writeStatus(ns: NS, config: GoConfig, state: GoStateFile, opponent: str
       ])
     ),
     recent: Object.fromEntries(Object.entries(state.results).map(([name, results]) => [name, describeResults(results)])),
+    strategies: Object.fromEntries(
+      Object.entries(state.strategies).map(([name, byStrategy]) => [
+        name,
+        Object.fromEntries(Object.entries(byStrategy).map(([s, [games, total]]) => [s, `${(total / games).toFixed(1)} over ${games}`])),
+      ])
+    ),
     writtenAt: Date.now(),
   };
   ns.write(GO_STATUS_PATH, JSON.stringify(status), "w");
@@ -70,18 +80,21 @@ type GameResult = {
   blackScore: number;
   whiteScore: number;
   power: number;
+  value: number;
   seconds: number;
 };
 
-/** Our move: the full-width search on small boards, the one-ply engine otherwise. */
-function nextMove(ns: NS, config: GoConfig): MoveChoice {
+/** Our move: the strategy's search on small boards, the one-ply engine otherwise. */
+function nextMove(ns: NS, config: GoConfig, strategy: Strategy): MoveChoice {
   const board = ns.go.getBoardState();
   const history = ns.go.getMoveHistory();
-  return board.length <= config.searchMaxBoardSize ? chooseMoveMinimax(board, "X", history, config.searchDepth) : chooseMove(board, "X", history);
+  return board.length <= config.searchMaxBoardSize
+    ? chooseMoveMinimax(board, "X", history, Math.min(strategy.depth, config.searchDepth), strategy.weights)
+    : chooseMove(board, "X", history);
 }
 
 /** Plays the current game to the end as black. */
-async function playGame(ns: NS, log: Logger, config: GoConfig): Promise<GameResult> {
+async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strategy): Promise<GameResult> {
   const started = Date.now();
   const opponent = ns.go.getOpponent();
   const before = ns.go.analysis.getStats()[opponent];
@@ -94,7 +107,7 @@ async function playGame(ns: NS, log: Logger, config: GoConfig): Promise<GameResu
       await ns.go.opponentNextTurn(false);
       continue;
     }
-    const choice: MoveChoice = moves < maxMoves ? nextMove(ns, config) : { kind: "pass" };
+    const choice: MoveChoice = moves < maxMoves ? nextMove(ns, config, strategy) : { kind: "pass" };
     let result;
     try {
       result = choice.kind === "move" ? await ns.go.makeMove(choice.x, choice.y) : await ns.go.passTurn();
@@ -108,8 +121,10 @@ async function playGame(ns: NS, log: Logger, config: GoConfig): Promise<GameResu
   const after = ns.go.analysis.getStats()[opponent];
   const { blackScore, whiteScore, komi } = ns.go.getGameState();
   const size = ns.go.getBoardState().length;
+  const won = (after?.wins ?? 0) > winsBefore;
   return {
-    won: (after?.wins ?? 0) > winsBefore,
+    won,
+    value: strategyValue(blackScore, difficultyMultiplier(komi, size), won),
     blackScore,
     whiteScore,
     power: nodePowerGained(blackScore, komi, size, after?.winStreak ?? 0, before?.winStreak ?? 0),
@@ -159,18 +174,20 @@ export async function main(ns: NS): Promise<void> {
     }
 
     const opponent = ns.go.getOpponent();
-    const game = await playGame(ns, log, config);
+    const strategy = pickStrategy(strategiesFor(opponent), state.strategies[opponent]);
+    const game = await playGame(ns, log, config, strategy);
     const won = game.won;
     const played = ns.go.analysis.getStats()[opponent];
     state = {
       results: recordResult(state.results, opponent, won),
       records: recordGame(state.records, opponent, game.power, game.seconds, (played?.wins ?? 0) + (played?.losses ?? 0)),
+      strategies: recordStrategy(state.strategies, opponent, strategy.name, game.value),
     };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
     writeStatus(ns, config, state, opponent);
     const bonus = ns.go.analysis.getStats()[opponent];
     await log.info(
-      `[Go] ${won ? "Won" : "Lost"} against ${opponent} ${game.blackScore}-${game.whiteScore} on ${ns.go.getBoardState().length}x` +
+      `[Go] ${won ? "Won" : "Lost"} against ${opponent} (${strategy.name}) ${game.blackScore}-${game.whiteScore} on ${ns.go.getBoardState().length}x` +
         ` in ${game.seconds.toFixed(0)}s, +${game.power.toFixed(1)} power (${describeResults(state.results[opponent])} recently)` +
         (bonus ? `; bonus ${bonus.bonusPercent.toFixed(1)}% ${bonus.bonusDescription}, streak ${bonus.winStreak}.` : ".")
     );

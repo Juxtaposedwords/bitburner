@@ -98,12 +98,28 @@ export function rankMoves(board: Board, me: Stone, history: Board[] = []): { kin
   return moves.sort((a, b) => b.score - a.score);
 }
 
-// Stones of a chain left in atari count this much against its owner in a
-// searched position - one more move captures them.
-const ATARI_PENALTY = 2;
-// Per separate chain: loose stones die on a small board, so connecting is
-// worth something (benchmarked: 2-8 all cut wipe-outs by half; 3 chosen).
-const CHAIN_PENALTY = 3;
+/**
+ * What a searched position's score weighs (evaluateBoard) - one set per
+ * opponent style (go_strategy.ts).
+ */
+export type EvalWeights = {
+  // Per point of area by influence (ours minus theirs).
+  area: number;
+  // Per separate chain: loose stones die on a small board, so connecting
+  // is worth something (benchmarked: 2-8 all cut wipe-outs by half).
+  chain: number;
+  // Per stone in a chain with one liberty - one more move captures it.
+  atari: number;
+  // Per stone in a chain with two liberties.
+  shortOfLiberties: number;
+  // Per stone in a chain with two eyes (can't be captured).
+  alive: number;
+  // How much the opponent's chain safety counts against them, relative to
+  // ours: above 1 hunts their weak groups, below 1 plays safe.
+  aggression: number;
+};
+
+export const DEFAULT_WEIGHTS: EvalWeights = { area: 1, chain: 3, atari: 2, shortOfLiberties: 0.5, alive: 1, aggression: 1 };
 
 /**
  * Eyes of a chain: its empty neighbors whose every on-board neighbor is
@@ -118,23 +134,24 @@ export function eyesOf(board: Board, chain: { color: string; liberties: Set<stri
   return eyes;
 }
 
-/** How safe a chain is, per stone: alive with two eyes, in danger with few liberties. */
-function chainSafety(board: Board, chain: { color: string; stones: unknown[]; liberties: Set<string> }): number {
+/** How safe a chain is: alive with two eyes, in danger with few liberties, less the cost of being a separate chain. */
+function chainSafety(board: Board, chain: { color: string; stones: unknown[]; liberties: Set<string> }, w: EvalWeights): number {
   const stones = chain.stones.length;
-  if (eyesOf(board, chain) >= 2) return stones;
+  let value = -w.chain;
+  if (eyesOf(board, chain) >= 2) return value + w.alive * stones;
   const libs = chain.liberties.size;
-  if (libs <= 1) return -ATARI_PENALTY * stones;
-  if (libs === 2) return -0.5 * stones;
-  return 0;
+  if (libs <= 1) value -= w.atari * stones;
+  else if (libs === 2) value -= w.shortOfLiberties * stones;
+  return value;
 }
 
-/** A position's value for `me`: area by influence, plus each side's group safety (eyes, liberties). */
-export function evaluateBoard(board: Board, me: Stone): number {
+/** A position's value for `me`: area by influence, plus each side's group safety (eyes, liberties, connection). */
+export function evaluateBoard(board: Board, me: Stone, w: EvalWeights = DEFAULT_WEIGHTS): number {
   const enemy = opponentOf(me);
   const owners = influence(board);
-  let value = area(board, me, owners) - area(board, enemy, owners);
-  for (const chain of chainsOf(board, me)) value += chainSafety(board, chain) - CHAIN_PENALTY;
-  for (const chain of chainsOf(board, enemy)) value -= chainSafety(board, chain) - CHAIN_PENALTY;
+  let value = w.area * (area(board, me, owners) - area(board, enemy, owners));
+  for (const chain of chainsOf(board, me)) value += chainSafety(board, chain, w);
+  for (const chain of chainsOf(board, enemy)) value -= w.aggression * chainSafety(board, chain, w);
   return value;
 }
 
@@ -161,13 +178,13 @@ export function sensibleMoves(board: Board, me: Stone, history: Board[] = []): {
  * 6.3 on average and was wiped out 22 times; depth 3 scores 9.8, is wiped
  * out 12 times and wins 10 (from 2), at ~8 ms a move (worst ~40 ms).
  */
-export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = [], depth = 2): MoveChoice {
+export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = [], depth = 2, w: EvalWeights = DEFAULT_WEIGHTS): MoveChoice {
   const enemy = opponentOf(me);
   const search = (b: Board, h: Board[], toMove: Stone, plies: number, alpha: number, beta: number): number => {
-    if (plies === 0) return evaluateBoard(b, me);
+    if (plies === 0) return evaluateBoard(b, me, w);
     const moves = sensibleMoves(b, toMove, h);
     // Passing is always allowed - the leaf as it stands.
-    let best = toMove === me ? Math.max(alpha, evaluateBoard(b, me)) : Math.min(beta, evaluateBoard(b, me));
+    let best = toMove === me ? Math.max(alpha, evaluateBoard(b, me, w)) : Math.min(beta, evaluateBoard(b, me, w));
     for (const m of moves) {
       const v = search(m.next, [...h, b], opponentOf(toMove), plies - 1, toMove === me ? best : alpha, toMove === me ? beta : best);
       if (toMove === me ? v > best : v < best) best = v;
@@ -244,6 +261,7 @@ export type OpponentRecord = { games: number; power: number; totalGames: number;
 // Until an opponent has been played: a score of 8, 10 seconds a game.
 const PRIOR_SCORE = 8;
 const PRIOR_SECONDS = 10;
+const PRIOR_GAMES = 3;
 
 /** Node power held now: the record's, unless the game's count of games played shows an install since. */
 export function powerNow(record: OpponentRecord | undefined, gamesPlayed: number): number {
@@ -270,8 +288,13 @@ export function pickOpponentByValue(
     const details = OPPONENTS[name];
     if (!details || !(weight > 0) || unavailable.has(name)) continue;
     const record = records[name];
-    const perGame = record && record.totalGames > 0 ? record.totalPower / record.totalGames : PRIOR_SCORE * difficultyMultiplier(details.komi, boardSize) * 0.5;
-    const seconds = record && record.totalGames > 0 ? record.totalSeconds / record.totalGames : PRIOR_SECONDS;
+    // Measured averages, blended with the prior as PRIOR_GAMES games so one
+    // odd game (a leftover finished in a second for 0 power) can't rule an
+    // opponent out for good.
+    const games = record?.totalGames ?? 0;
+    const priorPower = PRIOR_SCORE * difficultyMultiplier(details.komi, boardSize) * 0.5;
+    const perGame = ((record?.totalPower ?? 0) + PRIOR_GAMES * priorPower) / (games + PRIOR_GAMES);
+    const seconds = ((record?.totalSeconds ?? 0) + PRIOR_GAMES * PRIOR_SECONDS) / (games + PRIOR_GAMES);
     const power = powerNow(record, gamesPlayed[name] ?? 0);
     const rate = (weight * (bonusFor(power + perGame, details.bonusPower) - bonusFor(power, details.bonusPower))) / Math.max(1, seconds);
     if (rate > bestRate) {
@@ -323,13 +346,16 @@ export function nodePowerGained(blackScore: number, komi: number, boardSize: num
 export const GO_STATUS_PATH = "/var/go_status.txt";
 export const GO_STATE_PATH = "/var/go_state.txt";
 
-export type GoStateFile = { results: Record<string, boolean[]>; records: Record<string, OpponentRecord> };
+// strategies: per opponent, per go_strategy.ts strategy name, [games, total value].
+export type GoStateFile = { results: Record<string, boolean[]>; records: Record<string, OpponentRecord>; strategies: Record<string, Record<string, [number, number]>> };
 
 export type GoStatusFile = {
   opponent?: string;
   boardSize: number;
   bonuses: Record<string, { wins: number; losses: number; winStreak: number; bonusPercent: number; bonusDescription: string }>;
   recent: Record<string, string>;
+  // Per opponent, per strategy: "average value over games".
+  strategies: Record<string, Record<string, string>>;
   writtenAt: number;
 };
 
