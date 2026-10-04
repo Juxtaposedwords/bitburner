@@ -154,6 +154,10 @@ describe("sleeve karma training", () => {
     expect(sleeveTrainingPaysOff(10 * 3600_000, 3, 3000, 0.2, 0.6, 20 * 60_000)).toBe(true);
   });
 
+  it("stops training once the crime succeeds often enough", () => {
+    expect(sleeveTrainingPaysOff(10 * 3600_000, 3, 3000, 0.8, 0.9, 1)).toBe(false);
+  });
+
   it("doesn't train when the gang is nearly there", () => {
     expect(sleeveTrainingPaysOff(15 * 60_000, 3, 3000, 0.2, 0.6, 20 * 60_000)).toBe(false);
     expect(sleeveTrainingPaysOff(Infinity, 3, 3000, 0.2, 0.6, 20 * 60_000)).toBe(false);

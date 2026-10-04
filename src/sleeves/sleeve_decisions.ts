@@ -269,6 +269,10 @@ export function decideSleeveInvestment(
  * each BitNode with reset stats - BN10's second run had five on Homicide
  * at low success, ~11.6h to go.
  */
+// Past this success chance the crime is good enough - stop training. The
+// horizon alone never stopped it (BN12: seven sleeves at the gym for 3h+).
+export const SLEEVE_KARMA_CHANCE_ENOUGH = 0.8;
+
 export function sleeveTrainingPaysOff(
   horizonMs: number,
   karmaPerSuccess: number,
@@ -277,7 +281,7 @@ export function sleeveTrainingPaysOff(
   chanceAfter: number,
   trainMs: number
 ): boolean {
-  if (!(horizonMs > 0) || !Number.isFinite(horizonMs)) return false;
+  if (!(horizonMs > 0) || !Number.isFinite(horizonMs) || chanceNow >= SLEEVE_KARMA_CHANCE_ENOUGH) return false;
   const shareNow = ((karmaPerSuccess * chanceNow) / crimeTimeMs) * horizonMs;
   return trainingPaysOff(shareNow > 0 ? shareNow : karmaPerSuccess, karmaPerSuccess, crimeTimeMs, chanceNow, chanceAfter, trainMs);
 }

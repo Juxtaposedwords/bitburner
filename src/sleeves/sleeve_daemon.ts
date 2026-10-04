@@ -160,16 +160,13 @@ const SLEEVE_TRAINING_PROBE_LEVELS = 10;
 const CYCLES_PER_MIN = 300;
 
 /**
- * Minutes until the gang karma requirement at today's total karma rate
- * (player and sleeves, from monitoring's karma gauge over 10 minutes),
- * else the player's crime alone. Infinity when nothing lowers karma.
+ * The karma still to go and today's rate (player and sleeves, from
+ * monitoring's karma gauge over 10 minutes, else the player's crime alone).
  */
-function karmaHorizonMs(ns: NS, karma: number): number {
-  const remaining = karma - GANG_KARMA_REQUIREMENT;
+function karmaProgress(ns: NS, karma: number): { remaining: number; perMs: number } {
   const series = readSeries(ns, "gauge/karma");
   const perMin = series ? -(averageRatePerMin(series, Math.floor(Date.now() / 1000), 600) ?? 0) : 0;
-  const perMs = perMin > 0 ? perMin / 60_000 : playerKarmaRate(ns);
-  return perMs > 0 ? remaining / perMs : Infinity;
+  return { remaining: karma - GANG_KARMA_REQUIREMENT, perMs: perMin > 0 ? perMin / 60_000 : playerKarmaRate(ns) };
 }
 
 /**
@@ -178,7 +175,7 @@ function karmaHorizonMs(ns: NS, karma: number): number {
  * +10 levels raise the crime's chance most (gangTrainingStat), its gym exp
  * scaled by the sleeve's sync. Needs Formulas.exe.
  */
-function karmaTraining(ns: NS, index: number, crime: string, horizonMs: number): { stat: string; gym: string } | undefined {
+function karmaTraining(ns: NS, index: number, crime: string, progress: { remaining: number; perMs: number }): { stat: string; gym: string } | undefined {
   if (!ns.fileExists("Formulas.exe", "home")) return undefined;
   const person = ns.sleeve.getSleeve(index);
   const chance = (skills: typeof person.skills): number => ns.formulas.work.crimeSuccessChance({ ...person, skills }, crime as CrimeTypeType);
@@ -197,6 +194,10 @@ function karmaTraining(ns: NS, index: number, crime: string, horizonMs: number):
   const expNeeded = ns.formulas.skills.calculateExp(person.skills[stat] + SLEEVE_TRAINING_PROBE_LEVELS, mult) - person.exp[stat];
   const trainMs = (Math.max(0, expNeeded) / expPerMin) * 60_000;
   const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+  // Horizon as if every sleeve were on the crime: measured while they train,
+  // the rate is the player's alone, which made training always look worth it.
+  const sleevesRate = ns.sleeve.getNumSleeves() * ((stats.karma * chanceNow) / stats.time);
+  const horizonMs = progress.remaining / (progress.perMs + sleevesRate);
   return sleeveTrainingPaysOff(horizonMs, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? { stat: gymType, gym: SLEEVE_GYM } : undefined;
 }
 
@@ -292,14 +293,14 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
   // Only factions the player is in now: right after an install the faction
   // daemon's last file (under a minute old) still lists factions the
   // install left, and setToFactionWork throws for those.
-  const horizonMs = chasingKarma ? karmaHorizonMs(ns, karma) : Infinity;
+  const progress = chasingKarma ? karmaProgress(ns, karma) : undefined;
   const inviteStat = readInviteGymStat(ns);
   const { repGaps: allGaps, playerFaction, companies } = readRepGaps(ns);
   const repGaps = Object.fromEntries(Object.entries(allGaps).filter(([faction]) => (player.factions as string[]).includes(faction)));
   const goals = decideSleeveGoals(sleeves, {
     karmaCrimeFor: (index) => (chasingKarma ? crimeFor(ns, index, "karma") : undefined),
     syncFirstFor: (index) => chasingKarma && syncFirst(ns, index, sleeves[index].sync, memory[index] ?? {}, config, karma),
-    karmaTrainingFor: (index) => (chasingKarma ? karmaTraining(ns, index, crimeFor(ns, index, "karma"), horizonMs) : undefined),
+    karmaTrainingFor: (index) => (progress ? karmaTraining(ns, index, crimeFor(ns, index, "karma"), progress) : undefined),
     trainingFor: () => playerTraining(ns, inviteStat),
     moneyCrimeFor: (index) => crimeFor(ns, index, "money"),
     repGaps,
