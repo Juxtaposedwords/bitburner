@@ -109,3 +109,13 @@ describe("node power (the game's formula)", () => {
     expect(nodePowerGained(10, 7.5, 5, -1, -1)).toBe(40);
   });
 });
+
+describe("opponent priors", () => {
+  it("gets to Illuminati once Daedalus is built up, despite one zero-power game on record", () => {
+    const records = {
+      Illuminati: { games: 1, power: 0, totalGames: 1, totalPower: 0, totalSeconds: 0.6 },
+      Daedalus: { games: 20, power: 600, totalGames: 20, totalPower: 600, totalSeconds: 200 },
+    };
+    expect(pickOpponentByValue({ Daedalus: 1, Illuminati: 0.7 }, records, { Illuminati: 1, Daedalus: 20 }, new Set(), 5)).toBe("Illuminati");
+  });
+});

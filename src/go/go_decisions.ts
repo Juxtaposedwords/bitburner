@@ -231,14 +231,20 @@ export function recordResult(results: Record<string, boolean[]>, opponent: strin
   return { ...results, [opponent]: [...(results[opponent] ?? []), won].slice(-RESULT_WINDOW) };
 }
 
-/** Each opponent's komi (its difficulty) and bonus power (what its node power is worth), from the game's Go/Constants.ts. */
-export const OPPONENTS: Record<string, { komi: number; bonusPower: number }> = {
-  Netburners: { komi: 1.5, bonusPower: 1.3 },
-  "Slum Snakes": { komi: 3.5, bonusPower: 1.2 },
-  "The Black Hand": { komi: 3.5, bonusPower: 0.9 },
-  Tetrads: { komi: 5.5, bonusPower: 0.7 },
-  Daedalus: { komi: 5.5, bonusPower: 1.1 },
-  Illuminati: { komi: 7.5, bonusPower: 0.7 },
+/**
+ * Each opponent's komi (its difficulty) and bonus power (what its node
+ * power is worth), from the game's Go/Constants.ts; and the node power a
+ * 5x5 game against it is worth with our first strategy (go_strategy.ts),
+ * measured over 60 games against the real AI in gosim/ (streak part fixed:
+ * x1.25 a win, x0.5 a loss) - the prior until our own games say otherwise.
+ */
+export const OPPONENTS: Record<string, { komi: number; bonusPower: number; powerPerGame5x5: number }> = {
+  Netburners: { komi: 1.5, bonusPower: 1.3, powerPerGame5x5: 12.5 },
+  "Slum Snakes": { komi: 3.5, bonusPower: 1.2, powerPerGame5x5: 24.0 },
+  "The Black Hand": { komi: 3.5, bonusPower: 0.9, powerPerGame5x5: 23.8 },
+  Tetrads: { komi: 5.5, bonusPower: 0.7, powerPerGame5x5: 31.3 },
+  Daedalus: { komi: 5.5, bonusPower: 1.1, powerPerGame5x5: 34.2 },
+  Illuminati: { komi: 7.5, bonusPower: 0.7, powerPerGame5x5: 125.8 },
 };
 
 /**
@@ -258,10 +264,14 @@ export function bonusFor(power: number, bonusPower: number): number {
  */
 export type OpponentRecord = { games: number; power: number; totalGames: number; totalPower: number; totalSeconds: number };
 
-// Until an opponent has been played: a score of 8, 10 seconds a game.
+// Until an opponent has been played: on 5x5 the benchmarked power per game
+// (OPPONENTS), otherwise a score of 8; 10 seconds a game. Weighted as this
+// many games - enough that one odd game (a leftover finished in a second
+// for 0 power) doesn't rule an opponent out: that kept Illuminati, worth
+// the most per game, unplayed.
 const PRIOR_SCORE = 8;
 const PRIOR_SECONDS = 10;
-const PRIOR_GAMES = 3;
+const PRIOR_GAMES = 5;
 
 /** Node power held now: the record's, unless the game's count of games played shows an install since. */
 export function powerNow(record: OpponentRecord | undefined, gamesPlayed: number): number {
@@ -288,11 +298,9 @@ export function pickOpponentByValue(
     const details = OPPONENTS[name];
     if (!details || !(weight > 0) || unavailable.has(name)) continue;
     const record = records[name];
-    // Measured averages, blended with the prior as PRIOR_GAMES games so one
-    // odd game (a leftover finished in a second for 0 power) can't rule an
-    // opponent out for good.
+    // Measured averages, blended with the prior as PRIOR_GAMES games.
     const games = record?.totalGames ?? 0;
-    const priorPower = PRIOR_SCORE * difficultyMultiplier(details.komi, boardSize) * 0.5;
+    const priorPower = boardSize === 5 ? details.powerPerGame5x5 : PRIOR_SCORE * difficultyMultiplier(details.komi, boardSize) * 0.5;
     const perGame = ((record?.totalPower ?? 0) + PRIOR_GAMES * priorPower) / (games + PRIOR_GAMES);
     const seconds = ((record?.totalSeconds ?? 0) + PRIOR_GAMES * PRIOR_SECONDS) / (games + PRIOR_GAMES);
     const power = powerNow(record, gamesPlayed[name] ?? 0);
