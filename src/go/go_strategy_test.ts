@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickStrategy, recordStrategy, STRATEGIES, strategiesFor, strategyValue } from "go/go_strategy";
+import { pickStrategy, recordStrategy, shouldRedeal, STRATEGIES, strategiesFor, strategyValue } from "go/go_strategy";
 
 const candidates = strategiesFor("The Black Hand");
 
@@ -31,5 +31,13 @@ describe("strategies", () => {
   it("values a game with the streak part fixed", () => {
     expect(strategyValue(20, 8, true)).toBe(200);
     expect(strategyValue(20, 8, false)).toBe(80);
+  });
+});
+
+describe("shouldRedeal", () => {
+  it("redeals Illuminati's center handicap, nothing else", () => {
+    expect(shouldRedeal("Illuminati", [".....", ".....", "..O..", ".....", "....."])).toBe(true);
+    expect(shouldRedeal("Illuminati", [".....", ".O...", ".....", ".....", "....."])).toBe(false);
+    expect(shouldRedeal("Daedalus", [".....", ".....", "..O..", ".....", "....."])).toBe(false);
   });
 });

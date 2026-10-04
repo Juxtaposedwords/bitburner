@@ -19,7 +19,7 @@ export function toBoard(state: BoardState): Board {
   );
 }
 
-export type GameOutcome = { won: boolean; score: number; theirs: number; moves: number; value: number };
+export type GameOutcome = { won: boolean; score: number; theirs: number; moves: number; value: number; start: Board; final: Board; line: string[] };
 
 // onAiMove: the board the AI faced, the history before it, and its move ("x,y" or "pass").
 export type AiMoveHook = (board: Board, history: Board[], move: string) => void;
@@ -28,6 +28,8 @@ export async function playAgainstAI(us: Player_, opponent: string, seed: number,
   Player.totalPlaytime = seed;
   const state = getNewBoardState(size, opponent as GoOpponent, true);
   const history: Board[] = [];
+  const start = toBoard(state);
+  const line: string[] = [];
   let passes = 0;
   let moves = 0;
   let aiSeed = seed * 7919;
@@ -36,8 +38,10 @@ export async function playAgainstAI(us: Player_, opponent: string, seed: number,
     const choice = await us(before, "X", history);
     if (choice.kind === "move" && makeMove(state, choice.x, choice.y, GoColor.black)) {
       history.push(before);
+      line.push(`X${choice.x}${choice.y}`);
       passes = 0;
     } else {
+      line.push("Xpass");
       passTurn(state, GoColor.black, false);
       passes++;
     }
@@ -47,8 +51,10 @@ export async function playAgainstAI(us: Player_, opponent: string, seed: number,
     onAiMove?.(prior, [...history], reply.type === "move" ? `${reply.x},${reply.y}` : "pass");
     if (reply.type === "move" && makeMove(state, reply.x as number, reply.y as number, GoColor.white)) {
       history.push(prior);
+      line.push(`O${reply.x}${reply.y}`);
       passes = 0;
     } else {
+      line.push("Opass");
       passTurn(state, GoColor.white, false);
       passes++;
     }
@@ -58,5 +64,5 @@ export async function playAgainstAI(us: Player_, opponent: string, seed: number,
   const score = area(board, "X", owners);
   const theirs = area(board, "O", owners) + OPPONENTS[opponent].komi;
   const won = score > theirs;
-  return { won, score, theirs, moves, value: score * difficultyMultiplier(OPPONENTS[opponent].komi, size) * (won ? 1.25 : 0.5) };
+  return { won, score, theirs, moves, value: score * difficultyMultiplier(OPPONENTS[opponent].komi, size) * (won ? 1.25 : 0.5), start, final: board, line };
 }

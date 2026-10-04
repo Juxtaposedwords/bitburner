@@ -1,4 +1,5 @@
 import { DEFAULT_WEIGHTS, EvalWeights } from "go/go_decisions";
+import { Board } from "go/go_engine";
 
 /**
  * Strategies per opponent style, chosen live. The game's AIs differ a lot
@@ -108,4 +109,20 @@ export function recordStrategy(
  */
 export function strategyValue(blackScore: number, difficulty: number, won: boolean): number {
   return blackScore * difficulty * (won ? 1.25 : 0.5);
+}
+
+// Redeals of one opponent's board in a row, at most.
+export const MAX_REDEALS = 5;
+
+/**
+ * Whether a freshly dealt board is worth redealing before our first move
+ * (free then: the game only charges a reset once moves are made). Against
+ * Illuminati with its handicap stone on the center point we averaged ~81
+ * node power a game vs ~112 otherwise (200 games against the real AI in
+ * gosim/), so redealing those is worth ~+9%.
+ */
+export function shouldRedeal(opponent: string, board: Board): boolean {
+  const n = board.length;
+  const c = (n - 1) / 2;
+  return opponent === "Illuminati" && n % 2 === 1 && board[c][c] === "O";
 }

@@ -155,13 +155,29 @@ export function evaluateBoard(board: Board, me: Stone, w: EvalWeights = DEFAULT_
   return value;
 }
 
-/** Legal moves worth considering: not filling our own territory, not self-atari unless it captures. */
-export function sensibleMoves(board: Board, me: Stone, history: Board[] = []): { x: number; y: number; next: Board }[] {
-  const owners = territory(board);
+/**
+ * An eye of a group that's already alive: every neighbor is ours, and every
+ * chain around it has two or more eyes - filling it can only hurt.
+ */
+export function isLivingEye(board: Board, x: number, y: number, me: Stone): boolean {
+  const around = neighbors(board, x, y);
+  if (around.length === 0 || !around.every(([nx, ny]) => board[nx][ny] === me)) return false;
+  return around.every(([nx, ny]) => eyesOf(board, chainAt(board, nx, ny)) >= 2);
+}
+
+/**
+ * Legal moves worth considering: not self-atari unless it captures; and
+ * not inside our own area - or, with `onlySkipLivingEyes`, only not in a
+ * living group's eye. Skipping all of our area kept us from making eyes or
+ * answering an invasion there: we passed while Illuminati walked in and
+ * captured everything (a third of games against it ended with nothing).
+ */
+export function sensibleMoves(board: Board, me: Stone, history: Board[] = [], onlySkipLivingEyes = false): { x: number; y: number; next: Board }[] {
+  const owners = onlySkipLivingEyes ? undefined : territory(board);
   const enemy = opponentOf(me);
   const out: { x: number; y: number; next: Board }[] = [];
   for (const [x, y] of emptyPoints(board)) {
-    if (owners.get(pointKey(x, y)) === me) continue;
+    if (owners ? owners.get(pointKey(x, y)) === me : isLivingEye(board, x, y, me)) continue;
     const next = play(board, x, y, me, history);
     if (!next) continue;
     if (chainAt(next, x, y).liberties.size === 1 && countStones(next, enemy) === countStones(board, enemy)) continue;
@@ -355,7 +371,14 @@ export const GO_STATUS_PATH = "/var/go_status.txt";
 export const GO_STATE_PATH = "/var/go_state.txt";
 
 // strategies: per opponent, per go_strategy.ts strategy name, [games, total value].
-export type GoStateFile = { results: Record<string, boolean[]>; records: Record<string, OpponentRecord>; strategies: Record<string, Record<string, [number, number]>> };
+// redealCostly: a redeal once changed the game's win/loss record or
+// streak, so redealing is off for good (go_daemon.ts checks every one).
+export type GoStateFile = {
+  results: Record<string, boolean[]>;
+  records: Record<string, OpponentRecord>;
+  strategies: Record<string, Record<string, [number, number]>>;
+  redealCostly?: boolean;
+};
 
 export type GoStatusFile = {
   opponent?: string;

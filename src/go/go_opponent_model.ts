@@ -573,6 +573,11 @@ export async function chooseMoveModeled(
     // Moves each side plays on after the predicted reply before the
     // position is scored: us by the one-ply engine, them by the model.
     rolloutPlies?: number;
+    // Consider moves inside our own area (all but living groups' eyes),
+    // and passing as a scored option rather than the fallback.
+    playOwnArea?: boolean;
+    // Points ("x,y") not to play this move.
+    exclude?: Set<string>;
     opponentPassed?: boolean;
     yieldEvery?: () => Promise<void>;
   } = {}
@@ -581,16 +586,20 @@ export async function chooseMoveModeled(
   const w = opts.weights ?? DEFAULT_WEIGHTS;
   let best: MoveChoice = { kind: "pass" };
   let bestValue = -Infinity;
-  for (const m of sensibleMoves(board, me, history)) {
-    const after = [...history, board];
+  const candidates: { x: number; y: number; next: Board; pass?: boolean }[] = sensibleMoves(board, me, history, opts.playOwnArea ?? false).filter(
+    (m) => !opts.exclude?.has(`${m.x},${m.y}`)
+  );
+  if (opts.playOwnArea) candidates.push({ x: -1, y: -1, next: board, pass: true });
+  for (const m of candidates) {
+    const after = m.pass ? history : [...history, board];
     let total = 0;
     for (let i = 0; i < samples; i++) {
       // Evenly spread draws: the same sample set for every candidate, so they're compared on equal terms.
       const draws = seededRng(1000 + i);
-      const reply = predictMove(opponent, m.next, opponentOf(me), after, draws);
+      const reply = predictMove(opponent, m.next, opponentOf(me), after, draws, !!m.pass);
       const replied = reply.kind === "move" ? (play(m.next, reply.x, reply.y, opponentOf(me), after) ?? m.next) : m.next;
       let position = replied;
-      const line = [...after, m.next];
+      const line = m.pass ? [...after] : [...after, m.next];
       for (let ply = 0; ply < (opts.rolloutPlies ?? 0); ply++) {
         const ours = chooseMove(position, me, line);
         if (ours.kind === "move") {
@@ -605,12 +614,12 @@ export async function chooseMoveModeled(
         if (ours.kind === "pass" && theirs.kind === "pass") break;
       }
       let value = evaluateBoard(position, me, w);
-      if (opts.followUp ?? true) for (const f of sensibleMoves(position, me, line)) value = Math.max(value, evaluateBoard(f.next, me, w));
+      if (opts.followUp ?? true) for (const f of sensibleMoves(position, me, line, opts.playOwnArea ?? false)) value = Math.max(value, evaluateBoard(f.next, me, w));
       total += value;
     }
     if (total / samples > bestValue) {
       bestValue = total / samples;
-      best = { kind: "move", x: m.x, y: m.y, score: bestValue };
+      best = m.pass ? { kind: "pass" } : { kind: "move", x: m.x, y: m.y, score: bestValue };
     }
     if (opts.yieldEvery) await opts.yieldEvery();
   }

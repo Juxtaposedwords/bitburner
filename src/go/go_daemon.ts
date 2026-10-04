@@ -19,7 +19,7 @@ import {
   recordResult,
 } from "go/go_decisions";
 import { readPhasePolicy } from "system/phase";
-import { pickStrategy, recordStrategy, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
+import { MAX_REDEALS, pickStrategy, recordStrategy, shouldRedeal, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
 import { chooseMoveModeled } from "go/go_opponent_model";
 
 /**
@@ -46,7 +46,7 @@ function readState(ns: NS): GoStateFile {
   try {
     const state = JSON.parse(ns.read(GO_STATE_PATH) || "null") as GoStateFile | null;
     return state && typeof state.results === "object"
-      ? { results: state.results, records: state.records ?? {}, strategies: state.strategies ?? {} }
+      ? { results: state.results, records: state.records ?? {}, strategies: state.strategies ?? {}, redealCostly: state.redealCostly }
       : { results: {}, records: {}, strategies: {} };
   } catch {
     return { results: {}, records: {}, strategies: {} };
@@ -187,6 +187,22 @@ export async function main(ns: NS): Promise<void> {
         await ns.asleep(BETWEEN_GAMES_MS);
         continue;
       }
+      // A bad deal (shouldRedeal) is reset before our first move. That's
+      // free by the game's docs; checked anyway - if a redeal ever changes
+      // the record or the streak, redealing stops for good.
+      for (let redeals = 0; !state.redealCostly && redeals < MAX_REDEALS && shouldRedeal(next, board); redeals++) {
+        const before = ns.go.analysis.getStats()[next as GoOpponentName];
+        board = ns.go.resetBoardState(next as GoOpponentName, config.boardSize) ?? board;
+        const after = ns.go.analysis.getStats()[next as GoOpponentName];
+        const changed = (before?.wins ?? 0) !== (after?.wins ?? 0) || (before?.losses ?? 0) !== (after?.losses ?? 0) || (before?.winStreak ?? 0) !== (after?.winStreak ?? 0);
+        if (changed) {
+          state = { ...state, redealCostly: true };
+          ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
+          await log.warn(`[Go] Redealing ${next}'s board changed its record (${JSON.stringify(before)} -> ${JSON.stringify(after)}); not redealing again.`);
+          break;
+        }
+        await log.info(`[Go] Redealt ${next}'s board (handicap on the center point).`);
+      }
     }
 
     const opponent = ns.go.getOpponent();
@@ -198,6 +214,7 @@ export async function main(ns: NS): Promise<void> {
       results: recordResult(state.results, opponent, won),
       records: recordGame(state.records, opponent, game.power, game.seconds, (played?.wins ?? 0) + (played?.losses ?? 0)),
       strategies: recordStrategy(state.strategies, opponent, strategy.name, game.value),
+      redealCostly: state.redealCostly,
     };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
     writeStatus(ns, config, state, opponent);
