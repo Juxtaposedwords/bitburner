@@ -4,8 +4,7 @@ import { WORK_SLOT_PATH, WorkSlotFile } from "factions/faction_decisions";
 import { bestCrimeBy } from "sleeves/sleeve_decisions";
 import { loadJsonConfig } from "system/config";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
-import { readApproach } from "system/phase";
-import { Approach } from "system/rpc/scheduler";
+import { readPhasePolicy } from "system/phase";
 import {
   Activity,
   ACTIVITY_PATH,
@@ -143,7 +142,7 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
   // GROW_STATS, or the work slot is free: no faction needs grinding (every
   // favor target met - cash buys the rest), no invite or karma crime.
   const slotFree = readFreshJson<WorkSlotFile>(ns, WORK_SLOT_PATH, FILE_MAX_AGE_MS)?.free === true;
-  const active = readApproach(ns) === Approach.GROW_STATS || slotFree;
+  const active = readPhasePolicy(ns).studyForStats || slotFree;
 
   // A free slot writes a missing program first when cash can't buy it
   // (pickProgramToCreate) - port openers root more of the network.

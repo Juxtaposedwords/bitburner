@@ -2,7 +2,7 @@ import { NS } from "@ns";
 import { readFreshJson } from "system/fresh_file";
 import { COVENANT, SLEEVES_PATH, SleevesFile } from "sleeves/sleeve_decisions";
 import { loadJsonConfig } from "system/config";
-import { readBitNodeInfo } from "system/bitnode_info";
+import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import {
   advanceSpendDown,
   clearInstallPending,
@@ -81,8 +81,7 @@ import {
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
-import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, SCHEDULER_CONFIG_PATH } from "system/phase";
-import { Approach } from "system/rpc/scheduler";
+import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
   compareInstall,
@@ -966,16 +965,15 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // post-install timeout that silently dropped AUGMENTS mode.
   // The phase from the game (derivePhase), published for every other
   // daemon; an explicit approach in /etc/scheduler.txt overrides it.
-  const gangPossible = (await player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort).GetPlayerMetadata({})).data?.player
-    ?.gangAvailable === true;
+  const gangPossible = bitNodeGrants(readBitNodeInfo(ns), 2);
   const phase = derivePhase(gangPossible, gangPossible && ns.gang.inGang());
   ns.write(PHASE_PATH, JSON.stringify({ ...phase, writtenAt: Date.now() } satisfies PhaseFile), "w");
-  const approach = parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach;
-  const growingStats = approach === Approach.GROW_STATS;
+  const policy = phasePolicy(parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach);
+  const growingStats = policy.studyForStats;
   // AUGMENTS (scheduler.proto): spending steered toward good augmentations -
   // see priorityFocus below.
-  const augmentsMode = approach === Approach.AUGMENTS;
-  const grindMode = approach === Approach.FACTION_GRIND;
+  const augmentsMode = policy.installLoop;
+  const grindMode = policy.grindFactions;
 
   // NeuroFlux Governor is decided once, here, for every path: only in the
   // pre-install spend-down, and only at factions with nothing else left
@@ -997,12 +995,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // GANG (scheduler.proto): until a gang exists, the work slot lowers karma
   // with the fastest crime (pickKarmaCrime) - ahead of invites and faction
   // work. gang_daemon.ts creates the gang once karma allows.
-  const gangAvailable = playerRes.data?.player?.gangAvailable === true;
+  const gangAvailable = gangPossible;
   // Never the gang's own faction for work, favor or rep targets (see workableFactions).
   const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
   const workable = workableFactions(joinedFactions, gangFaction);
   const karmaCrime =
-    approach === Approach.GANG && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
+    policy.chaseGangKarma && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
       ? pickKarmaCrimeLive(ns)
       : undefined;
   // Gym instead of the crime only while that reaches the karma requirement
@@ -1049,7 +1047,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // The Red Pill can take over purchases (redPillFocus).
   const donatable =
     config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
-      ? donatableFactions(ns, joinedFactions, playerRes.data?.player?.gangAvailable === true)
+      ? donatableFactions(ns, joinedFactions, gangAvailable)
       : new Set<string>();
   // Rep is ground only up to where cash takes over (favor targets); never
   // for NeuroFlux, whose rep is bought with its price once donations open.
@@ -1156,7 +1154,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // to augmentationFocus, and in AUGMENTS to everything useful once no
   // focus augmentation is left reachable (focusStatsFor).
   const focusStats = focusStatsFor(
-    growingStats || augmentsMode,
+    policy.focusAugmentations,
     augmentsMode && priorityFocus(catalog, reps, owned, donatable, config.augmentationFocus) === undefined,
     config.augmentationFocus,
     usefulStats

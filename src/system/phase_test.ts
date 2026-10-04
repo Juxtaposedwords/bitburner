@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePhase, parseApproach, parseApproachOverride } from "system/phase";
+import { derivePhase, parseApproach, parseApproachOverride, phasePolicy } from "system/phase";
 import { Approach } from "system/rpc/scheduler";
 
 describe("parseApproach", () => {
@@ -35,5 +35,22 @@ describe("derivePhase", () => {
   it("is AUGMENTS once the gang exists, or when gangs aren't possible", () => {
     expect(derivePhase(true, true).approach).toBe(Approach.AUGMENTS);
     expect(derivePhase(false, false).approach).toBe(Approach.AUGMENTS);
+  });
+});
+
+describe("phasePolicy", () => {
+  it("chases karma and keeps share off in GANG", () => {
+    const policy = phasePolicy(Approach.GANG);
+    expect(policy.chaseGangKarma).toBe(true);
+    expect(policy.installLoop).toBe(false);
+    expect(policy.shareByDefault).toBe(false);
+  });
+
+  it("runs the focused install loop in AUGMENTS", () => {
+    expect(phasePolicy(Approach.AUGMENTS)).toMatchObject({ installLoop: true, focusAugmentations: true, chaseGangKarma: false, shareByDefault: true });
+  });
+
+  it("hands the work slot to studying in GROW_STATS", () => {
+    expect(phasePolicy(Approach.GROW_STATS)).toMatchObject({ studyForStats: true, focusAugmentations: true, installLoop: false });
   });
 });

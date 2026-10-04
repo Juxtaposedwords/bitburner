@@ -1,7 +1,7 @@
 import { NS } from "@ns";
 import { effectiveReserve, readSavings } from "system/savings";
-import { readApproach } from "system/phase";
-import { readBitNodeInfo } from "system/bitnode_info";
+import { readPhasePolicy } from "system/phase";
+import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { loadJsonConfig } from "system/config";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
 import { CombatStat, FACTION_REPS_PATH, FactionRepsFile, gangTrainingStat, SLEEVE_SAVINGS_REASON } from "factions/faction_decisions";
@@ -15,7 +15,6 @@ import {
   UNIVERSITY_CITY,
 } from "factions/study_decisions";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
-import { Approach } from "system/rpc/scheduler";
 import {
   bestCrimeBy,
   CONFIG_PATH,
@@ -284,11 +283,11 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
   });
   ns.write(SLEEVE_STATE_PATH, JSON.stringify(memory), "w");
 
-  // Same condition as faction_daemon.ts's karma crime (Approach.GANG).
-  const gangAvailable = info?.node === 2 || (info?.sourceFiles["2"] ?? 0) >= 1;
+  // Same condition as faction_daemon.ts's karma crime.
+  const gangAvailable = bitNodeGrants(info, 2);
   const player = ns.getPlayer();
   const karma = player.karma;
-  const chasingKarma = readApproach(ns) === Approach.GANG && gangAvailable && karmaBlocksGang(karma, info?.node);
+  const chasingKarma = readPhasePolicy(ns).chaseGangKarma && gangAvailable && karmaBlocksGang(karma, info?.node);
 
   // Only factions the player is in now: right after an install the faction
   // daemon's last file (under a minute old) still lists factions the

@@ -61,6 +61,42 @@ export function derivePhase(gangAvailable: boolean, inGang: boolean): { approach
   return { approach: Approach.AUGMENTS, reason: gangAvailable ? "gang running" : "no gang in this BitNode" };
 }
 
+/**
+ * What each phase means for every daemon - the one place behavior is
+ * keyed by phase, instead of each daemon comparing approaches on its own.
+ */
+export type PhasePolicy = {
+  // Player and sleeves commit the karma crime until the gang can be
+  // created; gang_daemon.ts creates it then.
+  chaseGangKarma: boolean;
+  // The augmentation buy-and-install loop (faction_daemon.ts).
+  installLoop: boolean;
+  // Spending narrowed to the faction config's augmentationFocus.
+  focusAugmentations: boolean;
+  // The player's work slot goes to study_daemon.ts for stats.
+  studyForStats: boolean;
+  // Installs wait for the faction grinds' favor targets.
+  grindFactions: boolean;
+  // Share when no status file says whether anyone works a faction.
+  shareByDefault: boolean;
+};
+
+export function phasePolicy(approach: Approach): PhasePolicy {
+  return {
+    chaseGangKarma: approach === Approach.GANG,
+    installLoop: approach === Approach.AUGMENTS,
+    focusAugmentations: approach === Approach.AUGMENTS || approach === Approach.GROW_STATS,
+    studyForStats: approach === Approach.GROW_STATS,
+    grindFactions: approach === Approach.FACTION_GRIND,
+    shareByDefault: approach !== Approach.GROW_STATS && approach !== Approach.GANG,
+  };
+}
+
+/** The policy of the approach in effect (readApproach). */
+export function readPhasePolicy(ns: NS): PhasePolicy {
+  return phasePolicy(readApproach(ns));
+}
+
 /** The approach in effect: the explicit override if set, else this BitNode's phase file, else HACK. */
 export function readApproach(ns: NS): Approach {
   const override = parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH));

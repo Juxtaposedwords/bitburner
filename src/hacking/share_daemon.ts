@@ -2,8 +2,7 @@ import { NS } from "@ns";
 import { liveWorkerHosts } from "hacking/network";
 import { loadJsonConfig } from "system/config";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
-import { readApproach } from "system/phase";
-import { Approach } from "system/rpc/scheduler";
+import { readPhasePolicy } from "system/phase";
 import { planShareKills, planShareLaunches, shareBonus, shareThreadTarget, shareWanted } from "hacking/share_decisions";
 import { readFreshJson } from "system/fresh_file";
 import { FACTION_REPS_PATH, FactionRepsFile } from "factions/faction_decisions";
@@ -68,13 +67,12 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
   // runs while either works a faction; otherwise (training, studying,
   // karma crime) the RAM goes back to batches. Without the status files,
   // by mode as before: off in GROW_STATS and GANG.
-  const approach = readApproach(ns);
   const reps = readFreshJson<FactionRepsFile>(ns, FACTION_REPS_PATH, STATUS_MAX_AGE_MS);
   const sleeves = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, STATUS_MAX_AGE_MS);
   const repWork =
     reps || sleeves
       ? shareWanted(!!reps?.workTarget, (sleeves?.sleeves ?? []).map((s) => s.goal))
-      : approach !== Approach.GROW_STATS && approach !== Approach.GANG;
+      : readPhasePolicy(ns).shareByDefault;
   const target = config.enabled && repWork ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);

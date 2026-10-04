@@ -1,9 +1,8 @@
 import { GangGenInfo, NS } from "@ns";
-import { readApproach } from "system/phase";
+import { readPhasePolicy } from "system/phase";
 import { isSpendDownActive, readInstallPending } from "system/install_handshake";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { loadJsonConfig } from "system/config";
-import { Approach } from "system/rpc/scheduler";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
 import { GangPosture } from "gang/gang";
 import {
@@ -413,7 +412,7 @@ async function logMemberSnapshot(ns: NS, log: Logger): Promise<void> {
  */
 async function tryCreateGang(ns: NS, log: Logger, config: GangConfig): Promise<void> {
   const player = ns.getPlayer();
-  if (readApproach(ns) !== Approach.GANG || karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)) {
+  if (!readPhasePolicy(ns).chaseGangKarma || karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)) {
     await log.debug(`[Gang] Not in a gang yet (karma ${player.karma.toFixed(0)}); idling.`);
     return;
   }

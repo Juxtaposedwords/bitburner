@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
-import { readApproach } from "system/phase";
+import { phasePolicy, readApproach } from "system/phase";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { readInstallPending } from "system/install_handshake";
 import { readSavings } from "system/savings";
@@ -306,7 +306,7 @@ export async function main(ns: NS): Promise<void> {
     missingPrograms: ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe", "Formulas.exe"].filter((p) => !ns.fileExists(p, "home")),
     hacknetWrittenAt: readJson<{ writtenAt: number }>(ns, HACKNET_STATUS_PATH)?.writtenAt,
     augmentLoop: {
-      augmentsMode: approach === Approach.AUGMENTS,
+      augmentsMode: phasePolicy(approach).installLoop,
       autoPurchase: factionConfig?.autoPurchaseAugmentations === true,
       autoInstall: factionConfig?.autoInstall === true,
       pending: pendingBoost?.count ?? 0,

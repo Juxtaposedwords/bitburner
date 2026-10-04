@@ -28,8 +28,7 @@ import { readFreshJson } from "system/fresh_file";
 import { SLEEVES_PATH, SleevesFile } from "sleeves/sleeve_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { ACTIVITY_PATH, ActivityFile } from "factions/study_decisions";
-import { Approach } from "system/rpc/scheduler";
-import { readApproach } from "system/phase";
+import { readPhasePolicy } from "system/phase";
 import { SCHEDULER_TARGETS_PATH, SchedulerTargetsFile, topEarner } from "hacking/hwgw";
 import * as server_metadata_pb from "system/rpc/server_metadata";
 
@@ -350,7 +349,7 @@ function gatherHashInputs(ns: NS, config: HacknetConfig): (numHashes: number) =>
   // (an invite's combat stats, or the gang's karma crime).
   const gymForGoal = faction?.gymTraining === true || sleeveGoals.some((g) => g.startsWith("gym")) || (study === "gym" && combatBlocked);
   const studying = study === "class" || sleeveGoals.some((g) => g.startsWith("study"));
-  const classForGoal = studying && (readApproach(ns) === Approach.GROW_STATS || hackingBlocked);
+  const classForGoal = studying && (readPhasePolicy(ns).studyForStats || hackingBlocked);
 
   const targets = readFreshJson<SchedulerTargetsFile>(ns, SCHEDULER_TARGETS_PATH, SCHEDULER_FILE_MAX_AGE_MS)?.targets ?? [];
   const earner = config.hashSpendTargetOverride
