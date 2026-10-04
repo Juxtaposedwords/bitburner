@@ -414,6 +414,16 @@
         "0"
       ],
       "note": "measure 5x5 vs Illuminati (x8 difficulty multiplier)"
+    },
+    {
+      "id": "2026-10-04-go-book-off",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "useBook",
+        "false"
+      ],
+      "note": "dead nodes make positions unique; stop exploring"
     }
   ]
 }
