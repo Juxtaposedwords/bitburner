@@ -178,6 +178,10 @@ export function decideNodeInvestment(
  * - `payback` without income data (or budgetMinutes 0): the old
  *   maxPaybackHours test.
  */
+// Without income data: at most this share of cash per item, and per tick.
+const NO_INCOME_ITEM_SHARE = 0.25;
+const NO_INCOME_TICK_SHARE = 0.02;
+
 export type NodePolicy = { kind: "none" } | { kind: "income"; maxItemCost: number; tickBudget: number } | { kind: "payback" };
 
 export function nodePolicy(
@@ -185,10 +189,19 @@ export function nodePolicy(
   incomePerMin: number | undefined,
   budgetMinutes: number,
   incomeShare = 0.05,
-  tickMinutes = 5 / 60
+  tickMinutes = 5 / 60,
+  cash?: number
 ): NodePolicy {
   if (installLoop) return { kind: "none" };
-  if (incomePerMin === undefined || !(incomePerMin > 0) || !(budgetMinutes > 0)) return { kind: "payback" };
+  if (!(budgetMinutes > 0)) return { kind: "payback" };
+  // No income data (monitoring not running yet, e.g. a fresh BitNode's
+  // small home): a small share of cash instead. The payback test valued
+  // hashes at Sell for Money and bought nothing - BN12 had 7 sleeves at the
+  // gym and no Hacknet server.
+  if ((incomePerMin === undefined || !(incomePerMin > 0)) && cash !== undefined && cash > 0) {
+    return { kind: "income", maxItemCost: cash * NO_INCOME_ITEM_SHARE, tickBudget: cash * NO_INCOME_TICK_SHARE };
+  }
+  if (incomePerMin === undefined || !(incomePerMin > 0)) return { kind: "payback" };
   return { kind: "income", maxItemCost: incomePerMin * budgetMinutes, tickBudget: incomePerMin * incomeShare * tickMinutes };
 }
 

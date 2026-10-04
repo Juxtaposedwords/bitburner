@@ -238,6 +238,10 @@ describe("nodePolicy", () => {
     expect(nodePolicy(false, 1.2e12, 10, 0.05, 5 / 60)).toEqual({ kind: "income", maxItemCost: 1.2e13, tickBudget: 5e9 });
   });
 
+  it("spends a small share of cash without income data", () => {
+    expect(nodePolicy(false, undefined, 10, 0.05, 5 / 60, 1e8)).toEqual({ kind: "income", maxItemCost: 2.5e7, tickBudget: 2e6 });
+  });
+
   it("falls back to the payback test without income data or a budget", () => {
     expect(nodePolicy(false, undefined, 10)).toEqual({ kind: "payback" });
     expect(nodePolicy(false, 1e12, 0)).toEqual({ kind: "payback" });

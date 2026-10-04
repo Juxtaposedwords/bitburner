@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { readBitNodeInfo } from "development/libraries/bitnode_info";
 import { loadJsonConfig } from "development/libraries/config";
 import { isInstallPendingActive, readInstallPending } from "development/libraries/install_handshake";
 import { effectiveReserve, readSavings } from "development/libraries/savings";
@@ -201,14 +202,25 @@ async function tick(ns: NS, log: Logger, configIn: HacknetConfig): Promise<void>
   const choiceInputs = gatherHashInputs(ns, configIn);
   const config = configIn;
   const installLoop = readFresh<InstallLoopFile>(ns, INSTALL_LOOP_PATH)?.active === true;
-  const policy = nodePolicy(installLoop, incomePerMin(ns, INCOME_WINDOW_SEC), config.incomeBudgetMinutes, config.incomeShare, TICK_INTERVAL_MS / 60_000);
+  const policy = nodePolicy(
+    installLoop,
+    incomePerMin(ns, INCOME_WINDOW_SEC),
+    config.incomeBudgetMinutes,
+    config.incomeShare,
+    TICK_INTERVAL_MS / 60_000,
+    ns.getServerMoneyAvailable("home")
+  );
 
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
     .GetPlayerMetadata({});
   const money = playerRes.data?.player?.money ?? 0;
 
-  const isServerContext = ns.hacknet.hashCapacity() > 0;
+  // Hacknet Servers (hashes) come with BitNode 9 or Source-File 9. Hash
+  // capacity alone said "plain nodes" while none was owned yet, so a fresh
+  // BitNode never bought its first server.
+  const info = readBitNodeInfo(ns);
+  const isServerContext = ns.hacknet.hashCapacity() > 0 || info?.node === 9 || (info?.sourceFiles["9"] ?? 0) >= 1;
   const gainRate = buildGainRate(ns, isServerContext);
   const validNames = new Set<string>(ns.hacknet.getHashUpgrades());
   const maxPayback = policy.kind === "payback" ? paybackLimit(ns, config, isServerContext, validNames) : undefined;
