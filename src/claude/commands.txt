@@ -379,6 +379,11 @@
       "id": "2026-10-04-boot-missing-daemons",
       "script": "boot.js",
       "note": "start the faction/gang/shopper daemons boot skipped on an RPC timeout"
+    },
+    {
+      "id": "2026-10-04-start-go",
+      "script": "go/go_daemon.js",
+      "note": "first live run of the IPvGO daemon"
     }
   ]
 }

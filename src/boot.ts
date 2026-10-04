@@ -18,6 +18,7 @@ const STOCK_SCRIPT = "economy/stock_daemon.js";
 const STOCK_TARGET_SCRIPT = "economy/stock_target_daemon.js";
 const MONITORING_SCRIPT = "system/monitoring/monitoring_daemon.js";
 const SHARE_SCRIPT = "hacking/share_daemon.js";
+const GO_SCRIPT = "go/go_daemon.js";
 const BOOTSTRAP_SCRIPT = "system/bootstrap/bootstrap.js";
 const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
 const SUPERVISOR_SCRIPT = "system/supervisor.js";
@@ -188,6 +189,7 @@ export async function main(ns: NS): Promise<void> {
     [PURCHASED_SERVER_SCRIPT, true],
     [MONITORING_SCRIPT, true],
     [SHARE_SCRIPT, true],
+    [GO_SCRIPT, true],
   ];
   // Strict priority: once one doesn't fit, nothing after it is launched -
   // a smaller, lower-priority daemon would otherwise take RAM the one that

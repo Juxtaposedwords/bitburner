@@ -1731,6 +1731,37 @@ augmentation was bought, and exactly when); this answers "what's the trend."
     daemon writes its own file under its own `<kind>/`, which keeps the single-writer-per-file
     rule.
 
+## IPvGO: `go/go_daemon.ts`
+
+Plays IPvGO without stopping. Each win raises the opponent faction's node power, which grows a
+lasting bonus:
+- Illuminati: faster hack, grow and weaken.
+- Daedalus: reputation.
+- The Black Hand: hacking money.
+- Netburners: hacknet production.
+- Tetrads: combat stats.
+- Slum Snakes: crime success.
+
+- **Opponent choice** (`pickOpponent`): the first available opponent in the config's priority list
+  (`/etc/go.txt`: `opponents`), skipping any we beat less than `minWinRate` of the last 20 games
+  (after `minGames`). If every opponent is losing, it plays the one we beat most often. An
+  opponent the game refuses (not unlocked yet) is skipped for this run.
+- **Move choice** (`chooseMove`): a one-ply evaluation of every legal point, scored by:
+  - captures and rescuing our chains in atari first
+  - then putting enemy chains in atari, and pressure on chains with few liberties
+  - then the change in area, estimated by influence (each empty point belongs to the nearest
+    stone).
+
+  It never fills its own territory, never puts its own chain in atari, and never drops a weak
+  stone into the opponent's territory. When nothing scores above zero, it passes.
+- **RAM** stays about 10 GB, because the board rules are our own (`go_engine.ts`): only
+  `getBoardState` and `makeMove` cost RAM (4 GB each). The game's analysis calls cost 8–16 GB
+  each.
+- **Restarts:** a game in progress when the daemon starts is finished, not reset, since resetting
+  a game with moves forfeits it.
+- **Tests:** self-play against a random opponent wins 46 of 50 games on 7×7 and 50 of 50 on
+  9×9, at under 50 ms per move.
+
 ## Share manager: `share_daemon.ts` + `share_worker.ts`
 
 `ns.share()` raises the reputation gain of all faction work while it runs, by

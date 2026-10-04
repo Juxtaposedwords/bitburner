@@ -13,6 +13,7 @@ In the game, scripts keep these paths (e.g. `hacking/scheduler_daemon.js`).
 - `factions/` - augmentations, installs, faction/company work, study, training plans.
 - `gang/`, `sleeves/` - their daemons and decisions.
 - `economy/` - Hacknet, purchased servers, stocks.
+- `go/` - the IPvGO player: board rules (`go_engine.ts`), move and opponent choice, daemon.
 - `tools/` - one-shot command-line tools (`status`, `monitor`, `set_config`, `kill`, ...).
 - `claude/commands.txt` - commands queued for the reloader to run.
 
