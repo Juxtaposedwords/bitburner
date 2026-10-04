@@ -10,6 +10,7 @@ import { averageRatePerMin, readSeries } from "system/monitoring/timeseries";
 import {
   CONFIG_PATH as STUDY_CONFIG_PATH,
   DEFAULT_CONFIG as STUDY_DEFAULT_CONFIG,
+  freeClass,
   GYM_CITY,
   StudyConfig,
   UNIVERSITY_CITY,
@@ -200,8 +201,8 @@ function karmaTraining(ns: NS, index: number, crime: string, progress: { remaini
   return sleeveTrainingPaysOff(horizonMs, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? { stat: gymType, gym: SLEEVE_GYM } : undefined;
 }
 
-// Classes and the gym cost money per second; below this cash, sleeves
-// with nothing else to do commit money crimes instead.
+// Paid classes and the gym cost money per second; below this cash, sleeves
+// with nothing else to do take the free class instead (freeClass).
 const SLEEVE_TRAINING_MIN_CASH = 100e6;
 
 /** The combat stat a wanted invite is training for (the faction daemon's inviteAction "...: gymWorkout <stat>"), if any. */
@@ -220,15 +221,21 @@ function readInviteGymStat(ns: NS): string | undefined {
 /**
  * Training for a sleeve with no rep target left, for the player's share of
  * its exp: the gym on a wanted invite's combat stat, else the study
- * config's class (Algorithms at ZB by default, for hacking). undefined -
- * a money crime - while cash can't comfortably pay for it.
+ * config's class (Algorithms at ZB by default, for hacking). While cash
+ * can't comfortably pay for those, the free class (freeClass: Computer
+ * Science, here or a fare away); undefined - a money crime - only when
+ * even that's out of reach. Sleeves used to Mug right after every install.
  */
-function playerTraining(ns: NS, inviteStat: string | undefined): SleeveGoal | undefined {
-  if (ns.getServerMoneyAvailable("home") < SLEEVE_TRAINING_MIN_CASH) return undefined;
+function playerTraining(ns: NS, inviteStat: string | undefined, index: number): SleeveGoal | undefined {
+  const study = loadJsonConfig<StudyConfig>(ns, STUDY_CONFIG_PATH, STUDY_DEFAULT_CONFIG);
+  const money = ns.getServerMoneyAvailable("home");
+  if (money < SLEEVE_TRAINING_MIN_CASH) {
+    const free = freeClass(ns.sleeve.getSleeve(index).city, study.university, money);
+    return free ? { kind: "study", course: free.detail, university: free.location } : undefined;
+  }
   if (inviteStat && inviteStat in ns.enums.GymType) {
     return { kind: "gym", stat: ns.enums.GymType[inviteStat as keyof typeof ns.enums.GymType], gym: SLEEVE_GYM, purpose: "invite" };
   }
-  const study = loadJsonConfig<StudyConfig>(ns, STUDY_CONFIG_PATH, STUDY_DEFAULT_CONFIG);
   return { kind: "study", course: study.course, university: study.university };
 }
 
@@ -300,7 +307,7 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
     karmaCrimeFor: (index) => (chasingKarma ? crimeFor(ns, index, "karma") : undefined),
     syncFirstFor: (index) => chasingKarma && syncFirst(ns, index, sleeves[index].sync, memory[index] ?? {}, config, karma),
     karmaTrainingFor: (index) => (progress ? karmaTraining(ns, index, crimeFor(ns, index, "karma"), progress) : undefined),
-    trainingFor: () => playerTraining(ns, inviteStat),
+    trainingFor: (index) => playerTraining(ns, inviteStat, index),
     moneyCrimeFor: (index) => crimeFor(ns, index, "money"),
     repGaps,
     playerFaction,
