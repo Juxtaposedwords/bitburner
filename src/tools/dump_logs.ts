@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { isLogBackup } from "development/libraries/logs";
+import { isLogBackup } from "system/logs";
 
 const LOG_DIR = "/var/log/";
 const DEFAULT_TAIL = 200;

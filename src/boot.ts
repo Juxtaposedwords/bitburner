@@ -1,28 +1,28 @@
 import { NS } from "@ns";
-import { EXPECTED_DAEMONS_PATH } from "development/libraries/reload_plan";
-import { CORE_SCRIPTS, requiredHomeRam } from "development/libraries/bootstrap_plan";
-import { readBitNodeInfo } from "development/libraries/bitnode_info";
-import * as rpc from "development/libraries/rpc";
-import { sleevesAvailable } from "development/metadata/sleeve_decisions";
-import * as player_metadata_pb from "development/metadata/player_metadata";
-import * as server_metadata_pb from "development/metadata/server_metadata";
+import { EXPECTED_DAEMONS_PATH } from "system/reload_plan";
+import { CORE_SCRIPTS, requiredHomeRam } from "system/bootstrap/plan";
+import { readBitNodeInfo } from "system/bitnode_info";
+import * as rpc from "system/rpc/rpc";
+import { sleevesAvailable } from "sleeves/sleeve_decisions";
+import * as player_metadata_pb from "system/rpc/player_metadata";
+import * as server_metadata_pb from "system/rpc/server_metadata";
 
-const CAPABILITY_DETECTOR_SCRIPT = "development/metadata/detect_capabilities.js";
-const PROGRAM_SHOPPER_SCRIPT = "tools/program_shopper.js";
-const BACKDOOR_SCRIPT = "development/metadata/backdoor_daemon.js";
-const FACTION_SCRIPT = "development/metadata/faction_daemon.js";
-const STUDY_SCRIPT = "development/metadata/study_daemon.js";
-const GANG_SCRIPT = "development/metadata/gang_daemon.js";
-const SCHEDULER_SCRIPT = "development/metadata/scheduler_daemon.js";
-const HACKNET_SCRIPT = "development/metadata/hacknet_daemon.js";
-const PURCHASED_SERVER_SCRIPT = "development/metadata/purchased_server_daemon.js";
-const STOCK_SCRIPT = "development/metadata/stock_daemon.js";
-const STOCK_TARGET_SCRIPT = "development/metadata/stock_target_daemon.js";
-const MONITORING_SCRIPT = "development/metadata/monitoring_daemon.js";
-const SHARE_SCRIPT = "development/metadata/share_daemon.js";
-const BOOTSTRAP_SCRIPT = "bootstrap.js";
-const SLEEVE_SCRIPT = "development/metadata/sleeve_daemon.js";
-const SUPERVISOR_SCRIPT = "development/metadata/supervisor.js";
+const CAPABILITY_DETECTOR_SCRIPT = "system/detect_capabilities.js";
+const PROGRAM_SHOPPER_SCRIPT = "hacking/program_shopper.js";
+const BACKDOOR_SCRIPT = "hacking/backdoor_daemon.js";
+const FACTION_SCRIPT = "factions/faction_daemon.js";
+const STUDY_SCRIPT = "factions/study_daemon.js";
+const GANG_SCRIPT = "gang/gang_daemon.js";
+const SCHEDULER_SCRIPT = "hacking/scheduler_daemon.js";
+const HACKNET_SCRIPT = "economy/hacknet_daemon.js";
+const PURCHASED_SERVER_SCRIPT = "economy/purchased_server_daemon.js";
+const STOCK_SCRIPT = "economy/stock_daemon.js";
+const STOCK_TARGET_SCRIPT = "economy/stock_target_daemon.js";
+const MONITORING_SCRIPT = "system/monitoring/monitoring_daemon.js";
+const SHARE_SCRIPT = "hacking/share_daemon.js";
+const BOOTSTRAP_SCRIPT = "system/bootstrap/bootstrap.js";
+const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
+const SUPERVISOR_SCRIPT = "system/supervisor.js";
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -40,11 +40,11 @@ const SUPERVISOR_SCRIPT = "development/metadata/supervisor.js";
 // reloader.js restarts any of the managed daemons when their code changes
 // (see reload_plan.ts) - small, so it starts with the first daemons.
 const DAEMONS = [
-  "development/metadata/supervisor.js",
-  "tools/log_rotator.js",
-  "development/metadata/player.js",
-  "development/metadata/reloader.js",
-  "development/metadata/network_daemon.js",
+  "system/supervisor.js",
+  "system/log_rotator.js",
+  "system/player.js",
+  "system/reloader.js",
+  "hacking/network_daemon.js",
 ];
 
 // network_daemon.js (above) roots, snapshots and ranks every 10s; nothing
@@ -54,7 +54,7 @@ const ONE_SHOT: string[] = [];
 const ONE_SHOT_TIMEOUT_MS = 60_000;
 
 /** Launches `script` unless it's already running; true if it's running afterwards. */
-const BOOTSTRAP_WORKER = "bootstrap_worker.js";
+const BOOTSTRAP_WORKER = "system/bootstrap/bootstrap_worker.js";
 
 /** Kills `script` on every server reachable from home; returns how many servers had it. */
 function killEverywhere(ns: NS, script: string): number {
@@ -101,11 +101,11 @@ async function launchAndWait(ns: NS, script: string, timeoutMs: number): Promise
 export async function main(ns: NS): Promise<void> {
   // The bootstrap hands off through `program_shopper.js --once`, which runs
   // this and then exits - but this starts while the shopper is still in
-  // memory, and on a fresh 32 GB home bootstrap.js then didn't fit:
+  // memory, and on a fresh 32 GB home system/bootstrap/bootstrap.js then didn't fit:
   // "failed to launch", and nothing was left running. Wait for it to exit.
   for (let i = 0; i < 50 && ns.isRunning(PROGRAM_SHOPPER_SCRIPT, "home", "--once"); i++) await ns.asleep(100);
   // Low-RAM startup: while home can't hold the full system's core
-  // (bootstrap_plan.ts), run the self-contained bootstrap.js instead of
+  // (bootstrap_plan.ts), run the self-contained system/bootstrap/bootstrap.js instead of
   // starting daemons that won't fit - it hands back to boot.js once home is
   // big enough. Only when the full system isn't already up: a boot re-run
   // after a RAM upgrade must not start bootstrap beside it (bootstrap stops
@@ -131,7 +131,7 @@ export async function main(ns: NS): Promise<void> {
   }
 
   // Starting the full system: clear what a bootstrap left behind. Killing
-  // bootstrap.js by hand leaves its workers filling every server - BN10's
+  // system/bootstrap/bootstrap.js by hand leaves its workers filling every server - BN10's
   // second run had 16 TB of home taken by them, so the scheduler couldn't
   // start ("insufficient RAM").
   if (ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) ns.scriptKill(BOOTSTRAP_SCRIPT, "home");

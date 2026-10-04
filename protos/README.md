@@ -12,7 +12,7 @@ BitBurner's NetScript ports are universal. They do not require an address, and a
 
 Every generated service gets one well-known **service port** — the shared inbox every client writes requests into. It's auto-assigned by `build.mjs` from `protos/port_registry.json` the first time a service is generated, and persisted there so regenerating the client/server code never reassigns an already-running service's port.
 
-The server (`NewServer`/`Serve()` in `development/libraries/rpc.ts`) is the only thing that reads from the service port. It loops forever, draining requests one at a time (`ns.readPort`), dispatches each to the matching handler, and writes the reply back to whichever port *that specific request* asked for — the server never has a fixed idea of who's calling.
+The server (`NewServer`/`Serve()` in `system/rpc/rpc.ts`) is the only thing that reads from the service port. It loops forever, draining requests one at a time (`ns.readPort`), dispatches each to the matching handler, and writes the reply back to whichever port *that specific request* asked for — the server never has a fixed idea of who's calling.
 
 Each client call gets its own **reply port**, computed fresh per call by `rpc.nextReplyPort(ns)`:
 
@@ -34,7 +34,7 @@ Every generated client method resolves to the *whole* `RpcResponse<T>` — it ne
 
 ### Status codes
 
-`Codes` (in `development/libraries/rpc.ts`) reuses gRPC's status code vocabulary (https://grpc.io/docs/guides/status-codes/) instead of a bespoke one — the same `NOT_FOUND` means "this service/method doesn't exist" *or* "the record you asked about doesn't exist," the same way HTTP's 404 covers both. A handler can throw `new rpc.RpcError(status, message)` to set any status directly; anything else it throws becomes `INTERNAL`.
+`Codes` (in `system/rpc/rpc.ts`) reuses gRPC's status code vocabulary (https://grpc.io/docs/guides/status-codes/) instead of a bespoke one — the same `NOT_FOUND` means "this service/method doesn't exist" *or* "the record you asked about doesn't exist," the same way HTTP's 404 covers both. A handler can throw `new rpc.RpcError(status, message)` to set any status directly; anything else it throws becomes `INTERNAL`.
 
 ### One `.proto` file, multiple services
 

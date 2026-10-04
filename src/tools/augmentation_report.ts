@@ -1,12 +1,12 @@
 import { NS } from "@ns";
-import { loadJsonConfig } from "development/libraries/config";
+import { loadJsonConfig } from "system/config";
 import {
   CONFIG_PATH as FACTION_CONFIG_PATH,
   DEFAULT_CONFIG as FACTION_DEFAULT_CONFIG,
   gatherCatalog,
   gatherReps,
   getPendingAugmentations,
-} from "development/metadata/faction_daemon";
+} from "factions/faction_daemon";
 import {
   catalogsFor,
   decideAugmentationPurchase,
@@ -14,18 +14,18 @@ import {
   decideInstallReady,
   NEUROFLUX_GOVERNOR,
   usefulCatalog,
-} from "development/metadata/faction_decisions";
+} from "factions/faction_decisions";
 import {
   CONFIG_PATH as GANG_CONFIG_PATH,
   DEFAULT_CONFIG as GANG_DEFAULT_CONFIG,
   loadState as loadGangState,
-} from "development/metadata/gang_daemon";
-import { decideStandDown } from "development/metadata/gang_decisions";
+} from "gang/gang_daemon";
+import { decideStandDown } from "gang/gang_decisions";
 
 /**
  * One-shot decision-support dump for "should we install augmentations
  * yet?" - the fourth file allowed to reference ns.singularity (after
- * tools/program_shopper.ts, backdoor_daemon.ts, faction_daemon.ts),
+ * hacking/program_shopper.ts, backdoor_daemon.ts, faction_daemon.ts),
  * isolated automatically by being its own standalone script, same as
  * tools/check_cloud.ts is for ns.cloud.
  *

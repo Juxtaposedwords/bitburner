@@ -1,6 +1,6 @@
 import { NS } from "@ns";
-import { readBitNodeInfo } from "development/libraries/bitnode_info";
-import { loadJsonConfig } from "development/libraries/config";
+import { readBitNodeInfo } from "system/bitnode_info";
+import { loadJsonConfig } from "system/config";
 import {
   COMBAT_SKILLS,
   compareInstall,
@@ -10,10 +10,10 @@ import {
   skillMultiplier,
   PENDING_BOOST_PATH,
   PendingBoost,
-} from "development/libraries/skill_progress";
-import { parseWindow, readSeries, windowPoints } from "development/libraries/timeseries";
-import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "development/metadata/gang_decisions";
-import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULTS } from "development/metadata/study_decisions";
+} from "factions/skill_progress";
+import { parseWindow, readSeries, windowPoints } from "system/monitoring/timeseries";
+import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
+import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULTS } from "factions/study_decisions";
 
 /**
  * Both routes to a Daedalus invite (hacking 2500, or 1500 in every combat

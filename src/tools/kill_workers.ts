@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { killPrepWorkers } from "development/libraries/network";
+import { killPrepWorkers } from "hacking/network";
 
 /**
  * Stops prep workers (weaken/grow) aimed at a target, on every host:
@@ -12,6 +12,6 @@ export async function main(ns: NS): Promise<void> {
     ns.tprint("usage: run tools/kill_workers.js <target>");
     return;
   }
-  const killed = killPrepWorkers(ns, target, ["development/metadata/weaken_worker.js", "development/metadata/grow_worker.js"]);
+  const killed = killPrepWorkers(ns, target, ["hacking/workers/weaken_worker.js", "hacking/workers/grow_worker.js"]);
   ns.tprint(`[KillWorkers] Stopped ${killed} prep worker(s) aimed at ${target}.`);
 }

@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { readNetwork } from "development/libraries/network";
+import { readNetwork } from "hacking/network";
 
 /**
  * One-shot: cross-references every known server's `organization` (already

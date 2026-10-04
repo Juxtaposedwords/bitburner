@@ -1,10 +1,10 @@
 import { NS } from "@ns";
-import { readBitNodeInfo } from "development/libraries/bitnode_info";
-import { COMBAT_SKILLS, effectiveSkillMult, skillMultiplier } from "development/libraries/skill_progress";
-import { installNowEstimate, planTraining, TrainOption } from "development/libraries/training_plan";
-import { FACTION_REPS_PATH, FactionRepsFile } from "development/metadata/faction_decisions";
-import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULT_CONFIG, GYM_CITY, StudyConfig } from "development/metadata/study_decisions";
-import { loadJsonConfig } from "development/libraries/config";
+import { readBitNodeInfo } from "system/bitnode_info";
+import { COMBAT_SKILLS, effectiveSkillMult, skillMultiplier } from "factions/skill_progress";
+import { installNowEstimate, planTraining, TrainOption } from "factions/training_plan";
+import { FACTION_REPS_PATH, FactionRepsFile } from "factions/faction_decisions";
+import { CONFIG_PATH as STUDY_CONFIG_PATH, DEFAULT_CONFIG as STUDY_DEFAULT_CONFIG, GYM_CITY, StudyConfig } from "factions/study_decisions";
+import { loadJsonConfig } from "system/config";
 
 type FactionNameType = Parameters<NS["singularity"]["getFactionFavor"]>[0];
 type FactionWorkType = Parameters<NS["formulas"]["work"]["factionGains"]>[1];
@@ -27,7 +27,7 @@ const EXP_KEY: Record<Skill, "hackExp" | "strExp" | "defExp" | "dexExp" | "agiEx
 
 /**
  * Would training first reach a faction's rep target sooner than grinding
- * now (development/libraries/training_plan.ts)?
+ * now (factions/training_plan.ts)?
  *
  *   run tools/train_eval.js [faction]
  *

@@ -12,32 +12,32 @@
     },
     {
       "id": "2026-10-02-start-scheduler_daemon",
-      "script": "development/metadata/scheduler_daemon.js",
+      "script": "hacking/scheduler_daemon.js",
       "note": "was not running after the game restart"
     },
     {
       "id": "2026-10-02-start-faction_daemon",
-      "script": "development/metadata/faction_daemon.js",
+      "script": "factions/faction_daemon.js",
       "note": "was not running after the game restart"
     },
     {
       "id": "2026-10-02-start-sleeve_daemon",
-      "script": "development/metadata/sleeve_daemon.js",
+      "script": "sleeves/sleeve_daemon.js",
       "note": "was not running after the game restart"
     },
     {
       "id": "2026-10-02-start-hacknet_daemon",
-      "script": "development/metadata/hacknet_daemon.js",
+      "script": "economy/hacknet_daemon.js",
       "note": "was not running after the game restart"
     },
     {
       "id": "2026-10-02-start-study_daemon",
-      "script": "development/metadata/study_daemon.js",
+      "script": "factions/study_daemon.js",
       "note": "was not running after the game restart"
     },
     {
       "id": "2026-10-02-start-stock_daemon",
-      "script": "development/metadata/stock_daemon.js",
+      "script": "economy/stock_daemon.js",
       "note": "was not running after the game restart"
     },
     {
@@ -80,7 +80,7 @@
     },
     {
       "id": "2026-10-03-retarget-force",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -88,7 +88,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-2",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -96,7 +96,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-3",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -104,7 +104,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-4",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -112,7 +112,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-5",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -120,7 +120,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-6",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -133,7 +133,7 @@
     },
     {
       "id": "2026-10-03-retarget-force-7",
-      "script": "development/metadata/target_selector.js",
+      "script": "hacking/target_selector.js",
       "args": [
         "--force"
       ],
@@ -193,7 +193,7 @@
     },
     {
       "id": "2026-10-03-start-network-daemon",
-      "script": "development/metadata/network_daemon.js",
+      "script": "hacking/network_daemon.js",
       "note": "replaces crawl_servers, rooter and the supervisor's dispatch"
     },
     {
@@ -227,22 +227,22 @@
     },
     {
       "id": "2026-10-03-bn12-start-sleeve_daemon",
-      "script": "development/metadata/sleeve_daemon.js",
+      "script": "sleeves/sleeve_daemon.js",
       "note": "boot held it back for RAM; the scheduler now keeps room"
     },
     {
       "id": "2026-10-03-bn12-start-monitoring_daemon",
-      "script": "development/metadata/monitoring_daemon.js",
+      "script": "system/monitoring/monitoring_daemon.js",
       "note": "boot held it back for RAM; the scheduler now keeps room"
     },
     {
       "id": "2026-10-03-bn12-start-purchased_server_daemon",
-      "script": "development/metadata/purchased_server_daemon.js",
+      "script": "economy/purchased_server_daemon.js",
       "note": "boot held it back for RAM; the scheduler now keeps room"
     },
     {
       "id": "2026-10-03-bn12-start-share_daemon",
-      "script": "development/metadata/share_daemon.js",
+      "script": "hacking/share_daemon.js",
       "note": "boot held it back for RAM; the scheduler now keeps room"
     },
     {
@@ -258,7 +258,7 @@
       "id": "2026-10-03-bn12-kill-0",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/stock_daemon.js"
+        "economy/stock_daemon.js"
       ],
       "note": "no TIX yet: free RAM for the sleeve daemon"
     },
@@ -266,7 +266,7 @@
       "id": "2026-10-03-bn12-kill-1",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/stock_target_daemon.js"
+        "economy/stock_target_daemon.js"
       ],
       "note": "no TIX yet: free RAM for the sleeve daemon"
     },
@@ -305,7 +305,7 @@
       "id": "2026-10-03-bn12-kill2-0",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/stock_daemon.js"
+        "economy/stock_daemon.js"
       ],
       "note": "no TIX yet; free RAM for sleeves"
     },
@@ -313,7 +313,7 @@
       "id": "2026-10-03-bn12-kill2-1",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/stock_target_daemon.js"
+        "economy/stock_target_daemon.js"
       ],
       "note": "no TIX yet; free RAM for sleeves"
     },
@@ -342,13 +342,13 @@
       "id": "2026-10-03-bn12-kill-study",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/study_daemon.js"
+        "factions/study_daemon.js"
       ],
       "note": "idle in GANG phase; make room for sleeves"
     },
     {
       "id": "2026-10-03-bn12-start-sleeves-2",
-      "script": "development/metadata/sleeve_daemon.js"
+      "script": "sleeves/sleeve_daemon.js"
     },
     {
       "id": "2026-10-03-bn12-ram-2",
@@ -362,13 +362,13 @@
       "id": "2026-10-03-bn12-kill-backdoor",
       "script": "tools/kill.js",
       "args": [
-        "development/metadata/backdoor_daemon.js"
+        "hacking/backdoor_daemon.js"
       ],
       "note": "4 GB short for the sleeve daemon"
     },
     {
       "id": "2026-10-03-bn12-start-sleeves-3",
-      "script": "development/metadata/sleeve_daemon.js"
+      "script": "sleeves/sleeve_daemon.js"
     }
   ]
 }

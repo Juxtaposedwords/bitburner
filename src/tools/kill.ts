@@ -1,12 +1,12 @@
 import { NS } from "@ns";
-import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "development/libraries/reload_plan";
+import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
 
 /**
  * Stops a script on home (every copy, whatever its arguments), and tells
  * the reloader to leave it stopped (STOPPED_DAEMONS_PATH) until it's
  * started again:
  *
- *   run tools/kill.js development/metadata/stock_daemon.js
+ *   run tools/kill.js economy/stock_daemon.js
  */
 export async function main(ns: NS): Promise<void> {
   const script = String(ns.args[0] ?? "").replace(/^\//, "");

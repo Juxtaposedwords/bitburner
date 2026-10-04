@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { readBitNodeInfo } from "development/libraries/bitnode_info";
+import { readBitNodeInfo } from "system/bitnode_info";
 
 /**
  * One-shot readiness check for actually finishing the BitNode - not just

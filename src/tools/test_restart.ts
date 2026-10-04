@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { pollWithBackoff } from "development/libraries/rpc";
+import { pollWithBackoff } from "system/rpc/rpc";
 import { collectAndWriteDump, DEFAULT_OUTPUT } from "tools/dump_logs";
 import { wipeVarData } from "tools/wipe_data";
 

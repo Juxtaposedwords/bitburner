@@ -11,7 +11,7 @@ import { NS } from "@ns";
  */
 export async function main(ns: NS): Promise<void> {
   const kind = String(ns.args[0] ?? "hack");
-  const file = `development/metadata/${kind}_worker.js`;
+  const file = `hacking/workers/${kind}_worker.js`;
   const recent = ns.getRecentScripts().filter((r) => r.filename.replace(/^\//, "") === file);
   if (recent.length === 0) {
     ns.tprint(`No finished ${file} in the recent-scripts list (Options > "Recently killed scripts size" keeps it short).`);

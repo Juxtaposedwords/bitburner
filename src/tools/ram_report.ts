@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { MANAGED_DAEMONS } from "development/libraries/reload_plan";
+import { MANAGED_DAEMONS } from "system/reload_plan";
 
 /**
  * Home RAM: total, used, and each managed daemon's cost and whether it runs:

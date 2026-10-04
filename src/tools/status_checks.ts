@@ -178,7 +178,7 @@ function incomeChecks(s: StatusSnapshot): Finding[] {
   if (s.missingPrograms && s.missingPrograms.length > 0 && s.cash >= 1e9) {
     findings.push({
       level: "ERROR",
-      message: `Missing ${s.missingPrograms.join(", ")} with ${formatMoney(s.cash)} cash - servers needing them can't be rooted or hacked. Check tools/program_shopper.js.`,
+      message: `Missing ${s.missingPrograms.join(", ")} with ${formatMoney(s.cash)} cash - servers needing them can't be rooted or hacked. Check hacking/program_shopper.js.`,
     });
   }
   // Batches running but most of the fleet idle: the targets can't use it

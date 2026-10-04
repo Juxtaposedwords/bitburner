@@ -1,7 +1,7 @@
 import { NS } from "@ns";
-import { Codes } from "development/libraries/status";
-import { SCHEDULER_CONFIG_PATH } from "development/libraries/approach";
-import { Approach, NewSchedulerServiceClient } from "development/metadata/scheduler";
+import { Codes } from "system/rpc/status";
+import { SCHEDULER_CONFIG_PATH } from "system/phase";
+import { Approach, NewSchedulerServiceClient } from "system/rpc/scheduler";
 
 /**
  * Readable way to flip SchedulerConfig.approach - the persisted

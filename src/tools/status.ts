@@ -1,18 +1,18 @@
 import { NS } from "@ns";
-import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "development/libraries/reload_plan";
-import { readApproach } from "development/libraries/approach";
-import { readBitNodeInfo } from "development/libraries/bitnode_info";
-import { readInstallPending } from "development/libraries/install_handshake";
-import { readSavings } from "development/libraries/savings";
-import { LOG_BACKUP_SUFFIX } from "development/libraries/logs";
-import { PENDING_BOOST_PATH, PendingBoost } from "development/libraries/skill_progress";
-import { averageRatePerMin, incomePerMin, listSeries, parseWindow, readSeries, windowPoints } from "development/libraries/timeseries";
-import { FACTION_REPS_PATH, FactionRepsFile } from "development/metadata/faction_decisions";
-import { GANG_STATUS_PATH, GangStatusFile } from "development/metadata/gang_decisions";
-import { HACKNET_STATUS_PATH, HacknetStatusFile } from "development/metadata/hacknet_decisions";
-import { SCHEDULER_TARGETS_PATH, SchedulerTargetsFile } from "development/metadata/hwgw";
-import { Approach } from "development/metadata/scheduler";
-import { SLEEVES_PATH, sleevesAvailable, SleevesFile } from "development/metadata/sleeve_decisions";
+import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
+import { readApproach } from "system/phase";
+import { readBitNodeInfo } from "system/bitnode_info";
+import { readInstallPending } from "system/install_handshake";
+import { readSavings } from "system/savings";
+import { LOG_BACKUP_SUFFIX } from "system/logs";
+import { PENDING_BOOST_PATH, PendingBoost } from "factions/skill_progress";
+import { averageRatePerMin, incomePerMin, listSeries, parseWindow, readSeries, windowPoints } from "system/monitoring/timeseries";
+import { FACTION_REPS_PATH, FactionRepsFile } from "factions/faction_decisions";
+import { GANG_STATUS_PATH, GangStatusFile } from "gang/gang_decisions";
+import { HACKNET_STATUS_PATH, HacknetStatusFile } from "economy/hacknet_decisions";
+import { SCHEDULER_TARGETS_PATH, SchedulerTargetsFile } from "hacking/hwgw";
+import { Approach } from "system/rpc/scheduler";
+import { SLEEVES_PATH, sleevesAvailable, SleevesFile } from "sleeves/sleeve_decisions";
 import { checkStatus, Finding, formatMoney, StatusSnapshot, summarizeScheduler } from "tools/status_checks";
 
 /**
@@ -65,11 +65,11 @@ function money(n: number | undefined): string {
 }
 
 const WORKERS = [
-  "development/metadata/hack_worker.js",
-  "development/metadata/grow_worker.js",
-  "development/metadata/weaken_worker.js",
-  "development/metadata/share_worker.js",
-  "bootstrap_worker.js",
+  "hacking/workers/hack_worker.js",
+  "hacking/workers/grow_worker.js",
+  "hacking/workers/weaken_worker.js",
+  "hacking/workers/share_worker.js",
+  "system/bootstrap/bootstrap_worker.js",
 ];
 
 function allServers(ns: NS): string[] {
@@ -235,24 +235,24 @@ export async function main(ns: NS): Promise<void> {
   const info = readBitNodeInfo(ns);
   const gangPossible = info?.node === 2 || (info?.sourceFiles["2"] ?? 0) >= 1;
   const expected: Expected[] = [
-    { script: "development/metadata/supervisor.js", core: true },
-    { script: "tools/log_rotator.js", core: true },
-    { script: "development/metadata/reloader.js", core: false },
-    { script: "development/metadata/player.js", core: true },
-    { script: "development/metadata/scheduler_daemon.js", core: true },
-    { script: "tools/program_shopper.js", core: true },
-    { script: "development/metadata/faction_daemon.js", core: true },
-    { script: "development/metadata/gang_daemon.js", core: false, when: gangPossible },
-    { script: "development/metadata/sleeve_daemon.js", core: false, when: sleevesAvailable(info?.node, info?.sourceFiles) },
-    { script: "development/metadata/hacknet_daemon.js", core: false },
-    { script: "development/metadata/study_daemon.js", core: false },
-    { script: "development/metadata/stock_daemon.js", core: false },
-    { script: "development/metadata/monitoring_daemon.js", core: false },
-    { script: "development/metadata/share_daemon.js", core: false },
+    { script: "system/supervisor.js", core: true },
+    { script: "system/log_rotator.js", core: true },
+    { script: "system/reloader.js", core: false },
+    { script: "system/player.js", core: true },
+    { script: "hacking/scheduler_daemon.js", core: true },
+    { script: "hacking/program_shopper.js", core: true },
+    { script: "factions/faction_daemon.js", core: true },
+    { script: "gang/gang_daemon.js", core: false, when: gangPossible },
+    { script: "sleeves/sleeve_daemon.js", core: false, when: sleevesAvailable(info?.node, info?.sourceFiles) },
+    { script: "economy/hacknet_daemon.js", core: false },
+    { script: "factions/study_daemon.js", core: false },
+    { script: "economy/stock_daemon.js", core: false },
+    { script: "system/monitoring/monitoring_daemon.js", core: false },
+    { script: "hacking/share_daemon.js", core: false },
   ];
   // Bootstrap replaces the whole system on a small home - nothing else is expected then.
   const running = ns.ps("home").map((p) => p.filename.replace(/^\//, ""));
-  const bootstrapping = running.includes("bootstrap.js");
+  const bootstrapping = running.includes("system/bootstrap/bootstrap.js");
   const stopped = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
 
   const faction = readJson<FactionRepsFile>(ns, FACTION_REPS_PATH);

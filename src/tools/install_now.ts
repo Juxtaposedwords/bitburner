@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { getPendingAugmentations } from "development/metadata/faction_daemon";
+import { getPendingAugmentations } from "factions/faction_daemon";
 
 const BOOT_SCRIPT = "boot.js";
 

@@ -1,5 +1,5 @@
 import { NS, AutocompleteData } from "@ns";
-import { LOG_LEVEL, LogLevel } from "../development/libraries/logs";
+import { LOG_LEVEL, LogLevel } from "../system/logs";
 
 const DEFAULT_TAIL = 20;
 const TAIL_FLAG = "-e";

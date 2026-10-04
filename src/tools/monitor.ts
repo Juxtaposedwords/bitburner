@@ -1,6 +1,6 @@
 import { AutocompleteData, NS } from "@ns";
 import type ReactNamespace from "react";
-import { counterRates, listSeries, parseWindow, readSeries, Series, seriesIdFromPath, windowPoints } from "development/libraries/timeseries";
+import { counterRates, listSeries, parseWindow, readSeries, Series, seriesIdFromPath, windowPoints } from "system/monitoring/timeseries";
 
 /**
  * Reads the time series monitoring_daemon.ts records under /var/monitoring/.
