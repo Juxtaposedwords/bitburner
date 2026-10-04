@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Activity, canAffordTraining, chooseTraining, CombatNeed, decideStudyStep, pickProgramToCreate, trainingCostPerMin } from "factions/study_decisions";
+import { Activity, canAffordTraining, chooseTraining, CombatNeed, decideStudyStep, pickProgramToCreate, trainingCostPerMin, freeClass } from "factions/study_decisions";
 
 describe("decideStudyStep", () => {
   const zb: Activity = { kind: "class", location: "ZB Institute of Technology", detail: "Algorithms" };
@@ -88,5 +88,16 @@ describe("pickProgramToCreate", () => {
   it("leaves to the shopper what cash can buy, and skips what the level can't write", () => {
     expect(pickProgramToCreate(none, 120, 2e6)).toBeUndefined();
     expect(pickProgramToCreate(none, 40, 0)).toBeUndefined();
+  });
+});
+
+describe("freeClass", () => {
+  it("takes the free course at a university in the player's city", () => {
+    expect(freeClass("Aevum", "ZB Institute of Technology", 0)).toEqual({ kind: "class", location: "Summit University", detail: "Computer Science" });
+  });
+
+  it("flies to the configured university when there's none here and the fare is affordable", () => {
+    expect(freeClass("Chongqing", "ZB Institute of Technology", 1e6)?.location).toBe("ZB Institute of Technology");
+    expect(freeClass("Chongqing", "ZB Institute of Technology", 1e5)).toBeUndefined();
   });
 });

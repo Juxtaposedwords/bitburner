@@ -48,6 +48,25 @@ export type CurrentWork = { type: string; location?: string; classType?: string 
  */
 export type Activity = { kind: "class" | "gym"; location: string; detail: string; stat?: string };
 
+// Free at every university: the fallback when paid training is unaffordable.
+export const FREE_COURSE = "Computer Science";
+// The fare for any flight between cities.
+export const TRAVEL_COST = 200_000;
+
+/**
+ * The free class to take instead of paid training that cash can't cover:
+ * Computer Science at a university in the player's city (no fare), else at
+ * the configured one when the fare is affordable. undefined when neither -
+ * then crime for money is all that's left. Hacking exp beats a crime's
+ * money right after an install (BN12: Shoplift while every class looked
+ * unaffordable, though this one costs nothing).
+ */
+export function freeClass(playerCity: string, configuredUniversity: string, money: number): Activity | undefined {
+  const local = Object.entries(UNIVERSITY_CITY).find(([, city]) => city === playerCity)?.[0];
+  if (local) return { kind: "class", location: local, detail: FREE_COURSE };
+  return money >= TRAVEL_COST ? { kind: "class", location: configuredUniversity, detail: FREE_COURSE } : undefined;
+}
+
 export type StudyStep =
   | { kind: "idle" }
   | { kind: "busy" }

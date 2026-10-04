@@ -15,6 +15,7 @@ import {
   CONFIG_PATH,
   decideStudyStep,
   DEFAULT_CONFIG,
+  freeClass,
   GYM_CITY,
   pickProgramToCreate,
   StudyConfig,
@@ -160,29 +161,31 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
   }
 
   const gym = active ? pickGym(ns, config) : undefined;
-  const activity: Activity = gym
+  const wanted: Activity = gym
     ? { kind: "gym", location: gym.need.gym, detail: gym.need.gymType, stat: gym.need.stat }
     : { kind: "class", location: config.university, detail: config.course };
 
   // Paid training only with cash for a runway of it (canAffordTraining);
-  // stop an unaffordable one already running rather than go into debt.
-  const affordable = !active || trainingAffordable(ns, activity);
+  // otherwise the free class (freeClass), and crime for money only when
+  // even that can't be reached.
+  const free = active && !trainingAffordable(ns, wanted) ? freeClass(ns.getPlayer().city, config.university, ns.getServerMoneyAvailable("home")) : undefined;
+  const activity = free ?? wanted;
+  const affordable = !active || !!free || trainingAffordable(ns, wanted);
   if (active && !affordable) {
     if (ns.singularity.getCurrentWork()?.type === "CLASS" && ns.singularity.stopAction()) {
-      await log.warn(`[Study] Stopped ${activity.kind === "class" ? "studying" : "training"}: cash doesn't cover ${TRAINING_RUNWAY_MINUTES} minutes of it.`);
+      await log.warn(`[Study] Stopped ${wanted.kind === "class" ? "studying" : "training"}: cash doesn't cover ${TRAINING_RUNWAY_MINUTES} minutes of it.`);
     }
   }
   const training = active && affordable;
 
-  // Can't afford training: earn instead of idling - crime for money, as
-  // system/bootstrap/bootstrap.ts does. BN10's second run sat idle at $16.7K right after
-  // an install, with the work slot free and every class unaffordable.
+  // Nothing affordable at all, not even the free class (no university here
+  // and no fare): earn instead of idling - crime for money.
   if (active && !affordable) {
     const current = ns.singularity.getCurrentWork();
     const crime = bestMoneyCrime(ns);
     if (current?.type !== "CRIME" || current.crimeType !== crime) {
       ns.singularity.commitCrime(crime as CrimeTypeType);
-      await log.info(`[Study] Can't afford ${activity.kind === "class" ? "a class" : "the gym"} yet; committing ${crime} for money.`);
+      await log.info(`[Study] Can't afford ${wanted.kind === "class" ? "a class" : "the gym"} or a flight to a free class; committing ${crime} for money.`);
     }
   }
 
@@ -207,7 +210,7 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
           ? ns.singularity.universityCourse(activity.location as UniversityNameType, activity.detail as UniversityClassType)
           : ns.singularity.gymWorkout(activity.location as GymLocationNameType, activity.detail as GymTypeType);
       const what = activity.kind === "class" ? `Studying ${activity.detail} at ${activity.location}` : `Training ${activity.stat} at ${activity.location}`;
-      const why = gym ? ` (combat route to Daedalus: ~${Math.ceil(gym.combatMinutes)}m vs ~${Math.ceil(gym.hackingMinutes)}m studying)` : "";
+      const why = gym && !free ? ` (combat route to Daedalus: ~${Math.ceil(gym.combatMinutes)}m vs ~${Math.ceil(gym.hackingMinutes)}m studying)` : "";
       if (started) await log.info(`[Study] ${what}${why}.`);
       else await log.warn(`[Study] Couldn't start: ${what}.`);
       break;
