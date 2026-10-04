@@ -14,29 +14,39 @@ import { DEFAULT_WEIGHTS, EvalWeights } from "go/go_decisions";
  * strength, so the choice between candidates is made on real games: UCB1
  * on node power per game (pickStrategy).
  */
-export type Strategy = { name: string; depth: number; weights: EvalWeights };
+// "search": plain alpha-beta (chooseMoveMinimax); "model": answer each
+// candidate with the opponent's predicted replies (go_opponent_model.ts's
+// chooseMoveModeled), with our best follow-up when `followUp`.
+export type Strategy = { name: string; kind: "search" | "model"; depth: number; weights: EvalWeights; followUp?: boolean };
 
-const BALANCED: Strategy = { name: "balanced", depth: 3, weights: DEFAULT_WEIGHTS };
+const BALANCED: Strategy = { name: "balanced", kind: "search", depth: 3, weights: DEFAULT_WEIGHTS };
 // Hunt weak groups: their chains short of liberties count double.
-const HUNT: Strategy = { name: "hunt", depth: 3, weights: { ...DEFAULT_WEIGHTS, aggression: 2 } };
+const HUNT: Strategy = { name: "hunt", kind: "search", depth: 3, weights: { ...DEFAULT_WEIGHTS, aggression: 2 } };
 // Play safe and connected: one solid group, ours counted over theirs.
-const SOLID: Strategy = { name: "solid", depth: 3, weights: { ...DEFAULT_WEIGHTS, chain: 4, aggression: 0.5 } };
+const SOLID: Strategy = { name: "solid", kind: "search", depth: 3, weights: { ...DEFAULT_WEIGHTS, chain: 4, aggression: 0.5 } };
 // Make eyes first: a living group is worth much more than area.
-const LIVE: Strategy = { name: "live", depth: 3, weights: { ...DEFAULT_WEIGHTS, alive: 3, chain: 4 } };
+const LIVE: Strategy = { name: "live", kind: "search", depth: 3, weights: { ...DEFAULT_WEIGHTS, alive: 3, chain: 4 } };
 
-/** Candidates per opponent, the expected best first. */
+// Answer the opponent's predicted replies; with our follow-up, the
+// position two moves on - best against Illuminati, worse elsewhere.
+const MODEL: Strategy = { name: "model", kind: "model", depth: 1, weights: DEFAULT_WEIGHTS };
+const MODEL_FOLLOW: Strategy = { name: "model+follow", kind: "model", depth: 1, weights: DEFAULT_WEIGHTS, followUp: true };
+
+/**
+ * Candidates per opponent, the expected best first - from 60 games each
+ * against the game's real AI (gosim/, node power per game): the opponent
+ * model beat every search strategy against Illuminati (125.8 vs 69.7, with
+ * follow-up), Tetrads (31.3 vs 21.7), Daedalus (34.2 vs 28.3) and The
+ * Black Hand (23.8 vs 22.0), and tied against Slum Snakes and Netburners.
+ * The best search strategy stays as the live comparison.
+ */
 export const STRATEGIES: Record<string, Strategy[]> = {
-  // Never filters self-atari: punish loose stones.
-  Netburners: [HUNT, BALANCED],
-  // Long chains without eyes: squeeze them.
-  "Slum Snakes": [HUNT, BALANCED, SOLID],
-  // Surrounds anything weak: stay connected, counter-capture.
-  "The Black Hand": [SOLID, BALANCED, HUNT],
-  // Close fighting: solid shape.
-  Tetrads: [SOLID, BALANCED, LIVE],
-  // Eyes, eye blocks and corners (one handicap stone for Illuminati): live first.
-  Daedalus: [LIVE, BALANCED, SOLID],
-  Illuminati: [LIVE, BALANCED, SOLID],
+  Netburners: [MODEL, BALANCED],
+  "Slum Snakes": [MODEL, HUNT],
+  "The Black Hand": [MODEL, BALANCED],
+  Tetrads: [MODEL, SOLID],
+  Daedalus: [MODEL, BALANCED],
+  Illuminati: [MODEL_FOLLOW, BALANCED],
 };
 
 export function strategiesFor(opponent: string): Strategy[] {

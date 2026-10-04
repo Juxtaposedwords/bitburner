@@ -17,6 +17,11 @@ function normalize(p) {
 async function syncStatic() {
   return syncDirectory.async(path.resolve(src), path.resolve(dist), {
     exclude: (file) => {
+      // Never the root itself. Deleting a source folder (src/go/ai) once
+      // reached sync-directory's removeFileOrFolder with an empty relative
+      // path - the target was dist/ itself, and everything in it (and, via
+      // the bridge, every script in the game) was deleted.
+      if (file === '' || file === '/' || file === path.sep) return true;
       const { ext } = path.parse(file);
       // Compiled output (a .js with a .ts source) belongs to tsc, not this
       // static sync. Without this, deleteOrphaned saw dist/foo.js as an

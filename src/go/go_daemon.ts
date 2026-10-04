@@ -20,6 +20,7 @@ import {
 } from "go/go_decisions";
 import { readPhasePolicy } from "system/phase";
 import { pickStrategy, recordStrategy, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
+import { chooseMoveModeled } from "go/go_opponent_model";
 
 /**
  * Plays IPvGO (ns.go) without stopping: each win raises the opponent
@@ -84,13 +85,26 @@ type GameResult = {
   seconds: number;
 };
 
-/** Our move: the strategy's search on small boards, the one-ply engine otherwise. */
-function nextMove(ns: NS, config: GoConfig, strategy: Strategy): MoveChoice {
+/**
+ * Our move: on small boards the strategy's - the opponent model (pausing
+ * between candidates so the game's UI keeps up) or the plain search; the
+ * one-ply engine on bigger boards.
+ */
+async function nextMove(ns: NS, config: GoConfig, strategy: Strategy, opponent: string, opponentPassed: boolean): Promise<MoveChoice> {
   const board = ns.go.getBoardState();
   const history = ns.go.getMoveHistory();
-  return board.length <= config.searchMaxBoardSize
-    ? chooseMoveMinimax(board, "X", history, Math.min(strategy.depth, config.searchDepth), strategy.weights)
-    : chooseMove(board, "X", history);
+  if (board.length > config.searchMaxBoardSize) return chooseMove(board, "X", history);
+  if (strategy.kind === "model") {
+    return chooseMoveModeled(opponent, board, "X", history, {
+      weights: strategy.weights,
+      followUp: strategy.followUp ?? false,
+      opponentPassed,
+      yieldEvery: async () => {
+        await ns.asleep(0);
+      },
+    });
+  }
+  return chooseMoveMinimax(board, "X", history, Math.min(strategy.depth, config.searchDepth), strategy.weights);
 }
 
 /** Plays the current game to the end as black. */
@@ -107,7 +121,8 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
       await ns.go.opponentNextTurn(false);
       continue;
     }
-    const choice: MoveChoice = moves < maxMoves ? nextMove(ns, config, strategy) : { kind: "pass" };
+    const passed = ns.go.getGameState().previousMove === null && moves > 0;
+    const choice: MoveChoice = moves < maxMoves ? await nextMove(ns, config, strategy, opponent, passed) : { kind: "pass" };
     let result;
     try {
       result = choice.kind === "move" ? await ns.go.makeMove(choice.x, choice.y) : await ns.go.passTurn();

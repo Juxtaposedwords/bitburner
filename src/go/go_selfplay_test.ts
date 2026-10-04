@@ -41,7 +41,6 @@ function game(size: number, seed: number): { won: boolean; moves: number } {
   }
   const owners = territory(board);
   const won = area(board, "X", owners) > area(board, "O", owners) + 5.5;
-  if (!won && process.env.GO_DEBUG) console.log(seed, moves, area(board, "X", owners), area(board, "O", owners), "\n" + board.join("\n"));
   return { won, moves };
 }
 
