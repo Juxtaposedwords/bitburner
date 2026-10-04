@@ -1,11 +1,9 @@
 import { NS } from "@ns";
 import { EXPECTED_DAEMONS_PATH } from "system/reload_plan";
 import { CORE_SCRIPTS, requiredHomeRam } from "system/bootstrap/plan";
-import { readBitNodeInfo } from "system/bitnode_info";
+import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import * as rpc from "system/rpc/rpc";
 import { sleevesAvailable } from "sleeves/sleeve_decisions";
-import * as player_metadata_pb from "system/rpc/player_metadata";
-import * as server_metadata_pb from "system/rpc/server_metadata";
 
 const CAPABILITY_DETECTOR_SCRIPT = "system/detect_capabilities.js";
 const PROGRAM_SHOPPER_SCRIPT = "hacking/program_shopper.js";
@@ -154,9 +152,7 @@ export async function main(ns: NS): Promise<void> {
   // ~1 GB getResetInfo (plus getBitNodeMultipliers with SF5) per boot is
   // cheap. Supervisor is guaranteed reachable here: the ONE_SHOT loop above
   // already RPC'd it successfully.
-  const playerClient = player_metadata_pb.NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort);
   await launchAndWait(ns, CAPABILITY_DETECTOR_SCRIPT, ONE_SHOT_TIMEOUT_MS);
-  const playerRes = await playerClient.GetPlayerMetadata({});
 
   // Launched in priority order, because in a fresh BitNode home is small
   // and whatever comes last simply doesn't fit ("insufficient RAM?"). The
@@ -173,10 +169,10 @@ export async function main(ns: NS): Promise<void> {
   //    apart so ns.stock.* never grows the scheduler's footprint (see
   //    server_metadata.md). Anything that didn't fit can be started by
   //    re-running boot.js once home has more RAM.
-  const singularity = playerRes.data?.player?.singularityAvailable === true;
-  const gang = playerRes.data?.player?.gangAvailable === true;
-  // From the file detect_capabilities.js just wrote (BitNode 10 or SF10).
+  // From the file detect_capabilities.js just wrote.
   const bitNode = readBitNodeInfo(ns);
+  const singularity = bitNodeGrants(bitNode, 4);
+  const gang = bitNodeGrants(bitNode, 2);
   const sleeves = sleevesAvailable(bitNode?.node, bitNode?.sourceFiles);
   const ordered: [string, boolean][] = [
     [SCHEDULER_SCRIPT, true],

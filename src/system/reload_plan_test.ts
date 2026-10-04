@@ -139,14 +139,21 @@ describe("queued commands", () => {
 });
 
 describe("seedTracked", () => {
-  it("uses saved fingerprints, and marks processes without one for a restart", () => {
-    const tracked = seedTracked({ "5": "abc" }, [5, 9]);
+  it("uses saved fingerprints, and marks older processes without one for a restart", () => {
+    const tracked = seedTracked({ "5": "abc" }, [{ pid: 5, ageSec: 900 }, { pid: 9, ageSec: 900 }]);
     expect(tracked.get(5)).toEqual({ signature: "abc" });
     expect(tracked.get(9)).toEqual({ signature: UNKNOWN_SIGNATURE });
   });
 
+  it("adopts a process boot just started instead of restarting it", () => {
+    const seeded = seedTracked({}, [{ pid: 12, ageSec: 5 }]);
+    expect(seeded.has(12)).toBe(false);
+    const first = decideReloads(seeded, [{ pid: 12, signature: "now" }]);
+    expect(decideReloads(first.tracked, [{ pid: 12, signature: "now" }]).restart).toEqual([]);
+  });
+
   it("restarts an unknown process after the usual one-check hold", () => {
-    const first = decideReloads(seedTracked({}, [9]), [{ pid: 9, signature: "new" }]);
+    const first = decideReloads(seedTracked({}, [{ pid: 9, ageSec: 900 }]), [{ pid: 9, signature: "new" }]);
     expect(first.restart).toEqual([]);
     expect(decideReloads(first.tracked, [{ pid: 9, signature: "new" }]).restart).toEqual([9]);
   });

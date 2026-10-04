@@ -374,6 +374,11 @@
       "id": "2026-10-03-restructure-restart",
       "script": "tools/test_restart.js",
       "note": "scripts moved; restart everything at the new paths"
+    },
+    {
+      "id": "2026-10-04-boot-missing-daemons",
+      "script": "boot.js",
+      "note": "start the faction/gang/shopper daemons boot skipped on an RPC timeout"
     }
   ]
 }

@@ -112,7 +112,10 @@ export async function main(ns: NS): Promise<void> {
   // that changed while no reloader was running still gets picked up.
   let tracked = seedTracked(
     readSavedSignatures(ns),
-    ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, ""))).map((p) => p.pid)
+    ns
+      .ps("home")
+      .filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")))
+      .map((p) => ({ pid: p.pid, ageSec: ns.getRunningScript(p.pid)?.onlineRunningTime ?? Infinity }))
   );
   const seen = new Map<string, SeenDaemon>();
   // Seeded with what boot.js started (EXPECTED_DAEMONS_PATH), so a daemon

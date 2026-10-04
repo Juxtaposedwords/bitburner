@@ -198,13 +198,23 @@ export const RELOADER_STATE_PATH = "/var/reloader_state.txt";
 /** Marks a process whose starting code is unknown - always differs from a real fingerprint, so it gets restarted once. */
 export const UNKNOWN_SIGNATURE = "unknown";
 
+// A process younger than this started from the current code: boot.js
+// launched it alongside the reloader.
+export const FRESH_PROCESS_SEC = 60;
+
 /**
  * Tracking for the processes already running when the reloader starts:
- * the saved fingerprint where there is one, else UNKNOWN_SIGNATURE (a
- * process started outside any reloader's view is restarted once).
+ * the saved fingerprint where there is one; else a fresh process is left
+ * out (adopted at its first check), and an older one gets UNKNOWN_SIGNATURE
+ * (started outside any reloader's view, so restarted once). Restarting
+ * fresh ones restarted the supervisor right after boot, mid-RPC.
  */
-export function seedTracked(saved: Record<string, string>, runningPids: number[]): Map<number, Tracked> {
-  return new Map(runningPids.map((pid) => [pid, { signature: saved[String(pid)] ?? UNKNOWN_SIGNATURE }]));
+export function seedTracked(saved: Record<string, string>, running: { pid: number; ageSec: number }[]): Map<number, Tracked> {
+  return new Map(
+    running
+      .filter(({ pid, ageSec }) => saved[String(pid)] !== undefined || ageSec >= FRESH_PROCESS_SEC)
+      .map(({ pid }) => [pid, { signature: saved[String(pid)] ?? UNKNOWN_SIGNATURE }])
+  );
 }
 
 /**

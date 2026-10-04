@@ -31,6 +31,17 @@ export function bitNodeMultipliersAvailable(currentNode: number, sourceFiles: Ma
   return currentNode === 5 || (sourceFiles.get(5) ?? 0) >= 1;
 }
 
+/**
+ * Whether a BitNode-gated API is usable: in BitNode `n`, or with its
+ * Source-File (n 4 = ns.singularity, n 2 = ns.gang). Read from this file
+ * rather than asked of the supervisor: boot once asked over RPC while the
+ * reloader was restarting the supervisor, took the timeout for "no", and
+ * started no faction, gang or program shopper daemon for a whole session.
+ */
+export function bitNodeGrants(info: BitNodeInfo | undefined, n: number): boolean {
+  return !!info && (info.node === n || (info.sourceFiles[String(n)] ?? 0) >= 1);
+}
+
 /** Parses the file's contents; undefined for empty, corrupt, or another version's format. */
 export function parseBitNodeInfo(raw: string): BitNodeInfo | undefined {
   if (!raw) return undefined;
