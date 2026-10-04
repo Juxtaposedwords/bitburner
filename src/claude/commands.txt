@@ -369,6 +369,11 @@
     {
       "id": "2026-10-03-bn12-start-sleeves-3",
       "script": "sleeves/sleeve_daemon.js"
+    },
+    {
+      "id": "2026-10-03-restructure-restart",
+      "script": "tools/test_restart.js",
+      "note": "scripts moved; restart everything at the new paths"
     }
   ]
 }
