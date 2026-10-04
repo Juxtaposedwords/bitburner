@@ -1,6 +1,6 @@
-import { getNewBoardStateFromSimpleBoard } from "/home/maloy/Development/vendor/bitburner-src/src/Go/boardState/boardState";
-import { getMove } from "/home/maloy/Development/vendor/bitburner-src/src/Go/boardAnalysis/goAI";
-import { GoColor, GoOpponent } from "/home/maloy/Development/vendor/bitburner-src/src/Go/Enums";
+import { getNewBoardStateFromSimpleBoard } from "@bitburner/Go/boardState/boardState";
+import { getMove } from "@bitburner/Go/boardAnalysis/goAI";
+import { GoColor, GoOpponent } from "@bitburner/Go/Enums";
 import { Board, play, Stone } from "go/go_engine";
 import { DEFAULT_WEIGHTS, evaluateBoard, EvalWeights, MoveChoice, sensibleMoves } from "go/go_decisions";
 

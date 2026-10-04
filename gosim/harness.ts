@@ -1,7 +1,7 @@
-import { getNewBoardState, makeMove, passTurn } from "/home/maloy/Development/vendor/bitburner-src/src/Go/boardState/boardState";
-import { getMove } from "/home/maloy/Development/vendor/bitburner-src/src/Go/boardAnalysis/goAI";
-import { GoColor, GoOpponent } from "/home/maloy/Development/vendor/bitburner-src/src/Go/Enums";
-import type { BoardState } from "/home/maloy/Development/vendor/bitburner-src/src/Go/Types";
+import { getNewBoardState, makeMove, passTurn } from "@bitburner/Go/boardState/boardState";
+import { getMove } from "@bitburner/Go/boardAnalysis/goAI";
+import { GoColor, GoOpponent } from "@bitburner/Go/Enums";
+import type { BoardState } from "@bitburner/Go/Types";
 import { Player } from "./stubs/player";
 import { area, Board, Stone, territory } from "go/go_engine";
 import { difficultyMultiplier, MoveChoice, OPPONENTS } from "go/go_decisions";

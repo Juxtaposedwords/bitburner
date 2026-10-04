@@ -15,6 +15,8 @@ export default defineConfig({
     alias: [
       // Our own modules, as src/tsconfig.json maps them for files under src/.
       { find: /^(go|system)\/(.*)$/, replacement: path.resolve(__dirname, "../src") + "/$1/$2" },
+      // The game's source, from the clone outside this repo (never copied in).
+      { find: /^@bitburner\/(.*)$/, replacement: vendor + "/$1" },
       { find: "@enums", replacement: path.join(stubs, "enums.ts") },
       { find: "@player", replacement: path.join(stubs, "player.ts") },
       { find: /^.*\/utils\/Utility$/, replacement: path.join(stubs, "utility.ts") },

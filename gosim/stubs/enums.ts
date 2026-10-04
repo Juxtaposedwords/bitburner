@@ -1,4 +1,4 @@
-export * from "/home/maloy/Development/vendor/bitburner-src/src/Go/Enums";
+export * from "@bitburner/Go/Enums";
 export enum AugmentationName {
   TheRedPill = "The Red Pill",
 }
