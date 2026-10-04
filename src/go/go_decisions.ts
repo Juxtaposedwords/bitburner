@@ -148,6 +148,29 @@ export function pickOpponent(
   return [...available].sort((a, b) => winRate(b) - winRate(a))[0];
 }
 
+/**
+ * The game's difficulty multiplier on node power (Go/effects/effect.ts):
+ * (komi + 0.5) / 4, except a fixed 8 for a 5x5 board against Illuminati
+ * (komi 7.5) - four times its usual 2. That board starts with two
+ * handicap stones and is nearly unwinnable, but a loss still pays half.
+ */
+export const ILLUMINATI_KOMI = 7.5;
+export function difficultyMultiplier(komi: number, boardSize: number): number {
+  return boardSize === 5 && komi === ILLUMINATI_KOMI ? 8 : (komi + 0.5) * 0.25;
+}
+
+/** The game's win-streak multiplier: 0.5 for a loss, more for a streak or for breaking a losing one. */
+export function winStreakMultiplier(winStreak: number, previousWinStreak: number): number {
+  if (winStreak < 0) return 0.5;
+  if (previousWinStreak < 0 && winStreak > 0) return 1 + 0.5 * Math.min(-previousWinStreak, 8);
+  return 1 + 0.25 * Math.min(winStreak, 8);
+}
+
+/** Node power a finished game adds: our score (stones + territory) times both multipliers. */
+export function nodePowerGained(blackScore: number, komi: number, boardSize: number, winStreak: number, previousWinStreak: number): number {
+  return blackScore * difficultyMultiplier(komi, boardSize) * winStreakMultiplier(winStreak, previousWinStreak);
+}
+
 export const GO_STATUS_PATH = "/var/go_status.txt";
 export const GO_STATE_PATH = "/var/go_state.txt";
 

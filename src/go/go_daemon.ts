@@ -10,6 +10,7 @@ import {
   GoConfig,
   GoStateFile,
   GoStatusFile,
+  nodePowerGained,
   pickOpponent,
   recordResult,
 } from "go/go_decisions";
@@ -58,10 +59,14 @@ function writeStatus(ns: NS, config: GoConfig, state: GoStateFile, opponent: str
   ns.write(GO_STATUS_PATH, JSON.stringify(status), "w");
 }
 
-/** Plays the current game to the end as black; true if we won. */
-async function playGame(ns: NS, log: Logger, boardSize: number): Promise<boolean> {
+type GameResult = { won: boolean; blackScore: number; whiteScore: number; power: number; seconds: number };
+
+/** Plays the current game to the end as black. */
+async function playGame(ns: NS, log: Logger, boardSize: number): Promise<GameResult> {
+  const started = Date.now();
   const opponent = ns.go.getOpponent();
-  const winsBefore = ns.go.analysis.getStats()[opponent]?.wins ?? 0;
+  const before = ns.go.analysis.getStats()[opponent];
+  const winsBefore = before?.wins ?? 0;
   // A cap on our own moves - the game ends long before this; it only
   // guards against a position the engine misreads forever.
   const maxMoves = boardSize * boardSize * 3;
@@ -81,7 +86,16 @@ async function playGame(ns: NS, log: Logger, boardSize: number): Promise<boolean
     }
     if (result.type === "gameOver") break;
   }
-  return (ns.go.analysis.getStats()[opponent]?.wins ?? 0) > winsBefore;
+  const after = ns.go.analysis.getStats()[opponent];
+  const { blackScore, whiteScore, komi } = ns.go.getGameState();
+  const size = ns.go.getBoardState().length;
+  return {
+    won: (after?.wins ?? 0) > winsBefore,
+    blackScore,
+    whiteScore,
+    power: nodePowerGained(blackScore, komi, size, after?.winStreak ?? 0, before?.winStreak ?? 0),
+    seconds: (Date.now() - started) / 1000,
+  };
 }
 
 export async function main(ns: NS): Promise<void> {
@@ -124,13 +138,15 @@ export async function main(ns: NS): Promise<void> {
     }
 
     const opponent = ns.go.getOpponent();
-    const won = await playGame(ns, log, config.boardSize);
+    const game = await playGame(ns, log, config.boardSize);
+    const won = game.won;
     state = { ...state, results: recordResult(state.results, opponent, won) };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
     writeStatus(ns, config, state, opponent);
     const bonus = ns.go.analysis.getStats()[opponent];
     await log.info(
-      `[Go] ${won ? "Won" : "Lost"} against ${opponent} (${describeResults(state.results[opponent])} recently)` +
+      `[Go] ${won ? "Won" : "Lost"} against ${opponent} ${game.blackScore}-${game.whiteScore} on ${ns.go.getBoardState().length}x` +
+        ` in ${game.seconds.toFixed(0)}s, +${game.power.toFixed(1)} power (${describeResults(state.results[opponent])} recently)` +
         (bonus ? `; bonus ${bonus.bonusPercent.toFixed(1)}% ${bonus.bonusDescription}, streak ${bonus.winStreak}.` : ".")
     );
     await ns.asleep(BETWEEN_GAMES_MS);

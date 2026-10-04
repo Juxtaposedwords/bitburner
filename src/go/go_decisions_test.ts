@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseMove, evaluateMove, pickOpponent, recordResult, RESULT_WINDOW } from "go/go_decisions";
+import { chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, pickOpponent, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
 
 describe("chooseMove", () => {
   it("captures when it can", () => {
@@ -68,5 +68,23 @@ describe("recordResult", () => {
     let results: Record<string, boolean[]> = {};
     for (let i = 0; i < RESULT_WINDOW + 5; i++) results = recordResult(results, "Netburners", i % 2 === 0);
     expect(results.Netburners).toHaveLength(RESULT_WINDOW);
+  });
+});
+
+describe("node power (the game's formula)", () => {
+  it("pays 8x for a 5x5 board against Illuminati, (komi + 0.5) / 4 otherwise", () => {
+    expect(difficultyMultiplier(7.5, 5)).toBe(8);
+    expect(difficultyMultiplier(7.5, 7)).toBe(2);
+    expect(difficultyMultiplier(5.5, 5)).toBe(1.5);
+  });
+
+  it("halves a loss and rewards streaks", () => {
+    expect(winStreakMultiplier(-1, 2)).toBe(0.5);
+    expect(winStreakMultiplier(3, 2)).toBe(1.75);
+    expect(winStreakMultiplier(1, -4)).toBe(3);
+  });
+
+  it("multiplies the score by both", () => {
+    expect(nodePowerGained(10, 7.5, 5, -1, -1)).toBe(40);
   });
 });

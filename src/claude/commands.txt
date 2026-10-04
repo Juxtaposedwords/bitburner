@@ -384,6 +384,36 @@
       "id": "2026-10-04-start-go",
       "script": "go/go_daemon.js",
       "note": "first live run of the IPvGO daemon"
+    },
+    {
+      "id": "2026-10-04-go-5x5-0",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "boardSize",
+        "5"
+      ],
+      "note": "measure 5x5 vs Illuminati (x8 difficulty multiplier)"
+    },
+    {
+      "id": "2026-10-04-go-5x5-1",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "opponents",
+        "[\"Illuminati\"]"
+      ],
+      "note": "measure 5x5 vs Illuminati (x8 difficulty multiplier)"
+    },
+    {
+      "id": "2026-10-04-go-5x5-2",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/go.txt",
+        "minWinRate",
+        "0"
+      ],
+      "note": "measure 5x5 vs Illuminati (x8 difficulty multiplier)"
     }
   ]
 }
