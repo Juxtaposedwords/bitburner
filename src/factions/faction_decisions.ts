@@ -39,6 +39,10 @@ export type FactionRepsFile = {
   // (player x BitNode) against what Daedalus's hacking requirement needs.
   hackingMult?: number;
   requiredHackingMult?: number;
+  // Everything to destroy the World Daemon is in place (readyToFinish), and
+  // the BitNode the faction config's nextBitNode finishes into (0: none).
+  finishReady?: boolean;
+  nextBitNode?: number;
   // See favorPlan: factions being worked up to donation favor, and whether
   // all of them are there (time to install).
   favorPlan?: FavorPlanEntry[];
@@ -264,6 +268,16 @@ export function favorPlan(
     plan.push({ faction, augmentation: biggest.name, rep: reps[faction] ?? 0, target });
   }
   return plan;
+}
+
+/**
+ * Whether the BitNode can be finished now: The Red Pill installed (not
+ * just bought), the World Daemon visible, and hacking at its requirement.
+ * BN12's first run sat ready for 40 minutes: nothing finished it, by
+ * design, until someone noticed.
+ */
+export function readyToFinish(redPillInstalled: boolean, worldDaemonVisible: boolean, hackingLevel: number, requiredLevel: number): boolean {
+  return redPillInstalled && worldDaemonVisible && hackingLevel >= requiredLevel;
 }
 
 /**

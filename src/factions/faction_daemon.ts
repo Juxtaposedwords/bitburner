@@ -63,6 +63,7 @@ import {
   hasAnyCityFaction,
   favorPlan,
   donationTarget,
+  readyToFinish,
   DAEDALUS,
   favorPlanReady,
   gangTrainingStat,
@@ -116,6 +117,9 @@ type GymLocationNameType = Parameters<NS["singularity"]["gymWorkout"]>[0];
 type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 
 const WORLD_DAEMON = "w0r1d_d43m0n";
+const FINISH_TOOL = "tools/finish_bitnode.js";
+// finish_bitnode.js launched this run (it ends the BitNode, and this script with it).
+let finishLaunched = false;
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
 // Every install, newest INSTALL_HISTORY_CAP (archived locally by the bridge).
@@ -295,6 +299,11 @@ export type FactionConfig = {
   // (system/phase.ts's requiredHackingMult).
   finishHackingLevel: number;
   finishExpBudget: number;
+  // The BitNode to start once this one can be finished (readyToFinish):
+  // tools/finish_bitnode.js runs on its own. 0 leaves it to a person
+  // (tools/status.js flags it) - finishing can't be undone, and a BitNode
+  // kept on purpose (BN10 for Covenant sleeves) mustn't end by accident.
+  nextBitNode: number;
 };
 
 // Window the AUGMENTS focus wait limit measures income over.
@@ -315,6 +324,7 @@ export const DEFAULT_CONFIG: FactionConfig = {
   // BN12: one 80-minute stint reached 1.2e10 at 3.25e8/min and rising, so
   // ~6 hours reaches ~3e11 (3e10 asked for a 4.37 multiplier, not 3.88).
   finishExpBudget: 3e11,
+  nextBitNode: 0,
   autoDonate: true,
   donationSpendFraction: 0.9,
   bootScript: "boot.js",
@@ -1097,7 +1107,26 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const companyGoals = config.pursueCompanyTargets
     ? await gatherCompanyTargets(ns, log, config, joinedFactions, owned, player.jobs as Partial<Record<string, string>>, usefulStats)
     : [];
+  // The finish line itself: launch tools/finish_bitnode.js once (it checks
+  // everything again before destroying the World Daemon).
+  const worldVisible = ns.serverExists(WORLD_DAEMON);
+  const finishReady = readyToFinish(
+    ns.singularity.getOwnedAugmentations(false).includes(RED_PILL),
+    worldVisible,
+    player.skills.hacking,
+    worldVisible ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : Infinity
+  );
+  if (finishReady && config.nextBitNode > 0 && !finishLaunched) {
+    if (ns.run(FINISH_TOOL, 1, config.nextBitNode, "--confirm") !== 0) {
+      finishLaunched = true;
+      await log.info(`[Faction] The BitNode can be finished: running ${FINISH_TOOL} ${config.nextBitNode} --confirm.`);
+    } else {
+      await log.warn(`[Faction] The BitNode can be finished, but ${FINISH_TOOL} couldn't start (RAM?); retrying.`);
+    }
+  }
   const repsFile: FactionRepsFile = {
+    finishReady,
+    nextBitNode: config.nextBitNode,
     hackingMult,
     requiredHackingMult: neededMult,
     companyTargets: companyGoals,

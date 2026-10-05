@@ -2176,6 +2176,13 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
   | AUGMENTS (multiply) | Donations are open | Donations and installs build the hacking multiplier |
   | DAEDALUS | With `pursueRedPill`: the hacking multiplier can reach `finishHackingLevel` (2500) within one stint of `finishExpBudget` (3e11) experience (`requiredHackingMult`; 3e11 is about 6 hours at BN12's measured rate), or Daedalus is joined | No installs except ones that bank Daedalus favor or install The Red Pill. Only The Red Pill is bought. The work slot studies until the invite, then earns Daedalus reputation, and cash is held for the invite |
 
+  **Finishing:** once The Red Pill is installed, the World Daemon is visible and hacking meets its
+  requirement (`readyToFinish`), the faction daemon runs `tools/finish_bitnode.js <nextBitNode>
+  --confirm` itself. That's only when the faction config's `nextBitNode` is set. At 0, the default,
+  `tools/status.js` warns instead. Finishing can't be undone, and a BitNode kept on purpose (BN10,
+  for Covenant sleeves) mustn't end by accident. BN12's first run sat ready to finish for 40
+  minutes before anyone noticed.
+
   Each phase's behavior is in `phasePolicy`. The earlier version had two phases (GANG, then
   AUGMENTS for good). It installed every 15–20 minutes for whatever was affordable, including
   combat augmentations with combat stats under 10. In 15 hours of BN12 it never made a faction

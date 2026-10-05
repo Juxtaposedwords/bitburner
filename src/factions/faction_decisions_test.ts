@@ -7,6 +7,7 @@ import {
   describeUnmetRequirements,
   combatBlocksInvite,
   donationTarget,
+  readyToFinish,
   companyRepRequirement,
   companyTargets,
   sleeveSavings,
@@ -1118,5 +1119,14 @@ describe("donationTarget", () => {
 
   it("is undefined once any faction takes donations", () => {
     expect(donationTarget(["Sector-12"], {}, { "Sector-12": 160 }, 153, favorToRep)).toBeUndefined();
+  });
+});
+
+describe("readyToFinish", () => {
+  it("needs The Red Pill installed, the World Daemon visible and its hacking level", () => {
+    expect(readyToFinish(true, true, 16679, 3060)).toBe(true);
+    expect(readyToFinish(false, true, 16679, 3060)).toBe(false);
+    expect(readyToFinish(true, false, 16679, 3060)).toBe(false);
+    expect(readyToFinish(true, true, 3000, 3060)).toBe(false);
   });
 });

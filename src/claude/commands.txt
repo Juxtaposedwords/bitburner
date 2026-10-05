@@ -486,6 +486,16 @@
         "--confirm"
       ],
       "note": "user: finish BN12 and run BN12 again to test the phase changes"
+    },
+    {
+      "id": "2026-10-05-next-bitnode-12",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/faction.txt",
+        "nextBitNode",
+        "12"
+      ],
+      "note": "user: keep repeating BN12 while the process improves"
     }
   ]
 }

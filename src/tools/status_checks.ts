@@ -40,6 +40,8 @@ export type StatusSnapshot = {
     repTargets?: Record<string, number>;
     favorPlan?: { faction: string }[];
     karmaCrime?: string;
+    finishReady?: boolean;
+    nextBitNode?: number;
     writtenAt: number;
   };
   gang?: { territory: number; worstWinChance: number; engaged: boolean; writtenAt: number };
@@ -251,6 +253,13 @@ function workChecks(s: StatusSnapshot): Finding[] {
     const match = /karma (-?\d+) \/ (-?\d+)/.exec(f.karmaCrime);
     const eta = match && s.rates.karma && s.rates.karma > 0 ? (Number(match[1]) - Number(match[2])) / s.rates.karma : undefined;
     findings.push({ level: "info", message: `Gang karma: ${f.karmaCrime}${eta !== undefined ? `, ~${formatMinutes(eta)} to go` : ""}.` });
+  }
+  if (f?.finishReady) {
+    findings.push(
+      f.nextBitNode
+        ? { level: "info", message: `BitNode ready to finish; finishing into BitNode ${f.nextBitNode} (faction config nextBitNode).` }
+        : { level: "WARN", message: "BitNode ready to finish: run tools/finish_bitnode.js <next> --confirm, or set nextBitNode in /etc/faction.txt." }
+    );
   }
   for (const sleeve of s.sleeves?.sleeves ?? []) {
     if (sleeve.goal === "idle") findings.push({ level: "WARN", message: `Sleeve ${sleeve.index} is idle.` });
