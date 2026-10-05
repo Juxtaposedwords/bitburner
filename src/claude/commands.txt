@@ -468,6 +468,15 @@
         "/var/claude_out/load_report.txt"
       ],
       "note": "profile: what the game is busy with"
+    },
+    {
+      "id": "2026-10-05-load-report-2",
+      "script": "tools/load_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/load_report.txt"
+      ],
+      "note": "after the allocator fix, Go off"
     }
   ]
 }
