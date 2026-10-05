@@ -1747,9 +1747,10 @@ augmentation was bought, and exactly when); this answers "what's the trend."
 
 ## IPvGO: `go/go_daemon.ts`
 
-**Off since 2026-10-04:** not launched by boot and not managed by the reloader, while the game was
-freezing (608K batch workers were the main load; Go was suspected too). To turn it back on, add it
-to boot's ordered list and `MANAGED_DAEMONS`, and remove `/etc/go.txt`'s `"enabled": false`.
+**Back on since 2026-10-05.** It was off while the game was freezing. The cause was 608K batch
+workers, fixed by the allocator. Go itself was measured at well under 1% of the game's thread. It
+came back with the faster engine, per-move deadlines and a guard against spinning on a settled
+opponent-turn promise.
 
 Plays IPvGO without stopping. Each win raises the opponent faction's node power, which grows a
 lasting bonus:

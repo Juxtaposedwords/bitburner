@@ -505,6 +505,11 @@
         "/var/claude_out/load_go_off.txt"
       ],
       "note": "baseline before turning IPvGO back on"
+    },
+    {
+      "id": "2026-10-05-start-go",
+      "script": "go/go_daemon.js",
+      "note": "IPvGO back on: faster engine, move deadlines, spin guard"
     }
   ]
 }
