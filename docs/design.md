@@ -1790,6 +1790,15 @@ lasting bonus:
   | Slum Snakes, Netburners | tied | tied |
 
   The daemon still checks live: UCB1 over the first strategy and one comparison.
+- **Game history** (`/var/go_history.txt`): every finished game is logged as one JSON line:
+  - opponent, strategy and board size
+  - the starting board, and whether the game was resumed after a restart or redealt
+  - every move (`X12`, `Opass`, ...)
+  - both scores, the result, node power and length
+
+  The game keeps the newest 300. The bridge appends each new one to
+  `game/archive/go_history.jsonl` on this machine, which keeps them all. Use it to evaluate
+  strategies on real games later.
 - **Opponent priors:** until our own games say otherwise, each 5×5 opponent's power per game is
   taken from those benchmarks (`OPPONENTS.powerPerGame5x5`), weighted as five games.
 - **Search on small boards** (`chooseMoveMinimax`, used up to `searchMaxBoardSize`, 5 by

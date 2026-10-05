@@ -8,7 +8,9 @@ import {
   difficultyMultiplier,
   describeResults,
   GO_STATE_PATH,
+  GO_HISTORY_PATH,
   GO_STATUS_PATH,
+  appendHistory,
   GoConfig,
   GoStateFile,
   GoStatusFile,
@@ -77,6 +79,9 @@ function writeStatus(ns: NS, config: GoConfig, state: GoStateFile, opponent: str
 }
 
 type GameResult = {
+  start: string[];
+  resumed: boolean;
+  line: string[];
   won: boolean;
   blackScore: number;
   whiteScore: number;
@@ -112,6 +117,14 @@ async function nextMove(ns: NS, config: GoConfig, strategy: Strategy, opponent: 
 async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strategy): Promise<GameResult> {
   const started = Date.now();
   const opponent = ns.go.getOpponent();
+  const start = ns.go.getBoardState();
+  // Moves already on the board: a game a restart left half-played.
+  const resumed = ns.go.getMoveHistory().length > 0;
+  const line: string[] = [];
+  const record = (color: "X" | "O", r: { type: string; x: number | null; y: number | null }): void => {
+    if (r.type === "move" && r.x !== null && r.y !== null) line.push(`${color}${r.x}${r.y}`);
+    else if (r.type === "pass") line.push(`${color}pass`);
+  };
   const before = ns.go.analysis.getStats()[opponent];
   const winsBefore = before?.wins ?? 0;
   // A cap on our own moves - the game ends long before this; it only
@@ -119,19 +132,23 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
   const maxMoves = config.boardSize * config.boardSize * 3;
   for (let moves = 0; ns.go.getCurrentPlayer() !== "None"; moves++) {
     if (ns.go.getCurrentPlayer() === "White") {
-      await ns.go.opponentNextTurn(false);
+      record("O", await ns.go.opponentNextTurn(false));
       continue;
     }
     const passed = ns.go.getGameState().previousMove === null && moves > 0;
     const choice: MoveChoice = moves < maxMoves ? await nextMove(ns, config, strategy, opponent, passed) : { kind: "pass" };
     let result;
+    let refused = false;
     try {
       result = choice.kind === "move" ? await ns.go.makeMove(choice.x, choice.y) : await ns.go.passTurn();
     } catch (e) {
       // The game refused the move (a rule the engine doesn't model): pass instead.
       await log.warn(`[Go] Move refused (${String(e)}); passing.`);
+      refused = true;
       result = await ns.go.passTurn();
     }
+    line.push(choice.kind === "move" && !refused ? `X${choice.x}${choice.y}` : "Xpass");
+    record("O", result);
     if (result.type === "gameOver") break;
   }
   const after = ns.go.analysis.getStats()[opponent];
@@ -139,6 +156,9 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
   const size = ns.go.getBoardState().length;
   const won = (after?.wins ?? 0) > winsBefore;
   return {
+    start,
+    resumed,
+    line,
     won,
     value: strategyValue(blackScore, difficultyMultiplier(komi, size), won),
     blackScore,
@@ -165,6 +185,7 @@ export async function main(ns: NS): Promise<void> {
       continue;
     }
 
+    let redeals = 0;
     if (ns.go.getCurrentPlayer() === "None") {
       const weights = { ...readPhasePolicy(ns).goWeights, ...config.opponentWeights };
       const gamesPlayed = Object.fromEntries(Object.entries(ns.go.analysis.getStats()).map(([name, s]) => [name, s.wins + s.losses]));
@@ -190,7 +211,7 @@ export async function main(ns: NS): Promise<void> {
       // A bad deal (shouldRedeal) is reset before our first move. That's
       // free by the game's docs; checked anyway - if a redeal ever changes
       // the record or the streak, redealing stops for good.
-      for (let redeals = 0; !state.redealCostly && redeals < MAX_REDEALS && shouldRedeal(next, board); redeals++) {
+      for (; !state.redealCostly && redeals < MAX_REDEALS && shouldRedeal(next, board); redeals++) {
         const before = ns.go.analysis.getStats()[next as GoOpponentName];
         board = ns.go.resetBoardState(next as GoOpponentName, config.boardSize) ?? board;
         const after = ns.go.analysis.getStats()[next as GoOpponentName];
@@ -217,6 +238,25 @@ export async function main(ns: NS): Promise<void> {
       redealCostly: state.redealCostly,
     };
     ns.write(GO_STATE_PATH, JSON.stringify(state), "w");
+    ns.write(
+      GO_HISTORY_PATH,
+      appendHistory(ns.read(GO_HISTORY_PATH), {
+        at: Date.now(),
+        opponent,
+        strategy: strategy.name,
+        size: game.start.length,
+        start: game.start,
+        resumed: game.resumed,
+        redeals,
+        line: game.line,
+        blackScore: game.blackScore,
+        whiteScore: game.whiteScore,
+        won,
+        power: game.power,
+        seconds: game.seconds,
+      }),
+      "w"
+    );
     writeStatus(ns, config, state, opponent);
     const bonus = ns.go.analysis.getStats()[opponent];
     await log.info(

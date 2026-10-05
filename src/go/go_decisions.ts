@@ -394,3 +394,38 @@ export type GoStatusFile = {
 export function describeResults(results: boolean[]): string {
   return `${results.filter(Boolean).length}/${results.length} won`;
 }
+
+/**
+ * Every finished game, for evaluating strategies later: the newest
+ * GO_HISTORY_CAP games as JSON lines in the game (the save stays small);
+ * build/bridge.mjs appends each new one to game/archive/go_history.jsonl
+ * on this machine, which keeps them all.
+ */
+export const GO_HISTORY_PATH = "/var/go_history.txt";
+export const GO_HISTORY_CAP = 300;
+
+export type GoHistoryEntry = {
+  // When the game ended (ms) - with the opponent, the entry's identity.
+  at: number;
+  opponent: string;
+  strategy: string;
+  size: number;
+  // The board as dealt (after redeals), or as found when a restart resumed a game.
+  start: Board;
+  resumed: boolean;
+  redeals: number;
+  // Moves in order: "X12" / "O30" (color, x, y) or "Xpass" / "Opass".
+  line: string[];
+  blackScore: number;
+  whiteScore: number;
+  won: boolean;
+  power: number;
+  seconds: number;
+};
+
+/** The history file's contents with `entry` added, keeping the newest `cap`. */
+export function appendHistory(raw: string, entry: GoHistoryEntry, cap = GO_HISTORY_CAP): string {
+  const lines = raw.split("\n").filter((l) => l.trim() !== "");
+  lines.push(JSON.stringify(entry));
+  return lines.slice(-cap).join("\n") + "\n";
+}

@@ -82,6 +82,48 @@ async function pushAll() {
 
 // Last content written per mirrored file, so unchanged files aren't rewritten.
 const mirrored = new Map();
+
+// Game records the game only keeps the newest of (JSON lines with an `at`
+// and `opponent`), appended here as they arrive so none are lost.
+const ARCHIVES = { "var/go_history.txt": "archive/go_history.jsonl" };
+const archivedKeys = new Map();
+
+function archive(rel, content) {
+  const target = ARCHIVES[rel];
+  if (!target) return;
+  const file = path.join(MIRROR, target);
+  let seen = archivedKeys.get(rel);
+  if (!seen) {
+    seen = new Set();
+    if (fs.existsSync(file)) {
+      for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+        try {
+          const e = JSON.parse(line);
+          seen.add(`${e.at}|${e.opponent}`);
+        } catch {
+          // blank or partial line
+        }
+      }
+    }
+    archivedKeys.set(rel, seen);
+  }
+  const fresh = [];
+  for (const line of content.split("\n")) {
+    try {
+      const e = JSON.parse(line);
+      const key = `${e.at}|${e.opponent}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        fresh.push(line);
+      }
+    } catch {
+      // blank or partial line
+    }
+  }
+  if (fresh.length === 0) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, fresh.join("\n") + "\n");
+}
 let pulling = false;
 let firstPull = true;
 
@@ -99,6 +141,7 @@ async function pull() {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, content);
       mirrored.set(rel, content);
+      archive(rel, content);
       changed++;
     }
     fs.mkdirSync(MIRROR, { recursive: true });

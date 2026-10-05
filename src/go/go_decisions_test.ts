@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bonusFor, chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, OpponentRecord, pickOpponentByValue, powerNow, recordGame, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
+import { appendHistory, bonusFor, chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, OpponentRecord, pickOpponentByValue, powerNow, recordGame, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
 
 describe("chooseMove", () => {
   it("captures when it can", () => {
@@ -117,5 +117,20 @@ describe("opponent priors", () => {
       Daedalus: { games: 20, power: 600, totalGames: 20, totalPower: 600, totalSeconds: 200 },
     };
     expect(pickOpponentByValue({ Daedalus: 1, Illuminati: 0.7 }, records, { Illuminati: 1, Daedalus: 20 }, new Set(), 5)).toBe("Illuminati");
+  });
+});
+
+describe("appendHistory", () => {
+  const entry = (at: number) => ({ at, opponent: "Daedalus", strategy: "model", size: 5, start: ["....."], resumed: false, redeals: 0, line: ["X22", "Opass"], blackScore: 20, whiteScore: 5.5, won: true, power: 40, seconds: 9 });
+
+  it("adds a game as a JSON line", () => {
+    const raw = appendHistory("", entry(1));
+    expect(JSON.parse(raw.trim()).at).toBe(1);
+  });
+
+  it("keeps only the newest games", () => {
+    let raw = "";
+    for (let i = 0; i < 5; i++) raw = appendHistory(raw, entry(i), 3);
+    expect(raw.trim().split("\n").map((l) => JSON.parse(l).at)).toEqual([2, 3, 4]);
   });
 });
