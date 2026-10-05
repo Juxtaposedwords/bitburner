@@ -1780,7 +1780,8 @@ lasting bonus:
     - its "smart" filter, which avoids moves that can be captured at once
     - the standard 3×3 shapes from Michi, an MIT-licensed Go engine
 
-    None of the game's code is copied: the game's source is used for testing only (`gosim/`).
+    None of the game's code is copied, and the repo doesn't reference the game's source. Offline
+    benchmarks play against this model (`GO_BENCH=1 npx vitest run src/go/go_bench`).
   - It predicts the real AI's move 53–81% of the time, depending on the opponent.
 
   Against the real AI, the model beat every plain-search strategy (node power per game):

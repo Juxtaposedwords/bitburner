@@ -15,7 +15,7 @@ import { chooseMove, DEFAULT_WEIGHTS, evaluateBoard, EvalWeights, MoveChoice, se
  * our own board rules. The 3x3 shapes are the standard set from Michi
  * (github.com/pasky/michi, MIT), which the game also uses.
  *
- * Fidelity against the real AI is measured offline in gosim/ (how often
+ * Fidelity against the real AI was measured offline (2026-10-04: how often
  * the model's most likely move is the one the AI plays).
  */
 export type Rng = () => number;
@@ -558,7 +558,7 @@ export function predictMove(opponent: string, board: Board, me: Stone, history: 
  * draws), each followed by our best one-ply answer, and scored by
  * evaluateBoard; the best average wins. Against the game's real
  * Illuminati this roughly doubled node power per game over the plain
- * search (gosim/). `yieldEvery` lets a caller in the game breathe between
+ * search (2026-10-04). `yieldEvery` lets a caller in the game breathe between
  * candidates - each is a few milliseconds of work.
  */
 export async function chooseMoveModeled(

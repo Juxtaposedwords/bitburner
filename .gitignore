@@ -25,5 +25,3 @@ Dockerfile
 *.code-workspace
 # Files mirrored out of the game by build/bridge.mjs
 /game/
-# Local Go benchmark output
-/gosim/*_results.txt

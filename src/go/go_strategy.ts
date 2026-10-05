@@ -38,7 +38,7 @@ const MODEL_ROLLOUT: Strategy = { name: "rollout4", kind: "model", depth: 1, wei
 
 /**
  * Candidates per opponent, the expected best first - from 60 games each
- * against the game's real AI (gosim/, node power per game): the opponent
+ * against the game's real AI (2026-10-04, node power per game): the opponent
  * model beat every search strategy against Illuminati (125.8 vs 69.7, with
  * follow-up), Tetrads (31.3 vs 21.7), Daedalus (34.2 vs 28.3) and The
  * Black Hand (23.8 vs 22.0), and tied against Slum Snakes and Netburners.
@@ -119,7 +119,7 @@ export const MAX_REDEALS = 5;
  * (free then: the game only charges a reset once moves are made). Against
  * Illuminati with its handicap stone on the center point we averaged ~81
  * node power a game vs ~112 otherwise (200 games against the real AI in
- * gosim/), so redealing those is worth ~+9%.
+ * 2026-10-04), so redealing those is worth ~+9%.
  */
 export function shouldRedeal(opponent: string, board: Board): boolean {
   const n = board.length;

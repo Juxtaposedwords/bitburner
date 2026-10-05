@@ -252,7 +252,7 @@ export function recordResult(results: Record<string, boolean[]>, opponent: strin
  * Each opponent's komi (its difficulty) and bonus power (what its node
  * power is worth), from the game's Go/Constants.ts; and the node power a
  * 5x5 game against it is worth with our first strategy (go_strategy.ts),
- * measured over 60 games against the real AI in gosim/ (streak part fixed:
+ * measured over 60 games against the real AI (2026-10-04; streak part fixed:
  * x1.25 a win, x0.5 a loss) - the prior until our own games say otherwise.
  */
 export const OPPONENTS: Record<string, { komi: number; bonusPower: number; powerPerGame5x5: number }> = {
