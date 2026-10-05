@@ -11,7 +11,10 @@ import { strategiesFor } from "go/go_strategy";
 // asked for:
 //   GO_BENCH=1 npx vitest run src/go/go_bench   (GO_GAMES, GO_OPPONENTS to narrow)
 // src/ has no Node types; the environment is read through globalThis.
-const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
+const node = (globalThis as { process?: { env: Record<string, string | undefined>; stderr: { write: (s: string) => void } } }).process;
+const env = node?.env ?? {};
+// The test runner hides console.log; results go to stderr.
+const report = (line: string): void => node?.stderr.write(line + "\n");
 const GAMES = Number(env.GO_GAMES ?? 30);
 const opponents = (env.GO_OPPONENTS ?? Object.keys(OPPONENTS).join(",")).split(",");
 
@@ -82,7 +85,7 @@ describe.skipIf(!env.GO_BENCH)("strategies against the model of the game's AI", 
           const g = await game(player, opponent, seed * 7919);
           wins += +g.won; value += g.value; ms += g.ms; moves += g.moves;
         }
-        console.log(`${opponent.padEnd(15)} ${name.padEnd(13)} ${wins}/${GAMES} won, value/game ${(value / GAMES).toFixed(1)}, ${(ms / moves).toFixed(1)} ms/move`);
+        report(`${opponent.padEnd(15)} ${name.padEnd(13)} ${wins}/${GAMES} won, value/game ${(value / GAMES).toFixed(1)}, ${(ms / moves).toFixed(1)} ms/move`);
       }
     }
   }, 3_600_000);

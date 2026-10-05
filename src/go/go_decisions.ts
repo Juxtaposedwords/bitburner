@@ -1,5 +1,6 @@
+import { Deadline, expired } from "system/deadline";
 import { appendJsonLine } from "system/history";
-import { area, Board, chainAt, chainsOf, countStones, emptyPoints, influence, neighbors, opponentOf, play, pointKey, Stone, territory } from "go/go_engine";
+import { area, Board, chainAt, chainsOf, countStones, emptyPoints, influenceBalance, neighbors, opponentOf, play, pointKey, Stone, territory } from "go/go_engine";
 
 /**
  * Move choice and opponent choice for go_daemon.ts - pure, so both are
@@ -68,8 +69,7 @@ export function evaluateMove(board: Board, x: number, y: number, me: Stone, hist
   // Area by influence (nearest stone), not strict borders: what the board
   // is heading toward, so open space counts before it's walled in.
   const balance = (b: Board): number => {
-    const owners = influence(b);
-    return area(b, me, owners) - area(b, enemy, owners);
+    return influenceBalance(b, me);
   };
   const areaGain = balance(next) - balance(board);
 
@@ -149,8 +149,7 @@ function chainSafety(board: Board, chain: { color: string; stones: unknown[]; li
 /** A position's value for `me`: area by influence, plus each side's group safety (eyes, liberties, connection). */
 export function evaluateBoard(board: Board, me: Stone, w: EvalWeights = DEFAULT_WEIGHTS): number {
   const enemy = opponentOf(me);
-  const owners = influence(board);
-  let value = w.area * (area(board, me, owners) - area(board, enemy, owners));
+  let value = w.area * influenceBalance(board, me);
   for (const chain of chainsOf(board, me)) value += chainSafety(board, chain, w);
   for (const chain of chainsOf(board, enemy)) value -= w.aggression * chainSafety(board, chain, w);
   return value;
@@ -195,7 +194,7 @@ export function sensibleMoves(board: Board, me: Stone, history: Board[] = [], on
  * 6.3 on average and was wiped out 22 times; depth 3 scores 9.8, is wiped
  * out 12 times and wins 10 (from 2), at ~8 ms a move (worst ~40 ms).
  */
-export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = [], depth = 2, w: EvalWeights = DEFAULT_WEIGHTS): MoveChoice {
+export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = [], depth = 2, w: EvalWeights = DEFAULT_WEIGHTS, deadline?: Deadline): MoveChoice {
   const enemy = opponentOf(me);
   const search = (b: Board, h: Board[], toMove: Stone, plies: number, alpha: number, beta: number): number => {
     if (plies === 0) return evaluateBoard(b, me, w);
@@ -211,7 +210,13 @@ export function chooseMoveMinimax(board: Board, me: Stone, history: Board[] = []
   };
   let best: MoveChoice = { kind: "pass" };
   let bestValue = -Infinity;
-  for (const m of sensibleMoves(board, me, history)) {
+  // Best-first by a quick evaluation, so a deadline (system/deadline.ts)
+  // cuts the least promising moves; at least one is always searched.
+  const roots = sensibleMoves(board, me, history)
+    .map((m) => ({ ...m, quick: evaluateBoard(m.next, me, w) }))
+    .sort((a, b) => b.quick - a.quick);
+  for (const m of roots) {
+    if (best.kind === "move" && expired(deadline)) break;
     const v = search(m.next, [...history, board], enemy, depth - 1, bestValue, Infinity);
     if (v > bestValue) {
       bestValue = v;
@@ -228,6 +233,10 @@ export type GoConfig = {
   // up to searchMaxBoardSize; bigger boards use the one-ply chooseMove.
   searchDepth: number;
   searchMaxBoardSize: number;
+  // Time allowed per move (system/deadline.ts): the search stops with its
+  // best move so far. The game runs every script on one thread, so a move
+  // that thinks long stalls everything else.
+  moveBudgetMs: number;
   // Overrides for the phase's opponent weights (system/phase.ts's
   // goWeights), e.g. {"Netburners": 0} to stop playing them.
   opponentWeights: Record<string, number>;
@@ -238,6 +247,7 @@ export const DEFAULT_CONFIG: GoConfig = {
   boardSize: 5,
   searchDepth: 3,
   searchMaxBoardSize: 5,
+  moveBudgetMs: 25,
   opponentWeights: {},
 };
 

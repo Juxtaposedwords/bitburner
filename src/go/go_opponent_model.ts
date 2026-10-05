@@ -1,3 +1,4 @@
+import { Deadline, expired } from "system/deadline";
 import { Board, neighbors, opponentOf, play, Point, pointKey, Stone } from "go/go_engine";
 import { chooseMove, DEFAULT_WEIGHTS, evaluateBoard, EvalWeights, MoveChoice, sensibleMoves } from "go/go_decisions";
 
@@ -157,20 +158,29 @@ function eyesByChain(c: Chains, color: string): Map<number, Region[]> {
 type Move = { x: number; y: number; oldLibs: number; newLibs: number };
 type EyeMove = { x: number; y: number; createsLife: boolean };
 
-/** Everything one position offers a faction, computed lazily (as the game does). */
-class Options {
+/**
+ * Everything one position offers a faction, computed lazily (as the game
+ * does). The analysis (legal moves, eyes, candidate lists) doesn't depend
+ * on the random draw, so one Options serves every sampled prediction of a
+ * position (predictMove's cache); useDraw sets the draw a prediction picks
+ * with. Rebuilding it for each of six samples was most of the model's cost.
+ */
+export class Options {
   readonly c: Chains;
   readonly enemy: Stone;
   readonly available: Point[];
   readonly contested: Point[];
   readonly endGame: boolean;
+  // The current prediction's random draw (useDraw).
+  rng = 0;
   private cache = new Map<string, unknown>();
+  // Picks made with the current draw, kept consistent within one prediction.
+  private picks = new Map<string, unknown>();
 
   constructor(
     readonly board: Board,
     readonly me: Stone,
     readonly history: Board[],
-    readonly rng: number,
     readonly smart: boolean,
     opponentPassed: boolean
   ) {
@@ -179,6 +189,13 @@ class Options {
     this.available = this.disputedTerritory();
     this.contested = this.contestedPoints(this.available, 99);
     this.endGame = this.contested.length === 0 && opponentPassed;
+  }
+
+  /** Starts a prediction with random draw `r`. */
+  useDraw(r: number): this {
+    this.rng = r;
+    this.picks.clear();
+    return this;
   }
 
   private memo<T>(key: string, f: () => T): T {
@@ -275,13 +292,13 @@ class Options {
   }
 
   defend(): Move | undefined {
-    return this.memo("defend", () => {
+    const top = this.memo("defendTop", () => {
       const rising = this.growthMoves().filter((m) => m.oldLibs <= 1 && m.newLibs > m.oldLibs);
       const best = Math.max(...rising.map((m) => m.newLibs - m.oldLibs));
-      if (!(best >= 1)) return undefined;
-      const top = rising.filter((m) => m.newLibs - m.oldLibs === best);
-      return top[Math.floor(Math.random() * top.length)];
+      return best >= 1 ? rising.filter((m) => m.newLibs - m.oldLibs === best) : [];
     });
+    if (!this.picks.has("defend")) this.picks.set("defend", top[Math.floor(this.rng * top.length)]);
+    return this.picks.get("defend") as Move | undefined;
   }
 
   defendCapture(): Move | undefined {
@@ -391,7 +408,7 @@ class Options {
 
   pattern(): Point | undefined {
     if (this.endGame) return undefined;
-    return this.memo("pattern", () => {
+    const moves = this.memo("patternMoves", () => {
       const moves: Point[] = [];
       for (let x = 0; x < this.board.length; x++) {
         for (let y = 0; y < this.board[x].length; y++) {
@@ -401,8 +418,9 @@ class Options {
           moves.push([x, y]);
         }
       }
-      return moves[Math.floor(this.rng * moves.length)];
+      return moves;
     });
+    return moves[Math.floor(this.rng * moves.length)];
   }
 
   random(): Point | undefined {
@@ -541,9 +559,24 @@ const SMART_CHANCE: Record<string, number> = { Netburners: 0, "Slum Snakes": 0.3
  * `opponentPassed`: the other side passed last turn (the AI then stops
  * extending the game when nothing is contested).
  */
-export function predictMove(opponent: string, board: Board, me: Stone, history: Board[], rng: Rng, opponentPassed = false): MoveChoice {
+export function predictMove(
+  opponent: string,
+  board: Board,
+  me: Stone,
+  history: Board[],
+  rng: Rng,
+  opponentPassed = false,
+  // Positions already analyzed during this move choice (chooseMoveModeled).
+  cache?: Map<string, Options>
+): MoveChoice {
   const smart = rng() < (SMART_CHANCE[opponent] ?? 1);
-  const options = new Options(board, me, history, rng(), smart, opponentPassed);
+  const key = `${board.join("/")}|${me}|${smart}|${opponentPassed}|${history.length}|${history[history.length - 1]?.join("") ?? ""}`;
+  let options = cache?.get(key);
+  if (!options) {
+    options = new Options(board, me, history, smart, opponentPassed);
+    cache?.set(key, options);
+  }
+  options.useDraw(rng());
   const priority = (PRIORITIES[opponent] ?? illuminatiPriority)(options, rng());
   const legal = (p: Point | undefined): p is Point => !!p && !!play(board, p[0], p[1], me, history);
   if (legal(priority)) return { kind: "move", x: priority[0], y: priority[1], score: 0 };
@@ -579,6 +612,10 @@ export async function chooseMoveModeled(
     // Points ("x,y") not to play this move.
     exclude?: Set<string>;
     opponentPassed?: boolean;
+    // Stop by this time with the best move so far (system/deadline.ts):
+    // candidates go best-first by a quick evaluation, and at least one is
+    // always weighed in full.
+    deadline?: Deadline;
     yieldEvery?: () => Promise<void>;
   } = {}
 ): Promise<MoveChoice> {
@@ -586,36 +623,62 @@ export async function chooseMoveModeled(
   const w = opts.weights ?? DEFAULT_WEIGHTS;
   let best: MoveChoice = { kind: "pass" };
   let bestValue = -Infinity;
-  const candidates: { x: number; y: number; next: Board; pass?: boolean }[] = sensibleMoves(board, me, history, opts.playOwnArea ?? false).filter(
-    (m) => !opts.exclude?.has(`${m.x},${m.y}`)
-  );
+  const candidates: { x: number; y: number; next: Board; pass?: boolean; quick?: number }[] = sensibleMoves(board, me, history, opts.playOwnArea ?? false)
+    .filter((m) => !opts.exclude?.has(`${m.x},${m.y}`))
+    .map((m) => ({ ...m, quick: evaluateBoard(m.next, me, w) }))
+    .sort((a, b) => b.quick - a.quick);
   if (opts.playOwnArea) candidates.push({ x: -1, y: -1, next: board, pass: true });
+  // Positions repeat across samples (the AI mostly plays the same move):
+  // analyze each, and pick our one-ply move in each, once per move choice.
+  const analyses = new Map<string, Options>();
+  const ourMoves = new Map<string, MoveChoice>();
+  const ourMove = (position: Board, line: Board[]): MoveChoice => {
+    const key = `${position.join("/")}|${line.length}`;
+    let choice = ourMoves.get(key);
+    if (!choice) {
+      choice = chooseMove(position, me, line);
+      ourMoves.set(key, choice);
+    }
+    return choice;
+  };
+  // A position's score: its evaluation, or with followUp our best one-ply
+  // answer's - the same for every sample that reaches it.
+  const scores = new Map<string, number>();
+  const scoreOf = (position: Board, line: Board[]): number => {
+    const key = `${position.join("/")}|${line.length}`;
+    let value = scores.get(key);
+    if (value === undefined) {
+      value = evaluateBoard(position, me, w);
+      if (opts.followUp ?? true) for (const f of sensibleMoves(position, me, line, opts.playOwnArea ?? false)) value = Math.max(value, evaluateBoard(f.next, me, w));
+      scores.set(key, value);
+    }
+    return value;
+  };
   for (const m of candidates) {
+    if (best.kind === "move" && expired(opts.deadline)) break;
     const after = m.pass ? history : [...history, board];
     let total = 0;
     for (let i = 0; i < samples; i++) {
       // Evenly spread draws: the same sample set for every candidate, so they're compared on equal terms.
       const draws = seededRng(1000 + i);
-      const reply = predictMove(opponent, m.next, opponentOf(me), after, draws, !!m.pass);
+      const reply = predictMove(opponent, m.next, opponentOf(me), after, draws, !!m.pass, analyses);
       const replied = reply.kind === "move" ? (play(m.next, reply.x, reply.y, opponentOf(me), after) ?? m.next) : m.next;
       let position = replied;
       const line = m.pass ? [...after] : [...after, m.next];
       for (let ply = 0; ply < (opts.rolloutPlies ?? 0); ply++) {
-        const ours = chooseMove(position, me, line);
+        const ours = ourMove(position, line);
         if (ours.kind === "move") {
           line.push(position);
           position = play(position, ours.x, ours.y, me, line) ?? position;
         }
-        const theirs = predictMove(opponent, position, opponentOf(me), line, draws);
+        const theirs = predictMove(opponent, position, opponentOf(me), line, draws, false, analyses);
         if (theirs.kind === "move") {
           line.push(position);
           position = play(position, theirs.x, theirs.y, opponentOf(me), line) ?? position;
         }
         if (ours.kind === "pass" && theirs.kind === "pass") break;
       }
-      let value = evaluateBoard(position, me, w);
-      if (opts.followUp ?? true) for (const f of sensibleMoves(position, me, line, opts.playOwnArea ?? false)) value = Math.max(value, evaluateBoard(f.next, me, w));
-      total += value;
+      total += scoreOf(position, line);
     }
     if (total / samples > bestValue) {
       bestValue = total / samples;

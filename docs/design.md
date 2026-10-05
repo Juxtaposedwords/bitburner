@@ -143,6 +143,20 @@ instead of `ns.scriptRunning()` — both would work, but `read()` is 0 GB and
 rather than once inside a one-shot script like `boot.ts`'s equivalent
 `launchAndWait` pattern (where paying that 1 GB once is a non-issue).
 
+## Deadlines across calls (`system/deadline.ts`)
+
+A `Deadline` is the time a call must be done by, passed down the stack by whoever asked, the same
+idea as gRPC's deadlines:
+- **The caller sets it.** Each layer passes it on, or a nearer one for a sub-step (`within`), never
+  a later one.
+- **Work that runs out of time returns its best result so far,** instead of each layer guessing a
+  timeout of its own.
+- **RPC:** generated clients take a `Deadline` or a number of milliseconds (default
+  `DEFAULT_TIMEOUT_MS`, 10 s). The envelope carries it, so a server handler sees the caller's
+  deadline in its `CallContext`. A request that arrives after its deadline isn't worked on and is
+  answered `DEADLINE_EXCEEDED`, because the caller has stopped waiting.
+- **Local computation:** IPvGO move choice takes the same type (see the IPvGO section).
+
 ## `PlayerService`: player context over RPC
 
 `player_metadata.proto` defines a second service, `PlayerService`, with
@@ -1765,6 +1779,21 @@ lasting bonus:
 
   It never fills its own territory, never puts its own chain in atari, and never drops a weak
   stone into the opponent's territory. When nothing scores above zero, it passes.
+- **Speed** (the game runs every script on one thread, so the time a move takes is time the
+  whole game waits):
+  - The board rules work on a numeric form of each board: one byte per point, neighbor lists
+    computed once per board size, and caches per board, with no string keys or maps on the hot
+    path.
+  - The opponent model analyzes each position once per move choice and reuses it across its
+    sampled predictions.
+  - Rollout4 against Illuminati went from about 130 ms per move to about 18 ms, and the model
+    from about 26 ms to about 4 ms, with identical play (the seeded benchmark reproduces game for
+    game).
+  - `GO_PROFILE=1 npx vitest run src/go/go_profile` times each piece.
+- **Deadlines** (`system/deadline.ts`, `moveBudgetMs` in `/etc/go.txt`, default 25): each move
+  is chosen under a deadline the daemon passes down. Candidates are tried best-first by a quick
+  evaluation, and the search stops at the deadline with its best move so far, so no move can
+  stall the game for long.
 - **RAM** stays about 10 GB, because the board rules are our own (`go_engine.ts`): only
   `getBoardState` and `makeMove` cost RAM (4 GB each). The game's analysis calls cost 8–16 GB
   each.

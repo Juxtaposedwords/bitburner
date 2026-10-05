@@ -21,6 +21,7 @@ import {
   recordResult,
 } from "go/go_decisions";
 import { readPhasePolicy } from "system/phase";
+import { deadlineIn } from "system/deadline";
 import { MAX_REDEALS, pickStrategy, recordStrategy, shouldRedeal, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
 import { chooseMoveModeled } from "go/go_opponent_model";
 
@@ -107,12 +108,13 @@ async function nextMove(ns: NS, config: GoConfig, strategy: Strategy, opponent: 
       followUp: strategy.followUp ?? false,
       rolloutPlies: strategy.rolloutPlies,
       opponentPassed,
+      deadline: deadlineIn(config.moveBudgetMs),
       yieldEvery: async () => {
         await ns.asleep(0);
       },
     });
   }
-  return chooseMoveMinimax(board, "X", history, Math.min(strategy.depth, config.searchDepth), strategy.weights);
+  return chooseMoveMinimax(board, "X", history, Math.min(strategy.depth, config.searchDepth), strategy.weights, deadlineIn(config.moveBudgetMs));
 }
 
 /** Plays the current game to the end as black. */

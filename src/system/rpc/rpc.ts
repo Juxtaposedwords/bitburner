@@ -1,12 +1,23 @@
 import { NS } from "@ns";
 import { Codes } from "system/rpc/status";
+import { Deadline, expired } from "system/deadline";
 
 export interface RpcEnvelope<T = any> {
     service: string;
     method: string;
     replyPort: number;
     payload: T;
+    // The caller's deadline (system/deadline.ts), as Date.now() ms.
+    deadline?: number;
 }
+
+/** What a handler knows about its call: the caller's deadline, to stop work it can't finish in time. */
+export interface CallContext {
+    deadline?: Deadline;
+}
+
+/** A client call's deadline when its caller passes none. */
+export const DEFAULT_TIMEOUT_MS = 10_000;
 
 // Module-level, not per-client: every generated client for every service
 // imports this same module, so one script using several different clients
@@ -118,7 +129,11 @@ export function NewServer(ns: NS, listenPort: number): RpcServer {
                     const handler = serviceHandlers[envelope.method];
                     if (!handler) throw new RpcError(Codes.UNIMPLEMENTED, `Method '${envelope.method}' not found on '${envelope.service}'.`);
 
-                    const result = await handler(envelope.payload);
+                    // A caller whose deadline has passed has stopped waiting:
+                    // don't spend the work on it.
+                    const deadline = envelope.deadline !== undefined ? { at: envelope.deadline } : undefined;
+                    if (expired(deadline)) throw new RpcError(Codes.DEADLINE_EXCEEDED, `Call to ${envelope.service}.${envelope.method} arrived after its deadline.`);
+                    const result = await handler(envelope.payload, { deadline } satisfies CallContext);
                     const response: RpcResponse = { status: Codes.OK, data: result };
                     ns.writePort(replyPort, JSON.stringify(response));
                 } catch (err: any) {

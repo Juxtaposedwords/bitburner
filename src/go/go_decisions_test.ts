@@ -1,5 +1,6 @@
+import { chooseMoveModeled } from "go/go_opponent_model";
 import { describe, expect, it } from "vitest";
-import { appendHistory, bonusFor, chooseMove, difficultyMultiplier, evaluateMove, nodePowerGained, OpponentRecord, pickOpponentByValue, powerNow, recordGame, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
+import { appendHistory, bonusFor, chooseMove, chooseMoveMinimax, difficultyMultiplier, evaluateMove, nodePowerGained, OpponentRecord, pickOpponentByValue, powerNow, recordGame, recordResult, RESULT_WINDOW, winStreakMultiplier } from "go/go_decisions";
 
 describe("chooseMove", () => {
   it("captures when it can", () => {
@@ -132,5 +133,15 @@ describe("appendHistory", () => {
     let raw = "";
     for (let i = 0; i < 5; i++) raw = appendHistory(raw, entry(i), 3);
     expect(raw.trim().split("\n").map((l) => JSON.parse(l).at)).toEqual([2, 3, 4]);
+  });
+});
+
+describe("move deadlines", () => {
+  const board = [".....", "..X..", ".XO..", "..X..", "....."];
+  const past = { at: 0 };
+
+  it("still plays a move (the best by the quick evaluation) when the deadline has already passed", async () => {
+    expect(chooseMoveMinimax(board, "X", [], 3, undefined, past).kind).toBe("move");
+    expect((await chooseMoveModeled("Illuminati", board, "X", [], { deadline: past })).kind).toBe("move");
   });
 });
