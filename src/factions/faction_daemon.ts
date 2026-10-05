@@ -312,7 +312,9 @@ export const DEFAULT_CONFIG: FactionConfig = {
   pursueCompanyTargets: true,
   pursueRedPill: true,
   finishHackingLevel: 2500,
-  finishExpBudget: 3e10,
+  // BN12: one 80-minute stint reached 1.2e10 at 3.25e8/min and rising, so
+  // ~6 hours reaches ~3e11 (3e10 asked for a 4.37 multiplier, not 3.88).
+  finishExpBudget: 3e11,
   autoDonate: true,
   donationSpendFraction: 0.9,
   bootScript: "boot.js",

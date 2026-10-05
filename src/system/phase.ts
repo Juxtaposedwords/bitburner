@@ -120,6 +120,10 @@ export type PhasePolicy = {
   donationTarget: boolean;
   // Only The Red Pill is bought; installs only bank favor or install it.
   redPillOnly: boolean;
+  // At least this fraction of the fleet runs share while anyone works a
+  // faction: in FACTION_GRIND rep is the only bottleneck and the hacking
+  // money it costs can't buy rep yet (BN12: $80T/min vs 756 rep/min).
+  shareFleetFraction: number;
   // What each IPvGO opponent's bonus is worth now (go_daemon.ts plays the
   // most weighted bonus per second): Illuminati faster hack/grow/weaken,
   // The Black Hand hacking money, Daedalus reputation, Netburners hacknet
@@ -150,6 +154,7 @@ export function phasePolicy(approach: Approach): PhasePolicy {
     grindFactions: approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS,
     donationTarget: approach === Approach.FACTION_GRIND,
     redPillOnly: approach === Approach.DAEDALUS,
+    shareFleetFraction: approach === Approach.FACTION_GRIND ? 0.6 : 0,
     shareByDefault: approach !== Approach.GROW_STATS && approach !== Approach.GANG,
     goWeights: GO_WEIGHTS_BY_APPROACH[approach] ?? GO_WEIGHTS_HACKING,
   };

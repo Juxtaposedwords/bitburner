@@ -73,7 +73,8 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
     reps || sleeves
       ? shareWanted(!!reps?.workTarget, (sleeves?.sleeves ?? []).map((s) => s.goal))
       : readPhasePolicy(ns).shareByDefault;
-  const target = config.enabled && repWork ? shareThreadTarget(totalRam, config.fleetFraction, ramPerThread) : 0;
+  const fraction = Math.max(config.fleetFraction, readPhasePolicy(ns).shareFleetFraction);
+  const target = config.enabled && repWork ? shareThreadTarget(totalRam, fraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);
 
@@ -92,7 +93,7 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
   }
 
   await log.debug(
-    `[Share] tick: repWork=${repWork} fleet=${(totalRam / 1024).toFixed(1)}TB fraction=${config.fleetFraction} target=${target} running=${runningThreads} ` +
+    `[Share] tick: repWork=${repWork} fleet=${(totalRam / 1024).toFixed(1)}TB fraction=${fraction} target=${target} running=${runningThreads} ` +
       `expectedBonus=x${shareBonus(target).toFixed(3)} actualSharePower=x${ns.getSharePower().toFixed(3)}`
   );
 }

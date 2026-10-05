@@ -73,6 +73,7 @@ describe("phasePolicy", () => {
   it("aims FACTION_GRIND at donation favor, and DAEDALUS at the Red Pill only", () => {
     expect(phasePolicy(Approach.FACTION_GRIND)).toMatchObject({ donationTarget: true, grindFactions: true, redPillOnly: false });
     expect(phasePolicy(Approach.DAEDALUS)).toMatchObject({ redPillOnly: true, grindFactions: true, installLoop: false, donationTarget: false });
+    expect(phasePolicy(Approach.FACTION_GRIND).shareFleetFraction).toBeGreaterThan(phasePolicy(Approach.AUGMENTS).shareFleetFraction);
   });
 
   it("hands the work slot to studying in GROW_STATS", () => {

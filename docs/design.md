@@ -2168,9 +2168,9 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
   | Phase | When | What it does |
   |---|---|---|
   | GANG | A gang is possible (BN2 or SF2) and not yet created | Karma, then the gang |
-  | FACTION_GRIND (favor) | No faction (other than the gang's) takes donations | Grinds the one faction closest to donation favor (`donationTarget`); installs only when that banks it |
+  | FACTION_GRIND (favor) | No faction (other than the gang's) takes donations | Grinds the one faction closest to donation favor (`donationTarget`); installs only when that banks it. Share runs on at least 60% of the fleet, since reputation is the bottleneck and hacking money can't buy it yet |
   | AUGMENTS (multiply) | Donations are open | Donations and installs build the hacking multiplier |
-  | DAEDALUS | With `pursueRedPill`: the hacking multiplier can reach `finishHackingLevel` (2500) within one stint of `finishExpBudget` (3e10) experience (`requiredHackingMult`), or Daedalus is joined | No installs except ones that bank Daedalus favor or install The Red Pill. Only The Red Pill is bought. The work slot studies until the invite, then earns Daedalus reputation, and cash is held for the invite |
+  | DAEDALUS | With `pursueRedPill`: the hacking multiplier can reach `finishHackingLevel` (2500) within one stint of `finishExpBudget` (3e11) experience (`requiredHackingMult`; 3e11 is about 6 hours at BN12's measured rate), or Daedalus is joined | No installs except ones that bank Daedalus favor or install The Red Pill. Only The Red Pill is bought. The work slot studies until the invite, then earns Daedalus reputation, and cash is held for the invite |
 
   Each phase's behavior is in `phasePolicy`. The earlier version had two phases (GANG, then
   AUGMENTS for good). It installed every 15–20 minutes for whatever was affordable, including
