@@ -459,6 +459,15 @@
       "id": "2026-10-04-restart-faction-daemon",
       "script": "factions/faction_daemon.js",
       "note": "restart after the half-built version crashed 3 times (reloader gave up)"
+    },
+    {
+      "id": "2026-10-04-load-report-1",
+      "script": "tools/load_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/load_report.txt"
+      ],
+      "note": "profile: what the game is busy with"
     }
   ]
 }
