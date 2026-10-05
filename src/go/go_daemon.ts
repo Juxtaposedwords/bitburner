@@ -42,6 +42,8 @@ export const CONFIG_PATH = "/etc/go.txt";
 type GoOpponentName = Parameters<NS["go"]["resetBoardState"]>[0];
 
 const BETWEEN_GAMES_MS = 1_000;
+// Pause when the opponent still hasn't moved after its turn promise settled.
+const WHITE_WAIT_MS = 200;
 const DISABLED_POLL_MS = 60_000;
 
 function readState(ns: NS): GoStateFile {
@@ -133,6 +135,12 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
   for (let moves = 0; ns.go.getCurrentPlayer() !== "None"; moves++) {
     if (ns.go.getCurrentPlayer() === "White") {
       record("O", await ns.go.opponentNextTurn(false));
+      // Awaiting an already-resolved promise doesn't let the game run: if
+      // the game says White is to move but the turn promise is already
+      // settled (the game leaves it resolved to gameOver in some states),
+      // this loop would spin and freeze the game. A real pause each time
+      // the opponent still hasn't moved breaks that.
+      if (ns.go.getCurrentPlayer() === "White") await ns.asleep(WHITE_WAIT_MS);
       continue;
     }
     const passed = ns.go.getGameState().previousMove === null && moves > 0;
