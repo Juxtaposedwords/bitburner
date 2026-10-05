@@ -45,6 +45,9 @@ const MAX_REVIVALS_PER_HOUR = 3;
 const CRASH_LOG_LINES = 5;
 // A queued command that can't start (no RAM) is retried this many checks.
 const MAX_COMMAND_ATTEMPTS = 30;
+// Checks a disallowed command is retried before it's refused for good.
+const MAX_COMMAND_REFUSALS = 6;
+const commandRefusals = new Map<string, number>();
 
 /** Fingerprints saved by the last reloader (RELOADER_STATE_PATH), by pid; {} if none. */
 function readSavedSignatures(ns: NS): Record<string, string> {
@@ -80,9 +83,18 @@ async function runQueuedCommands(ns: NS, log: Logger): Promise<void> {
   for (const { command, allowed } of pendingCommands(ns.read(COMMANDS_PATH), done)) {
     const label = `${command.script} ${(command.args ?? []).map((a) => JSON.stringify(a)).join(" ")}`.trim();
     if (!allowed) {
-      ns.tprint(`[Claude] Refused queued command ${command.id} (${label}): only tools/ scripts and managed daemons may run.`);
-      await log.warn(`[Reloader] Refused queued command ${command.id}: ${label}`);
-      markDone(command.id);
+      // Not refused for good at once: a command for a daemon just added to
+      // MANAGED_DAEMONS can arrive before this reloader has reloaded its own
+      // code (it exits on the change and log_rotator.js starts the new one) -
+      // IPvGO's restart was refused that way and had to be queued again.
+      const refusals = (commandRefusals.get(command.id) ?? 0) + 1;
+      commandRefusals.set(command.id, refusals);
+      if (refusals === 1) await log.warn(`[Reloader] Queued command ${command.id} isn't allowed (${label}); retrying in case my code is about to update.`);
+      if (refusals >= MAX_COMMAND_REFUSALS) {
+        ns.tprint(`[Claude] Refused queued command ${command.id} (${label}): only tools/ scripts and managed daemons may run.`);
+        await log.warn(`[Reloader] Refused queued command ${command.id}: ${label}`);
+        markDone(command.id);
+      }
       continue;
     }
     const pid = ns.run(command.script, 1, ...(command.args ?? []));
