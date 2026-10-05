@@ -477,6 +477,15 @@
         "/var/claude_out/load_report.txt"
       ],
       "note": "after the allocator fix, Go off"
+    },
+    {
+      "id": "2026-10-05-finish-bn12-into-bn12",
+      "script": "tools/finish_bitnode.js",
+      "args": [
+        12,
+        "--confirm"
+      ],
+      "note": "user: finish BN12 and run BN12 again to test the phase changes"
     }
   ]
 }
