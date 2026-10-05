@@ -41,6 +41,13 @@ enum Approach {
   // banks the favor and AUGMENTS turns cash into rep. Batches run as in
   // HACK; the Hacknet builds and share runs for the rep work.
   FACTION_GRIND = 6;
+  // The BitNode's finish line (with the faction config's pursueRedPill):
+  // the hacking multiplier is high enough to reach Daedalus's hacking
+  // requirement within one stint, or Daedalus is joined. No installs but
+  // the ones that bank Daedalus favor or install The Red Pill - each would
+  // reset the hacking level being built; the work slot studies until the
+  // invite, then earns Daedalus rep; only The Red Pill is bought.
+  DAEDALUS = 7;
 }
 
 message SchedulerConfig {

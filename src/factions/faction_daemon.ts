@@ -62,6 +62,8 @@ import {
   findBlockingRequirement,
   hasAnyCityFaction,
   favorPlan,
+  donationTarget,
+  DAEDALUS,
   favorPlanReady,
   gangTrainingStat,
   pendingAugmentations,
@@ -81,7 +83,7 @@ import {
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
-import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, SCHEDULER_CONFIG_PATH } from "system/phase";
+import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
   compareInstall,
@@ -281,6 +283,12 @@ export type FactionConfig = {
   // Work, save and buy toward The Red Pill (which leads to finishing the
   // BitNode). Off while staying in a BitNode on purpose.
   pursueRedPill: boolean;
+  // The finish line (with pursueRedPill): Daedalus's hacking requirement,
+  // and the hacking exp one long stint can be expected to reach - the
+  // DAEDALUS phase starts once the multiplier gets there with it
+  // (system/phase.ts's requiredHackingMult).
+  finishHackingLevel: number;
+  finishExpBudget: number;
 };
 
 // Window the AUGMENTS focus wait limit measures income over.
@@ -297,6 +305,8 @@ export const DEFAULT_CONFIG: FactionConfig = {
   sleeveSaveMinutes: 480,
   pursueCompanyTargets: true,
   pursueRedPill: true,
+  finishHackingLevel: 2500,
+  finishExpBudget: 3e10,
   autoDonate: true,
   donationSpendFraction: 0.9,
   bootScript: "boot.js",
@@ -966,7 +976,19 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // The phase from the game (derivePhase), published for every other
   // daemon; an explicit approach in /etc/scheduler.txt overrides it.
   const gangPossible = bitNodeGrants(readBitNodeInfo(ns), 2);
-  const phase = derivePhase(gangPossible, gangPossible && ns.gang.inGang());
+  const inGang = gangPossible && ns.gang.inGang();
+  const gangFactionName = inGang ? ns.gang.getGangInformation().faction : undefined;
+  const hackingMult = player.mults.hacking * (readBitNodeInfo(ns)?.multipliers?.HackingLevelMultiplier ?? 1);
+  const neededMult = requiredHackingMult(config.finishHackingLevel, config.finishExpBudget);
+  const phase = derivePhase({
+    gangAvailable: gangPossible,
+    inGang,
+    donationReady: joinedFactions.some((f) => f !== gangFactionName && ns.singularity.getFactionFavor(f as FactionNameType) >= ns.getFavorToDonate()),
+    pursueFinish: config.pursueRedPill,
+    hackingMult,
+    requiredHackingMult: neededMult,
+    inDaedalus: joinedFactions.includes(DAEDALUS),
+  });
   ns.write(PHASE_PATH, JSON.stringify({ ...phase, writtenAt: Date.now() } satisfies PhaseFile), "w");
   const policy = phasePolicy(parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach);
   const growingStats = policy.studyForStats;
@@ -1027,12 +1049,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const favors: Record<string, number> = Object.fromEntries(
     joinedFactions.map((faction) => [faction, ns.singularity.getFactionFavor(faction as FactionNameType)])
   );
-  const plan =
-    !growingStats && ns.fileExists("Formulas.exe", "home")
-      ? favorPlan(workable, reps, favors, useful, owned, ns.getFavorToDonate(), (favor) =>
-          ns.formulas.reputation.calculateFavorToRep(favor)
-        )
-      : [];
+  // FACTION_GRIND aims at the one faction closest to donation favor
+  // (donationTarget); otherwise factions selling something dearer than favor.
+  const favorToRep = (favor: number): number => ns.formulas.reputation.calculateFavorToRep(favor);
+  const formulas = ns.fileExists("Formulas.exe", "home");
+  const target = formulas && policy.donationTarget ? donationTarget(workable, reps, favors, ns.getFavorToDonate(), favorToRep) : undefined;
+  const plan = !growingStats && formulas ? (target ? [target] : favorPlan(workable, reps, favors, useful, owned, ns.getFavorToDonate(), favorToRep)) : [];
   const planReady = favorPlanReady(plan);
   if (planReady && !favorPlanWasReady) {
     await log.info(
@@ -1051,8 +1073,11 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
       : new Set<string>();
   // Rep is ground only up to where cash takes over (favor targets); never
   // for NeuroFlux, whose rep is bought with its price once donations open.
+  // DAEDALUS before the invite: rep elsewhere buys nothing that will be
+  // installed, so the slot goes free - study_daemon.ts studies for hacking.
+  const waitingForDaedalus = policy.redPillOnly && !joinedFactions.includes(DAEDALUS);
   const workTarget =
-    !growingStats && !karmaCrime && inviteAction.kind === "none" && joinedFactions.length > 0
+    !growingStats && !karmaCrime && !waitingForDaedalus && inviteAction.kind === "none" && joinedFactions.length > 0
       ? decideWorkTarget(workable, reps, catalogs.regular, owned, plan, donatable)
       : undefined;
   const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
@@ -1065,6 +1090,8 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     ? await gatherCompanyTargets(ns, log, config, joinedFactions, owned, player.jobs as Partial<Record<string, string>>, usefulStats)
     : [];
   const repsFile: FactionRepsFile = {
+    hackingMult,
+    requiredHackingMult: neededMult,
     companyTargets: companyGoals,
     inviteBlockers: invite?.blockers,
     favors,
@@ -1198,13 +1225,15 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     writtenAt: Date.now(),
   };
   ns.write(INSTALL_LOOP_PATH, JSON.stringify(loopFile), "w");
-  const spendCatalog = focusAug ? [focusAug] : buyCatalog;
+  // DAEDALUS buys only The Red Pill: anything else would sit pending, and
+  // its price would be cash not donated for Daedalus rep.
+  const spendCatalog = focusAug ? [focusAug] : policy.redPillOnly ? [] : buyCatalog;
   const focusRepGap = focusAug ? Math.max(0, focusAug.repReq - (reps[focusAug.faction] ?? 0)) : 0;
   const focusSavings =
     focusAug && config.autoPurchaseAugmentations ? focusAug.price + (focusRepGap > 0 ? donationForRep(focusRepGap) : 0) : 0;
   // In AUGMENTS, a wanted invite's cash requirement is saved for too - it
   // only counts cash on hand, and anything spent below it delays the invite.
-  const inviteSavings = augmentsMode ? (invite?.moneyNeeded?.amount ?? 0) : 0;
+  const inviteSavings = augmentsMode || policy.redPillOnly ? (invite?.moneyNeeded?.amount ?? 0) : 0;
   const savingsAmount = Math.max(focusSavings, inviteSavings, focusAug ? 0 : sleeveSave);
   writeSavings(
     ns,
@@ -1288,7 +1317,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const growStatsBlocks = installReady && growingStats && !(await growStatsInstallSaves(ns, log, config, player, pendingBoost));
   // FACTION_GRIND installs only once every favor target is met (grindAllowsInstall).
   const grindBlocks = installReady && grindMode && !grindAllowsInstall(plan, grinds);
-  if (!installReady || growStatsBlocks || grindBlocks) {
+  // DAEDALUS installs only to bank favor (every target met) or to install
+  // The Red Pill - any other install resets the hacking level being built.
+  const daedalusBlocks = installReady && policy.redPillOnly && !(pending.includes(RED_PILL) || planReady);
+  if (!installReady || growStatsBlocks || grindBlocks || daedalusBlocks) {
     if (readInstallPending(ns)) {
       clearInstallPending(ns);
       await log.info(

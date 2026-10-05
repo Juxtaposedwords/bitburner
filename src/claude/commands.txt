@@ -454,6 +454,11 @@
         "useBook"
       ],
       "note": "drop keys the phase-weighted Go config no longer has"
+    },
+    {
+      "id": "2026-10-04-restart-faction-daemon",
+      "script": "factions/faction_daemon.js",
+      "note": "restart after the half-built version crashed 3 times (reloader gave up)"
     }
   ]
 }

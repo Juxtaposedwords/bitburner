@@ -14,6 +14,7 @@ export enum Approach {
     AUGMENTS = 4,
     GANG = 5,
     FACTION_GRIND = 6,
+    DAEDALUS = 7,
 }
 
 export interface GetSchedulerConfigRequest {

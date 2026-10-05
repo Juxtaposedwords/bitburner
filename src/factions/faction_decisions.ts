@@ -24,6 +24,7 @@ import { matchesFocus } from "factions/skill_progress";
 export const NEUROFLUX_GOVERNOR = "NeuroFlux Governor";
 // Installing it reveals w0r1d_d43m0n - the BitNode's finish line.
 export const RED_PILL = "The Red Pill";
+export const DAEDALUS = "Daedalus";
 
 /**
  * Written by faction_daemon.ts every tick: every joined faction's current
@@ -34,6 +35,10 @@ export const RED_PILL = "The Red Pill";
 export const FACTION_REPS_PATH = "/var/faction_reps.txt";
 export type FactionRepsFile = {
   reps: Record<string, number>;
+  // The finish line (system/phase.ts's derivePhase): the hacking multiplier
+  // (player x BitNode) against what Daedalus's hacking requirement needs.
+  hackingMult?: number;
+  requiredHackingMult?: number;
   // See favorPlan: factions being worked up to donation favor, and whether
   // all of them are there (time to install).
   favorPlan?: FavorPlanEntry[];
@@ -259,6 +264,32 @@ export function favorPlan(
     plan.push({ faction, augmentation: biggest.name, rep: reps[faction] ?? 0, target });
   }
   return plan;
+}
+
+/**
+ * FACTION_GRIND's single favor target: the faction (not the gang's - it
+ * can't take donations) needing the least rep this run to reach donation
+ * favor at the next install. Donation favor anywhere turns money into rep
+ * there - NeuroFlux Governor levels and everything else it sells - which
+ * favorPlan alone never aimed at: it only counted factions selling one
+ * particular augmentation dearer than the favor, and BN12 went 15 hours
+ * without a single donatable faction. undefined when one already is.
+ */
+export function donationTarget(
+  workable: string[],
+  reps: Record<string, number>,
+  favors: Record<string, number>,
+  targetFavor: number,
+  favorToRep: (favor: number) => number
+): FavorPlanEntry | undefined {
+  if (workable.some((faction) => (favors[faction] ?? 0) >= targetFavor)) return undefined;
+  let best: FavorPlanEntry | undefined;
+  for (const faction of workable) {
+    const target = repForFavor(favors[faction] ?? 0, targetFavor, favorToRep);
+    const entry = { faction, augmentation: NEUROFLUX_GOVERNOR, rep: reps[faction] ?? 0, target };
+    if (!best || entry.target - entry.rep < best.target - best.rep) best = entry;
+  }
+  return best;
 }
 
 /**

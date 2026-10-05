@@ -6,6 +6,7 @@ import {
   focusStatsFor,
   describeUnmetRequirements,
   combatBlocksInvite,
+  donationTarget,
   companyRepRequirement,
   companyTargets,
   sleeveSavings,
@@ -1102,5 +1103,20 @@ describe("describeUnmetRequirements", () => {
       { type: "someCondition", conditions: [{ type: "skills", skills: { hacking: 1500 } }, { type: "skills", skills: { strength: 1200 } }] },
     ] as PlayerRequirement[];
     expect(describeUnmetRequirements(illuminati, snap, 30)).toEqual(["one of (hacking 1500 (have 612) | strength 1200 (have 900))"]);
+  });
+});
+
+describe("donationTarget", () => {
+  // The game's favor-to-rep curve: 25000 * (1.02^favor - 1).
+  const favorToRep = (f: number): number => 25000 * (Math.pow(1.02, f) - 1);
+
+  it("picks the faction needing the least rep this run to reach donation favor", () => {
+    const entry = donationTarget(["Sector-12", "NiteSec"], { "Sector-12": 47000, NiteSec: 9500 }, { "Sector-12": 73, NiteSec: 94 }, 153, favorToRep);
+    expect(entry?.faction).toBe("NiteSec");
+    expect(entry?.target).toBeCloseTo(favorToRep(153) - favorToRep(94), 0);
+  });
+
+  it("is undefined once any faction takes donations", () => {
+    expect(donationTarget(["Sector-12"], {}, { "Sector-12": 160 }, 153, favorToRep)).toBeUndefined();
   });
 });

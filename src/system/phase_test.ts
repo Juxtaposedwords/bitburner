@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePhase, parseApproach, parseApproachOverride, phasePolicy } from "system/phase";
+import { derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
 import { Approach } from "system/rpc/scheduler";
 
 describe("parseApproach", () => {
@@ -28,13 +28,33 @@ describe("parseApproachOverride", () => {
 });
 
 describe("derivePhase", () => {
+  const base: PhaseInputs = { gangAvailable: true, inGang: true, donationReady: true, pursueFinish: true, hackingMult: 3, requiredHackingMult: 4.4, inDaedalus: false };
+
   it("is GANG while a gang is possible but not created", () => {
-    expect(derivePhase(true, false).approach).toBe(Approach.GANG);
+    expect(derivePhase({ ...base, inGang: false }).approach).toBe(Approach.GANG);
   });
 
-  it("is AUGMENTS once the gang exists, or when gangs aren't possible", () => {
-    expect(derivePhase(true, true).approach).toBe(Approach.AUGMENTS);
-    expect(derivePhase(false, false).approach).toBe(Approach.AUGMENTS);
+  it("grinds favor until some faction takes donations", () => {
+    expect(derivePhase({ ...base, donationReady: false }).approach).toBe(Approach.FACTION_GRIND);
+  });
+
+  it("multiplies (AUGMENTS) with donations open and the multiplier short", () => {
+    expect(derivePhase(base).approach).toBe(Approach.AUGMENTS);
+    expect(derivePhase({ ...base, gangAvailable: false, inGang: false }).approach).toBe(Approach.AUGMENTS);
+  });
+
+  it("goes for Daedalus once the multiplier is enough or Daedalus is joined, only when pursuing the finish", () => {
+    expect(derivePhase({ ...base, hackingMult: 4.5 }).approach).toBe(Approach.DAEDALUS);
+    expect(derivePhase({ ...base, inDaedalus: true, donationReady: false }).approach).toBe(Approach.DAEDALUS);
+    expect(derivePhase({ ...base, hackingMult: 9, pursueFinish: false }).approach).toBe(Approach.AUGMENTS);
+  });
+});
+
+describe("requiredHackingMult", () => {
+  it("matches the game's skill formula", () => {
+    // BN12: level 1018 at 2.42e7 exp is a 2.96 multiplier.
+    expect(requiredHackingMult(1018, 2.42e7)).toBeCloseTo(2.96, 2);
+    expect(requiredHackingMult(2500, 3e10)).toBeGreaterThan(4);
   });
 });
 
@@ -48,6 +68,11 @@ describe("phasePolicy", () => {
 
   it("runs the focused install loop in AUGMENTS", () => {
     expect(phasePolicy(Approach.AUGMENTS)).toMatchObject({ installLoop: true, focusAugmentations: true, chaseGangKarma: false, shareByDefault: true });
+  });
+
+  it("aims FACTION_GRIND at donation favor, and DAEDALUS at the Red Pill only", () => {
+    expect(phasePolicy(Approach.FACTION_GRIND)).toMatchObject({ donationTarget: true, grindFactions: true, redPillOnly: false });
+    expect(phasePolicy(Approach.DAEDALUS)).toMatchObject({ redPillOnly: true, grindFactions: true, installLoop: false, donationTarget: false });
   });
 
   it("hands the work slot to studying in GROW_STATS", () => {

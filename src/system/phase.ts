@@ -52,13 +52,48 @@ export const PHASE_PATH = "/var/phase.txt";
 export type PhaseFile = { approach: Approach; reason: string; writtenAt: number };
 
 /**
- * The phase from the game: GANG while a gang is possible (BitNode 2 or
- * Source-File 2) and not created yet - karma, then creation; AUGMENTS
- * (the buy-and-install loop, which also banks favor) otherwise.
+ * The hacking multiplier (player x BitNode) at which `exp` hacking
+ * experience reaches `level`, by the game's skill formula: level =
+ * mult x (32 ln(exp + 534.6) - 200). Level grows with the log of exp, so
+ * past a point only the multiplier moves it - BN12 sat at 2.96 needing
+ * ~4.4 for Daedalus's 2500.
  */
-export function derivePhase(gangAvailable: boolean, inGang: boolean): { approach: Approach; reason: string } {
-  if (gangAvailable && !inGang) return { approach: Approach.GANG, reason: "gang possible, not created yet" };
-  return { approach: Approach.AUGMENTS, reason: gangAvailable ? "gang running" : "no gang in this BitNode" };
+export function requiredHackingMult(level: number, exp: number): number {
+  return level / (32 * Math.log(exp + 534.6) - 200);
+}
+
+export type PhaseInputs = {
+  gangAvailable: boolean;
+  inGang: boolean;
+  // Some faction (not the gang's) takes donations.
+  donationReady: boolean;
+  // The faction config's pursueRedPill: aim at the BitNode's end.
+  pursueFinish: boolean;
+  hackingMult: number;
+  requiredHackingMult: number;
+  inDaedalus: boolean;
+};
+
+/**
+ * The phase from the game, toward the BitNode's finish line:
+ * - GANG while a gang is possible and not created yet (karma, then creation);
+ * - DAEDALUS (with pursueFinish) once the hacking multiplier can reach
+ *   Daedalus's requirement in one stint, or Daedalus is joined;
+ * - FACTION_GRIND (favor) while no faction takes donations - money can't
+ *   buy rep yet, and rep gates every augmentation;
+ * - AUGMENTS (multiply) otherwise: donations and installs build the
+ *   hacking multiplier.
+ * The old two-phase version (GANG, then AUGMENTS for good) installed every
+ * 15 minutes for whatever was affordable, never reached donation favor in
+ * 15 hours, and had no notion of the finish line.
+ */
+export function derivePhase(inputs: PhaseInputs): { approach: Approach; reason: string } {
+  if (inputs.gangAvailable && !inputs.inGang) return { approach: Approach.GANG, reason: "gang possible, not created yet" };
+  const mult = `hacking mult ${inputs.hackingMult.toFixed(2)} of ${inputs.requiredHackingMult.toFixed(2)}`;
+  if (inputs.pursueFinish && inputs.inDaedalus) return { approach: Approach.DAEDALUS, reason: "Daedalus joined" };
+  if (inputs.pursueFinish && inputs.hackingMult >= inputs.requiredHackingMult) return { approach: Approach.DAEDALUS, reason: `${mult}: Daedalus within one stint` };
+  if (!inputs.donationReady) return { approach: Approach.FACTION_GRIND, reason: "no faction takes donations yet" };
+  return { approach: Approach.AUGMENTS, reason: inputs.pursueFinish ? mult : "donations open" };
 }
 
 /**
@@ -79,6 +114,12 @@ export type PhasePolicy = {
   grindFactions: boolean;
   // Share when no status file says whether anyone works a faction.
   shareByDefault: boolean;
+  // FACTION_GRIND's favor plan aims at the one faction closest to donation
+  // favor (any favor, for NeuroFlux and everything else it sells), not just
+  // at factions selling one particular big augmentation.
+  donationTarget: boolean;
+  // Only The Red Pill is bought; installs only bank favor or install it.
+  redPillOnly: boolean;
   // What each IPvGO opponent's bonus is worth now (go_daemon.ts plays the
   // most weighted bonus per second): Illuminati faster hack/grow/weaken,
   // The Black Hand hacking money, Daedalus reputation, Netburners hacknet
@@ -87,6 +128,7 @@ export type PhasePolicy = {
 };
 
 // Money from hacking matters in every phase; the rest follows the phase.
+// Reputation gates everything until donations open and the Red Pill after.
 const GO_WEIGHTS_HACKING = { Illuminati: 1, "The Black Hand": 1, Daedalus: 0.5, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 };
 const GO_WEIGHTS_BY_APPROACH: Partial<Record<Approach, Record<string, number>>> = {
   // Karma comes from crime: its success rate, and the combat stats behind it.
@@ -94,6 +136,8 @@ const GO_WEIGHTS_BY_APPROACH: Partial<Record<Approach, Record<string, number>>> 
   // Reputation gates every augmentation; hacking pays for them.
   [Approach.AUGMENTS]: { Daedalus: 1, Illuminati: 0.7, "The Black Hand": 0.7, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 },
   [Approach.FACTION_GRIND]: { Daedalus: 1, Illuminati: 0.7, "The Black Hand": 0.7, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 },
+  // Hacking speed and money build the level; Daedalus rep for the Red Pill.
+  [Approach.DAEDALUS]: { Illuminati: 1, "The Black Hand": 0.8, Daedalus: 0.8, Netburners: 0.3, "Slum Snakes": 0.1, Tetrads: 0.1 },
   [Approach.GROW_STATS]: { Tetrads: 1, Illuminati: 0.5, "The Black Hand": 0.5, Daedalus: 0.3, Netburners: 0.2, "Slum Snakes": 0.2 },
 };
 
@@ -101,9 +145,11 @@ export function phasePolicy(approach: Approach): PhasePolicy {
   return {
     chaseGangKarma: approach === Approach.GANG,
     installLoop: approach === Approach.AUGMENTS,
-    focusAugmentations: approach === Approach.AUGMENTS || approach === Approach.GROW_STATS,
+    focusAugmentations: approach === Approach.AUGMENTS || approach === Approach.GROW_STATS || approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS,
     studyForStats: approach === Approach.GROW_STATS,
-    grindFactions: approach === Approach.FACTION_GRIND,
+    grindFactions: approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS,
+    donationTarget: approach === Approach.FACTION_GRIND,
+    redPillOnly: approach === Approach.DAEDALUS,
     shareByDefault: approach !== Approach.GROW_STATS && approach !== Approach.GANG,
     goWeights: GO_WEIGHTS_BY_APPROACH[approach] ?? GO_WEIGHTS_HACKING,
   };
