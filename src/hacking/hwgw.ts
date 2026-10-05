@@ -99,52 +99,48 @@ export type ThreadRequest = { threads: number; ramPerThread: number };
 export type Allocation = { host: string; threads: number };
 
 /**
- * Round-robin fill of a batch's four actions across whatever rooted worker
- * hosts have room. Each request's threads can be *split* across multiple
- * hosts — a single action's thread count routinely exceeds what any one
- * host can hold on its own (e.g. hundreds of hack threads against a juicy
- * target). One thread is handed to each host-with-room per pass, cycling
- * through the candidate list repeatedly, rather than draining the biggest
- * host first — a workload big enough to need every host (the common case
- * for real batches, hundreds of threads against a handful of hosts) ends
- * up spread across the whole fleet instead of concentrated on the fewest/
- * biggest hosts, which otherwise left most of the fleet idle even when it
- * had room to help. A host that runs out of capacity mid-way is simply
- * skipped in later passes while the rest keep cycling. (This spreads a
- * *given* thread count across as many hosts as it actually needs — it
- * doesn't manufacture extra threads to keep every host busy regardless of
- * batch size; that's a separate, unrelated lever.)
+ * Places a batch's four actions on worker hosts in as few processes as
+ * possible: each action goes whole onto one host when any can hold it -
+ * the tightest such fit, keeping big hosts free for big actions - and
+ * otherwise fills the roomiest hosts first, splitting across as few as it
+ * needs. Every process costs the game work to start, run and finish
+ * whatever its thread count; the round-robin this replaced (one thread
+ * per host per pass) cut each action across the whole fleet, and BN12 ran
+ * 608,737 workers at under 2 threads each (weaken), starting ~2,700 a
+ * second, until the game couldn't keep up.
  *
  * Returns undefined if *any* request's full thread count can't be placed
- * even after exhausting every host's capacity across every pass — callers
- * should treat that as "abort the whole batch, retry next tick" rather than
- * firing a partial one (a batch's timing math assumes all four actions run
- * at their full thread count).
+ * - callers abort the whole batch and retry next tick rather than firing a
+ * partial one (the batch's timing assumes all four actions run in full).
  */
 export function allocateAcrossHosts(candidates: HostCapacity[], requests: ThreadRequest[]): Allocation[][] | undefined {
   const remaining = candidates.map((c) => ({ ...c }));
   const result: Allocation[][] = [];
 
   for (const { threads, ramPerThread } of requests) {
-    let threadsLeft = threads;
-    const placedByHost = new Map<string, number>();
-
-    while (threadsLeft > 0) {
-      let placedThisPass = false;
-      for (const host of remaining) {
-        if (threadsLeft <= 0) break;
-        if (host.freeRam < ramPerThread) continue;
-
-        host.freeRam -= ramPerThread;
-        placedByHost.set(host.host, (placedByHost.get(host.host) ?? 0) + 1);
-        threadsLeft--;
-        placedThisPass = true;
-      }
-      if (!placedThisPass) break;
+    if (threads <= 0) {
+      result.push([]);
+      continue;
     }
-
+    const fits = (h: HostCapacity): number => (ramPerThread > 0 ? Math.floor(h.freeRam / ramPerThread) : Infinity);
+    const whole = remaining.filter((h) => fits(h) >= threads).sort((x, y) => x.freeRam - y.freeRam)[0];
+    if (whole) {
+      whole.freeRam -= threads * ramPerThread;
+      result.push([{ host: whole.host, threads }]);
+      continue;
+    }
+    let threadsLeft = threads;
+    const placed: Allocation[] = [];
+    for (const host of [...remaining].sort((x, y) => y.freeRam - x.freeRam)) {
+      const n = Math.min(threadsLeft, fits(host));
+      if (n <= 0) continue;
+      host.freeRam -= n * ramPerThread;
+      placed.push({ host: host.host, threads: n });
+      threadsLeft -= n;
+      if (threadsLeft <= 0) break;
+    }
     if (threadsLeft > 0) return undefined;
-    result.push([...placedByHost.entries()].map(([host, threadCount]) => ({ host, threads: threadCount })));
+    result.push(placed);
   }
 
   return result;

@@ -91,80 +91,44 @@ describe("decidePrepAction", () => {
 });
 
 describe("allocateAcrossHosts", () => {
-  it("round-robins a request across every host with room, one thread per host per pass", () => {
+  it("puts an action whole on the tightest host that holds it", () => {
     const candidates = [
-      { host: "small-server", freeRam: 10 },
-      { host: "big-server", freeRam: 100 },
+      { host: "big", freeRam: 100 },
+      { host: "snug", freeRam: 12 },
+      { host: "tiny", freeRam: 4 },
     ];
-    const requests = [{ threads: 5, ramPerThread: 2 }];
+    expect(allocateAcrossHosts(candidates, [{ threads: 5, ramPerThread: 2 }])).toEqual([[{ host: "snug", threads: 5 }]]);
+  });
 
-    // 3 passes give small-server a thread each time (it still has room);
-    // big-server only gets 2 before threadsLeft hits 0 mid-pass-3.
-    expect(allocateAcrossHosts(candidates, requests)).toEqual([
+  it("splits an action no host can hold over the roomiest hosts, as few as it needs", () => {
+    const candidates = [
+      { host: "a", freeRam: 10 },
+      { host: "b", freeRam: 30 },
+      { host: "c", freeRam: 20 },
+    ];
+    // 20 threads x 2 GB = 40 GB: b (15 threads) then c (5).
+    expect(allocateAcrossHosts(candidates, [{ threads: 20, ramPerThread: 2 }])).toEqual([
       [
-        { host: "small-server", threads: 3 },
-        { host: "big-server", threads: 2 },
+        { host: "b", threads: 15 },
+        { host: "c", threads: 5 },
       ],
     ]);
   });
 
-  it("a request smaller than the candidate count only touches as many hosts as it needs", () => {
-    const candidates = [
-      { host: "a", freeRam: 10 },
-      { host: "b", freeRam: 10 },
-      { host: "c", freeRam: 10 },
-      { host: "d", freeRam: 10 },
-      { host: "e", freeRam: 10 },
-    ];
-    const requests = [{ threads: 2, ramPerThread: 2 }];
-
-    // Round-robin doesn't manufacture work to keep every host busy - a
-    // 2-thread request only ever lands on 2 hosts, not all 5.
-    expect(allocateAcrossHosts(candidates, requests)).toEqual([
-      [
-        { host: "a", threads: 1 },
-        { host: "b", threads: 1 },
-      ],
+  it("keeps a batch to one process per action when the fleet has room", () => {
+    const candidates = Array.from({ length: 69 }, (_, i) => ({ host: `h${i}`, freeRam: 1000 }));
+    const placements = allocateAcrossHosts(candidates, [
+      { threads: 146, ramPerThread: 1.7 },
+      { threads: 6, ramPerThread: 1.75 },
+      { threads: 576, ramPerThread: 1.75 },
+      { threads: 48, ramPerThread: 1.75 },
     ]);
+    expect(placements?.map((p) => p.length)).toEqual([1, 1, 2, 1]);
   });
 
-  it("a request large enough to need every host spreads evenly across all of them, not just the biggest", () => {
-    const candidates = [
-      { host: "a", freeRam: 10 },
-      { host: "b", freeRam: 10 },
-      { host: "c", freeRam: 10 },
-    ];
-    const requests = [{ threads: 12, ramPerThread: 2 }]; // needs 24 total - no single host has it, three combined do
-
-    expect(allocateAcrossHosts(candidates, requests)).toEqual([
-      [
-        { host: "a", threads: 4 },
-        { host: "b", threads: 4 },
-        { host: "c", threads: 4 },
-      ],
-    ]);
-  });
-
-  it("tracks reservations across requests - a host that ran out of room in an earlier request is skipped, not retried", () => {
-    const candidates = [
-      { host: "a", freeRam: 10 },
-      { host: "b", freeRam: 10 },
-    ];
-    const requests = [
-      { threads: 5, ramPerThread: 2 }, // round-robins to a=3, b=2 (a has slightly more headroom used, see first case)
-      { threads: 5, ramPerThread: 2 }, // a only has 4 GB (2 threads) left; b picks up the rest
-    ];
-
-    expect(allocateAcrossHosts(candidates, requests)).toEqual([
-      [
-        { host: "a", threads: 3 },
-        { host: "b", threads: 2 },
-      ],
-      [
-        { host: "a", threads: 2 },
-        { host: "b", threads: 3 },
-      ],
-    ]);
+  it("tracks room across requests", () => {
+    const candidates = [{ host: "a", freeRam: 10 }];
+    expect(allocateAcrossHosts(candidates, [{ threads: 3, ramPerThread: 2 }, { threads: 2, ramPerThread: 2 }])).toEqual([[{ host: "a", threads: 3 }], [{ host: "a", threads: 2 }]]);
   });
 
   it("returns undefined (abort the whole batch) if a request's full thread count can't be placed even after spreading across every host", () => {
