@@ -249,7 +249,6 @@ export async function main(ns: NS): Promise<void> {
     { script: "economy/stock_daemon.js", core: false },
     { script: "system/monitoring/monitoring_daemon.js", core: false },
     { script: "hacking/share_daemon.js", core: false },
-    { script: "go/go_daemon.js", core: false },
   ];
   // Bootstrap replaces the whole system on a small home - nothing else is expected then.
   const running = ns.ps("home").map((p) => p.filename.replace(/^\//, ""));

@@ -28,7 +28,6 @@ export const MANAGED_DAEMONS = [
   "economy/purchased_server_daemon.js",
   "system/monitoring/monitoring_daemon.js",
   "hacking/share_daemon.js",
-  "go/go_daemon.js",
 ];
 
 /**
