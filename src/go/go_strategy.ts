@@ -118,7 +118,7 @@ export const MAX_REDEALS = 5;
  * Whether a freshly dealt board is worth redealing before our first move
  * (free then: the game only charges a reset once moves are made). Against
  * Illuminati with its handicap stone on the center point we averaged ~81
- * node power a game vs ~112 otherwise (200 games against the real AI in
+ * node power a game vs ~112 otherwise (200 games against the real AI,
  * 2026-10-04), so redealing those is worth ~+9%.
  */
 export function shouldRedeal(opponent: string, board: Board): boolean {
