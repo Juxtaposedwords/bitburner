@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import { skipRecentlyAscended,
   AscensionCandidate,
   AscensionResult,
   decideAscension,
@@ -411,5 +411,19 @@ describe("decideMemberTask never idles", () => {
   it("never picks Unassigned or Territory Warfare even when they look best", () => {
     const options = [{ ...zero("Unassigned"), moneyGain: 5 }, { ...zero("Mug People"), moneyGain: 1 }];
     expect(decideMemberTask(0, 10, 1, policy, options, "Train Combat")).toBe("Mug People");
+  });
+});
+
+describe("skipRecentlyAscended", () => {
+  const item = (member: string, augmentation: boolean) => ({ member, name: augmentation ? "Bionic Arms" : "Baseball Bat", cost: 1e6, augmentation });
+  it("holds regular equipment for a member who just ascended, not augmentations", () => {
+    const recent = new Map([["Hercules", 1_000_000]]);
+    const kept = skipRecentlyAscended([item("Hercules", false), item("Hercules", true), item("Ajax", false)], recent, 1_000_000 + 60_000, 20 * 60_000);
+    expect(kept.map((c) => `${c.member}:${c.augmentation}`)).toEqual(["Hercules:true", "Ajax:false"]);
+  });
+
+  it("buys again once the cooldown has passed", () => {
+    const recent = new Map([["Hercules", 0]]);
+    expect(skipRecentlyAscended([item("Hercules", false)], recent, 21 * 60_000, 20 * 60_000)).toHaveLength(1);
   });
 });

@@ -109,6 +109,17 @@ export function skipEquipmentBeforeAscension(candidates: EquipmentOption[], asce
 }
 
 /**
+ * Leaves out regular equipment for members who ascended within
+ * `cooldownMs`: a member cycling through ascensions (Hercules, every 2-3
+ * minutes in BN12) threw away 21 freshly bought items each time - most of
+ * the gang's $176B/hour spend. Augmentations survive ascension, so those
+ * are still bought.
+ */
+export function skipRecentlyAscended(candidates: EquipmentOption[], lastAscended: Map<string, number>, now: number, cooldownMs: number): EquipmentOption[] {
+  return candidates.filter((c) => c.augmentation || now - (lastAscended.get(c.member) ?? -Infinity) >= cooldownMs);
+}
+
+/**
  * The ascension bar for this tick: `normal` once the gang has all
  * `fullGangSize` members, `early` (much higher) before that. Ascending
  * costs the member's share of gang respect, and new members come from

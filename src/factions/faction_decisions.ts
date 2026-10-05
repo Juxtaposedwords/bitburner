@@ -1096,10 +1096,20 @@ export function companyTargets(candidates: CompanyTarget[]): CompanyTarget[] {
  * them) asks for more of a combat stat than the player has. Combat
  * augmentations only earn their place while some wanted invite is - BN10
  * kept saving $12.5T for Hydroflame Left Arm after joining Daedalus and The
- * Covenant, the invites combat was added for.
+ * Covenant, the invites combat was added for. Only while the combat route
+ * is realistic, though: every combat stat it asks for already at least
+ * `minProgress` of the way there. BN12's install loop bought combat
+ * augmentations for Illuminati's 1200s with every combat stat under 10 -
+ * useless, and each raised the price of the hacking ones after it.
  */
-export function combatBlocksInvite(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot): boolean {
-  return collectUnsatisfiedActionable(requirements, snapshot).some((req) => combatSkillGaps(req, snapshot).length > 0);
+export const COMBAT_ROUTE_MIN_PROGRESS = 0.5;
+
+export function combatBlocksInvite(requirements: PlayerRequirement[], snapshot: EligibilitySnapshot, minProgress = COMBAT_ROUTE_MIN_PROGRESS): boolean {
+  return collectUnsatisfiedActionable(requirements, snapshot).some((req) => {
+    const gaps = combatSkillGaps(req, snapshot);
+    if (gaps.length === 0 || req.type !== "skills") return false;
+    return gaps.every(({ stat }) => snapshot.skills[stat] >= minProgress * ((req.skills as Record<string, number>)[stat] ?? 0));
+  });
 }
 
 /**

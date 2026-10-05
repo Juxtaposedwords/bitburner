@@ -18,6 +18,7 @@ import {
   karmaBlocksGang,
   nextMemberName,
   skipEquipmentBeforeAscension,
+  skipRecentlyAscended,
   stateForNode,
   GangStatusFile,
   worstClashWinChance,
@@ -124,6 +125,9 @@ export type GangConfig = {
   // Regular equipment is lost on ascension (gang augmentations aren't),
   // which is acceptable at this price next to gang income.
   maxEquipmentCost: number;
+  // No regular equipment for a member this long after it ascends (it's
+  // thrown away at the next ascension; augmentations are still bought).
+  equipmentCooldownMinutes: number;
 };
 
 export const DEFAULT_CONFIG: GangConfig = {
@@ -143,6 +147,7 @@ export const DEFAULT_CONFIG: GangConfig = {
   minClashWinChance: 0.65,
   maxCasualties: 1,
   maxEquipmentCost: 4e9,
+  equipmentCooldownMinutes: 20,
   gangFactionPriority: ["Slum Snakes", "Tetrads", "The Syndicate", "The Dark Army", "Speakers for the Dead"],
   memberNames: [
     "Clotho",
@@ -307,6 +312,9 @@ async function manageTerritoryEngagement(
   }
 }
 
+// When each member last ascended (this run) - see skipRecentlyAscended.
+const lastAscended = new Map<string, number>();
+
 async function purchaseEquipmentIfAffordable(ns: NS, log: Logger, config: GangConfig, memberNames: string[]): Promise<void> {
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
@@ -333,6 +341,7 @@ async function purchaseEquipmentIfAffordable(ns: NS, log: Logger, config: GangCo
     memberNames.filter((member) => decideAscension(ns.gang.getAscensionResult(member), config.minAscensionGainMultiplier))
   );
   candidates.splice(0, candidates.length, ...skipEquipmentBeforeAscension(candidates, ascending));
+  candidates.splice(0, candidates.length, ...skipRecentlyAscended(candidates, lastAscended, Date.now(), config.equipmentCooldownMinutes * 60_000));
 
   // Pre-install spend-down (install_handshake.ts): the cash is about to be
   // wiped and the gang keeps its equipment, so spend all of it, as many
@@ -375,7 +384,10 @@ async function ascendIfWorthwhile(ns: NS, log: Logger, config: GangConfig, membe
   const chosen = selectBestAscensionCandidate(candidates, config.minAscensionGainMultiplier);
   if (!chosen) return;
 
-  if (ns.gang.ascendMember(chosen)) await log.info(`[Gang] Ascended ${chosen}.`);
+  if (ns.gang.ascendMember(chosen)) {
+    lastAscended.set(chosen, Date.now());
+    await log.info(`[Gang] Ascended ${chosen}.`);
+  }
 }
 
 /**

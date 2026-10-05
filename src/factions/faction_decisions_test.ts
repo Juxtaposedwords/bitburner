@@ -1066,6 +1066,11 @@ describe("combatBlocksInvite", () => {
     expect(combatBlocksInvite(covenantCombat, snap(500))).toBe(true);
   });
 
+  it("is false while the combat route is out of reach (stats under half the requirement)", () => {
+    expect(combatBlocksInvite(covenantCombat, snap(4))).toBe(false);
+    expect(combatBlocksInvite(covenantCombat, snap(400))).toBe(false);
+  });
+
   it("is false once the combat stats are met, or with no combat requirement", () => {
     expect(combatBlocksInvite(covenantCombat, snap(900))).toBe(false);
     expect(combatBlocksInvite([{ type: "skills", skills: { hacking: 850 } } as PlayerRequirement], snap(10, 100))).toBe(false);
