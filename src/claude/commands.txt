@@ -510,6 +510,11 @@
       "id": "2026-10-05-start-go",
       "script": "go/go_daemon.js",
       "note": "IPvGO back on: faster engine, move deadlines, spin guard"
+    },
+    {
+      "id": "2026-10-05-start-go-2",
+      "script": "go/go_daemon.js",
+      "note": "first try was refused: the reloader hadn't reloaded its managed list yet"
     }
   ]
 }
