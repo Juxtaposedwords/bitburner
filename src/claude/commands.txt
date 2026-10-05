@@ -515,6 +515,15 @@
       "id": "2026-10-05-start-go-2",
       "script": "go/go_daemon.js",
       "note": "first try was refused: the reloader hadn't reloaded its managed list yet"
+    },
+    {
+      "id": "2026-10-05-load-go-on",
+      "script": "tools/load_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/load_go_on.txt"
+      ],
+      "note": "compare with load_go_off.txt"
     }
   ]
 }
