@@ -83,6 +83,8 @@ import {
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
+import { appendJsonLine } from "system/history";
+import { Approach } from "system/rpc/scheduler";
 import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
@@ -116,6 +118,10 @@ type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 const WORLD_DAEMON = "w0r1d_d43m0n";
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
+// Every install, newest INSTALL_HISTORY_CAP (archived locally by the bridge).
+export const INSTALL_HISTORY_PATH = "/var/install_history.txt";
+const INSTALL_HISTORY_CAP = 200;
+
 // Install once cash hasn't dropped for this long during the spend-down -
 // several gang_daemon.ts ticks (5s) with nothing left to buy.
 const SPEND_DOWN_SETTLE_MS = 20_000;
@@ -1393,6 +1399,31 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   if (starting || !spendDownSettled(spendDown, nowMs, SPEND_DOWN_SETTLE_MS)) return;
 
   clearInstallPending(ns);
+  // One line per install (system/history.ts): what each install was worth,
+  // in which phase, and where the finish line stood.
+  const lastInstall = ns.read(INSTALL_HISTORY_PATH).trim().split("\n").pop();
+  const lastAt = lastInstall ? (JSON.parse(lastInstall) as { at?: number }).at : undefined;
+  ns.write(
+    INSTALL_HISTORY_PATH,
+    appendJsonLine(
+      ns.read(INSTALL_HISTORY_PATH),
+      {
+        at: Date.now(),
+        minutesSinceLast: lastAt ? (Date.now() - lastAt) / 60_000 : undefined,
+        phase: Approach[phase.approach],
+        reason: phase.reason,
+        augmentations: pending,
+        installedBefore: ns.singularity.getOwnedAugmentations(false).length,
+        hackingLevel: player.skills.hacking,
+        hackingMult,
+        requiredHackingMult: neededMult,
+        favors,
+        plan: plan.map((e) => ({ faction: e.faction, rep: Math.round(e.rep), target: Math.round(e.target) })),
+      },
+      INSTALL_HISTORY_CAP
+    ),
+    "w"
+  );
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
   ns.singularity.installAugmentations(config.bootScript);
 }

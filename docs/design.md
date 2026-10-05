@@ -2163,8 +2163,21 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
 ## Phases, and configs that hold only overrides
 
 - **Phases** (`system/phase.ts`): `faction_daemon.ts` writes `/var/phase.txt`
-  every tick from the game (`derivePhase`). It's GANG while a gang is possible (BN2 or SF2) and
-  not yet created, and AUGMENTS otherwise. `readApproach` uses an explicit `approach` in
+  every tick from the game (`derivePhase`), working toward the BitNode's finish line:
+
+  | Phase | When | What it does |
+  |---|---|---|
+  | GANG | A gang is possible (BN2 or SF2) and not yet created | Karma, then the gang |
+  | FACTION_GRIND (favor) | No faction (other than the gang's) takes donations | Grinds the one faction closest to donation favor (`donationTarget`); installs only when that banks it |
+  | AUGMENTS (multiply) | Donations are open | Donations and installs build the hacking multiplier |
+  | DAEDALUS | With `pursueRedPill`: the hacking multiplier can reach `finishHackingLevel` (2500) within one stint of `finishExpBudget` (3e10) experience (`requiredHackingMult`), or Daedalus is joined | No installs except ones that bank Daedalus favor or install The Red Pill. Only The Red Pill is bought. The work slot studies until the invite, then earns Daedalus reputation, and cash is held for the invite |
+
+  Each phase's behavior is in `phasePolicy`. The earlier version had two phases (GANG, then
+  AUGMENTS for good). It installed every 15–20 minutes for whatever was affordable, including
+  combat augmentations with combat stats under 10. In 15 hours of BN12 it never made a faction
+  donatable, and it had no notion of the finish line.
+
+  `readApproach` uses an explicit `approach` in
   `/etc/scheduler.txt` when set (`set_scheduler_approach.js NAME`), else this BitNode's phase
   file (one older than `lastNodeReset` is ignored), else HACK. `set_scheduler_approach.js AUTO`
   removes the override. Manual modes had carried FACTION_GRIND into a fresh BitNode, left GANG on
@@ -2177,6 +2190,15 @@ per batch, which had rotated its log every 2 minutes. Status parses the summary.
 - **Hacking pipeline:** `planned_hacking_per_min`, `batches_per_min`, `drifts_per_min` (the scheduler adds `driftsLastMin` to its targets file), `targets_batching`, `targets_prepping`, `top_target_share_pct`.
 - **Fleet:** `fleet_used_pct`.
 - **Phase and progress:** `phase` (Approach number), `savings_target`, `augs_installed`, `augs_pending`.
+- **Finish line:** `hacking_mult` against `required_hacking_mult`, `favor_target_pct` (reputation
+  toward the favor target), `best_favor`, `donatable_factions`.
+- **Installs:** `/var/install_history.txt` (the newest 200, archived to
+  `game/archive/install_history.jsonl`). One line per install, with:
+  - the phase and its reason
+  - the augmentations installed
+  - minutes since the previous install
+  - hacking level and multiplier against the target
+  - favors and the favor plan
 - **Sleeves:** `sleeves`, `sleeves_on_faction`, `sleeve_avg_shock`.
 
 These are for judging a change from its trend, not one snapshot. All of them come from the files the daemons already publish, plus one network scan. They're mirrored by the bridge, so Claude can read them directly.

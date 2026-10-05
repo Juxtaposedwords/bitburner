@@ -1,3 +1,4 @@
+import { appendJsonLine } from "system/history";
 import { area, Board, chainAt, chainsOf, countStones, emptyPoints, influence, neighbors, opponentOf, play, pointKey, Stone, territory } from "go/go_engine";
 
 /**
@@ -425,7 +426,5 @@ export type GoHistoryEntry = {
 
 /** The history file's contents with `entry` added, keeping the newest `cap`. */
 export function appendHistory(raw: string, entry: GoHistoryEntry, cap = GO_HISTORY_CAP): string {
-  const lines = raw.split("\n").filter((l) => l.trim() !== "");
-  lines.push(JSON.stringify(entry));
-  return lines.slice(-cap).join("\n") + "\n";
+  return appendJsonLine(raw, entry, cap);
 }

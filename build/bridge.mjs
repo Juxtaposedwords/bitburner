@@ -85,7 +85,7 @@ const mirrored = new Map();
 
 // Game records the game only keeps the newest of (JSON lines with an `at`
 // and `opponent`), appended here as they arrive so none are lost.
-const ARCHIVES = { "var/go_history.txt": "archive/go_history.jsonl" };
+const ARCHIVES = { "var/go_history.txt": "archive/go_history.jsonl", "var/install_history.txt": "archive/install_history.jsonl" };
 const archivedKeys = new Map();
 
 function archive(rel, content) {

@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
-import { phasePolicy, readApproach } from "system/phase";
+import { PHASE_PATH, PhaseFile, phasePolicy, readApproach } from "system/phase";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { readInstallPending } from "system/install_handshake";
 import { readSavings } from "system/savings";
@@ -327,6 +327,21 @@ export async function main(ns: NS): Promise<void> {
     `mode ${bootstrapping ? "BOOTSTRAP" : Approach[approach]}  BitNode ${info?.node ?? "?"}  cash ${money(cash)} ` +
       `(${rates.cash !== undefined ? `${money(rates.cash)}/min` : "no data"})`
   );
+  // The phase's reason and the finish line it's working toward (system/phase.ts).
+  const phaseFile = readJson<PhaseFile>(ns, PHASE_PATH);
+  if (phaseFile) out.push(`phase ${Approach[phaseFile.approach]}: ${phaseFile.reason}`);
+  if (faction?.hackingMult !== undefined && faction.requiredHackingMult !== undefined) {
+    const favorTarget = faction.favorPlan?.[0];
+    const donatable = faction.donatable ?? [];
+    out.push(
+      `finish line: hacking mult ${faction.hackingMult.toFixed(2)} of ${faction.requiredHackingMult.toFixed(2)} needed; ` +
+        (donatable.length > 0
+          ? `donations open at ${donatable.join(", ")}`
+          : favorTarget
+            ? `favor target ${favorTarget.faction} ${Math.round(favorTarget.rep / 1000)}K of ${Math.round(favorTarget.target / 1000)}K rep`
+            : "no donation target")
+    );
+  }
   out.push(`income/min: hacking ${money(rates.hacking)}  gang ${money(rates.gang)}  gang equipment ${money(rates.gangExpenses)}`);
   // Only a recent sample: without TIX access nothing new is recorded, and
   // the last value can be from an earlier BitNode.

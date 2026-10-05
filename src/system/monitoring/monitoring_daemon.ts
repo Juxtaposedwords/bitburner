@@ -173,6 +173,13 @@ function recordSystem(ns: NS, t: number): string {
   record(ns, "gauge/savings_target", t, savings?.amount ?? 0);
   const faction = readStatus<FactionRepsFile>(ns, FACTION_REPS_PATH);
   if (faction?.installedAugs !== undefined) record(ns, "gauge/augs_installed", t, faction.installedAugs);
+  // The finish line and the favor that gates it (system/phase.ts).
+  if (faction?.hackingMult !== undefined) record(ns, "gauge/hacking_mult", t, faction.hackingMult);
+  if (faction?.requiredHackingMult !== undefined) record(ns, "gauge/required_hacking_mult", t, faction.requiredHackingMult);
+  const favorTarget = faction?.favorPlan?.[0];
+  if (favorTarget && favorTarget.target > 0) record(ns, "gauge/favor_target_pct", t, Math.min(100, (favorTarget.rep / favorTarget.target) * 100));
+  if (faction?.favors) record(ns, "gauge/best_favor", t, Math.max(0, ...Object.values(faction.favors)));
+  if (faction?.donatable) record(ns, "gauge/donatable_factions", t, faction.donatable.length);
   const pending = readStatus<PendingBoost>(ns, PENDING_BOOST_PATH);
   if (pending) record(ns, "gauge/augs_pending", t, pending.count);
   const sleeves = readStatus<SleevesFile>(ns, SLEEVES_PATH);
