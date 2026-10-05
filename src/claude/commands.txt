@@ -496,6 +496,15 @@
         "12"
       ],
       "note": "user: keep repeating BN12 while the process improves"
+    },
+    {
+      "id": "2026-10-05-load-baseline-go-off",
+      "script": "tools/load_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/load_go_off.txt"
+      ],
+      "note": "baseline before turning IPvGO back on"
     }
   ]
 }
