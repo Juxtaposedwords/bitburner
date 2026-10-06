@@ -16,11 +16,13 @@ import {
   GoStatusFile,
   MoveChoice,
   nodePowerGained,
-  pickOpponentByValue,
+  bestOpponent,
+  bonusPctPerHour,
   recordGame,
   recordResult,
 } from "go/go_decisions";
 import { readPhasePolicy } from "system/phase";
+import { Board, play } from "go/go_engine";
 import { deadlineIn } from "system/deadline";
 import { MAX_REDEALS, pickStrategy, recordStrategy, shouldRedeal, Strategy, strategiesFor, strategyValue } from "go/go_strategy";
 import { chooseMoveModeled } from "go/go_opponent_model";
@@ -98,9 +100,15 @@ type GameResult = {
  * between candidates so the game's UI keeps up) or the plain search; the
  * one-ply engine on bigger boards.
  */
-async function nextMove(ns: NS, config: GoConfig, strategy: Strategy, opponent: string, opponentPassed: boolean): Promise<MoveChoice> {
-  const board = ns.go.getBoardState();
-  const history = ns.go.getMoveHistory();
+async function nextMove(
+  ns: NS,
+  config: GoConfig,
+  strategy: Strategy,
+  opponent: string,
+  opponentPassed: boolean,
+  board: Board,
+  history: Board[]
+): Promise<MoveChoice> {
   if (board.length > config.searchMaxBoardSize) return chooseMove(board, "X", history);
   if (strategy.kind === "model") {
     return chooseMoveModeled(opponent, board, "X", history, {
@@ -122,8 +130,11 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
   const started = Date.now();
   const opponent = ns.go.getOpponent();
   const start = ns.go.getBoardState();
-  // Moves already on the board: a game a restart left half-played.
-  const resumed = ns.go.getMoveHistory().length > 0;
+  // Every earlier position (for the no-repeat rule), fetched once - a game
+  // a restart left half-played has some - then extended as we play rather
+  // than copied out of the game again every move.
+  const history: Board[] = ns.go.getMoveHistory();
+  const resumed = history.length > 0;
   const line: string[] = [];
   const record = (color: "X" | "O", r: { type: string; x: number | null; y: number | null }): void => {
     if (r.type === "move" && r.x !== null && r.y !== null) line.push(`${color}${r.x}${r.y}`);
@@ -146,7 +157,8 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
       continue;
     }
     const passed = ns.go.getGameState().previousMove === null && moves > 0;
-    const choice: MoveChoice = moves < maxMoves ? await nextMove(ns, config, strategy, opponent, passed) : { kind: "pass" };
+    const board = ns.go.getBoardState();
+    const choice: MoveChoice = moves < maxMoves ? await nextMove(ns, config, strategy, opponent, passed, board, history) : { kind: "pass" };
     let result;
     let refused = false;
     try {
@@ -158,6 +170,11 @@ async function playGame(ns: NS, log: Logger, config: GoConfig, strategy: Strateg
       result = await ns.go.passTurn();
     }
     line.push(choice.kind === "move" && !refused ? `X${choice.x}${choice.y}` : "Xpass");
+    if (choice.kind === "move" && !refused) {
+      history.push(board);
+      const after = play(board, choice.x, choice.y, "X");
+      if (after) history.push(after);
+    }
     record("O", result);
     if (result.type === "gameOver") break;
   }
@@ -183,6 +200,8 @@ export async function main(ns: NS): Promise<void> {
   const log = createLogger(ns, "Go", LOG_LEVEL.INFO);
   await log.info("=== Go daemon online ===");
 
+  // Resting because the bonus has flattened (logged once per rest).
+  let resting = false;
   // Opponents the game refused this run (not unlocked yet).
   const unavailable = new Set<string>();
   let state = readState(ns);
@@ -199,7 +218,15 @@ export async function main(ns: NS): Promise<void> {
     if (ns.go.getCurrentPlayer() === "None") {
       const weights = { ...readPhasePolicy(ns).goWeights, ...config.opponentWeights };
       const gamesPlayed = Object.fromEntries(Object.entries(ns.go.analysis.getStats()).map(([name, s]) => [name, s.wins + s.losses]));
-      const next = pickOpponentByValue(weights, state.records, gamesPlayed, unavailable, config.boardSize);
+      const best = bestOpponent(weights, state.records, gamesPlayed, unavailable, config.boardSize);
+      if (best && bonusPctPerHour(best.rate) < config.minBonusPctPerHour) {
+        if (!resting) await log.info(`[Go] Bonus has flattened (best: ${best.name}, ${bonusPctPerHour(best.rate).toFixed(2)}%/h); resting ${config.restMinutes}m between checks.`);
+        resting = true;
+        await ns.asleep(config.restMinutes * 60_000);
+        continue;
+      }
+      resting = false;
+      const next = best?.name;
       if (!next) {
         await log.warn(`[Go] No weighted opponent available (${JSON.stringify(weights)}); retrying later.`);
         unavailable.clear();

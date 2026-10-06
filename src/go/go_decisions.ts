@@ -237,6 +237,12 @@ export type GoConfig = {
   // best move so far. The game runs every script on one thread, so a move
   // that thinks long stalls everything else.
   moveBudgetMs: number;
+  // Rest restMinutes when even the best opponent would add less than this
+  // (weighted bonus percentage points per hour): the bonus curve flattens,
+  // and games past that point cost the game's thread for almost nothing.
+  // An install resets node power, so play picks up again after one.
+  minBonusPctPerHour: number;
+  restMinutes: number;
   // Overrides for the phase's opponent weights (system/phase.ts's
   // goWeights), e.g. {"Netburners": 0} to stop playing them.
   opponentWeights: Record<string, number>;
@@ -248,6 +254,8 @@ export const DEFAULT_CONFIG: GoConfig = {
   searchDepth: 3,
   searchMaxBoardSize: 5,
   moveBudgetMs: 25,
+  minBonusPctPerHour: 1,
+  restMinutes: 10,
   opponentWeights: {},
 };
 
@@ -319,6 +327,17 @@ export function pickOpponentByValue(
   unavailable: Set<string>,
   boardSize: number
 ): string | undefined {
+  return bestOpponent(weights, records, gamesPlayed, unavailable, boardSize)?.name;
+}
+
+/** pickOpponentByValue's choice with its rate: weighted bonus (a fraction) gained per second. */
+export function bestOpponent(
+  weights: Record<string, number>,
+  records: Record<string, OpponentRecord>,
+  gamesPlayed: Record<string, number>,
+  unavailable: Set<string>,
+  boardSize: number
+): { name: string; rate: number } | undefined {
   let best: string | undefined;
   let bestRate = 0;
   for (const [name, weight] of Object.entries(weights)) {
@@ -337,7 +356,12 @@ export function pickOpponentByValue(
       best = name;
     }
   }
-  return best;
+  return best ? { name: best, rate: bestRate } : undefined;
+}
+
+/** A bestOpponent rate as weighted bonus percentage points per hour of play. */
+export function bonusPctPerHour(ratePerSecond: number): number {
+  return ratePerSecond * 3600 * 100;
 }
 
 /** The records after a finished game; `gamesPlayed` is the game's count for that opponent including this one. */

@@ -145,3 +145,19 @@ describe("move deadlines", () => {
     expect((await chooseMoveModeled("Illuminati", board, "X", [], { deadline: past })).kind).toBe("move");
   });
 });
+
+describe("resting once the bonus flattens", () => {
+  it("rates a fresh opponent far above a built-up one, in %/hour", async () => {
+    const { bestOpponent, bonusPctPerHour } = await import("go/go_decisions");
+    const fresh = bestOpponent({ Daedalus: 1 }, {}, {}, new Set(), 5);
+    const built = bestOpponent(
+      { Daedalus: 1 },
+      { Daedalus: { games: 5000, power: 1e7, totalGames: 5000, totalPower: 5000 * 34, totalSeconds: 5000 * 10 } },
+      { Daedalus: 5000 },
+      new Set(),
+      5
+    );
+    expect(bonusPctPerHour(fresh!.rate)).toBeGreaterThan(100);
+    expect(bonusPctPerHour(built!.rate)).toBeLessThan(1);
+  });
+});
