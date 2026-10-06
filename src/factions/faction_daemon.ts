@@ -119,8 +119,11 @@ type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 
 const WORLD_DAEMON = "w0r1d_d43m0n";
 const FINISH_TOOL = "tools/finish_bitnode.js";
-// finish_bitnode.js launched this run (it ends the BitNode, and this script with it).
-let finishLaunched = false;
+// When finish_bitnode.js was last launched (it ends the BitNode and this
+// script with it); retried after FINISH_RETRY_MS - BN12's second run sat
+// ready for over an hour after one launch that didn't take.
+let finishLaunchedAt = -Infinity;
+const FINISH_RETRY_MS = 5 * 60_000;
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
 // Every install, newest INSTALL_HISTORY_CAP (archived locally by the bridge).
@@ -1120,9 +1123,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     player.skills.hacking,
     worldVisible ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : Infinity
   );
-  if (finishReady && config.nextBitNode > 0 && !finishLaunched) {
+  if (finishReady && config.nextBitNode > 0 && Date.now() - finishLaunchedAt > FINISH_RETRY_MS) {
     if (ns.run(FINISH_TOOL, 1, config.nextBitNode, "--confirm") !== 0) {
-      finishLaunched = true;
+      finishLaunchedAt = Date.now();
       await log.info(`[Faction] The BitNode can be finished: running ${FINISH_TOOL} ${config.nextBitNode} --confirm.`);
     } else {
       await log.warn(`[Faction] The BitNode can be finished, but ${FINISH_TOOL} couldn't start (RAM?); retrying.`);
