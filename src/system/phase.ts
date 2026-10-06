@@ -101,9 +101,16 @@ export function derivePhase(inputs: PhaseInputs): { approach: Approach; reason: 
  * keyed by phase, instead of each daemon comparing approaches on its own.
  */
 export type PhasePolicy = {
-  // Player and sleeves commit the karma crime until the gang can be
-  // created; gang_daemon.ts creates it then.
+  // Sleeves commit the karma crime until the gang can be created;
+  // gang_daemon.ts creates it then.
   chaseGangKarma: boolean;
+  // The player commits it too. Not in GANG any more: the player's work
+  // slot goes to the donation target instead (faction_daemon.ts still
+  // falls back to the crime without sleeves). BN12's second run spent its
+  // first ~7.5 hours with the player on Homicide; everything after
+  // donations opened took ~2.6 hours, so the run's length was set by when
+  // favor work started.
+  playerKarma: boolean;
   // The augmentation buy-and-install loop (faction_daemon.ts).
   installLoop: boolean;
   // Spending narrowed to the faction config's augmentationFocus.
@@ -148,13 +155,16 @@ const GO_WEIGHTS_BY_APPROACH: Partial<Record<Approach, Record<string, number>>> 
 export function phasePolicy(approach: Approach): PhasePolicy {
   return {
     chaseGangKarma: approach === Approach.GANG,
+    playerKarma: false,
     installLoop: approach === Approach.AUGMENTS,
-    focusAugmentations: approach === Approach.AUGMENTS || approach === Approach.GROW_STATS || approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS,
+    focusAugmentations:
+      approach === Approach.AUGMENTS || approach === Approach.GROW_STATS || approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS || approach === Approach.GANG,
     studyForStats: approach === Approach.GROW_STATS,
-    grindFactions: approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS,
-    donationTarget: approach === Approach.FACTION_GRIND,
+    // GANG works toward donation favor too (the player, while sleeves chase karma).
+    grindFactions: approach === Approach.FACTION_GRIND || approach === Approach.DAEDALUS || approach === Approach.GANG,
+    donationTarget: approach === Approach.FACTION_GRIND || approach === Approach.GANG,
     redPillOnly: approach === Approach.DAEDALUS,
-    shareFleetFraction: approach === Approach.FACTION_GRIND ? 0.6 : 0,
+    shareFleetFraction: approach === Approach.FACTION_GRIND || approach === Approach.GANG ? 0.6 : 0,
     shareByDefault: approach !== Approach.GROW_STATS && approach !== Approach.GANG,
     goWeights: GO_WEIGHTS_BY_APPROACH[approach] ?? GO_WEIGHTS_HACKING,
   };

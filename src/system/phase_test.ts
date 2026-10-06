@@ -59,11 +59,13 @@ describe("requiredHackingMult", () => {
 });
 
 describe("phasePolicy", () => {
-  it("chases karma and keeps share off in GANG", () => {
+  it("has sleeves chase karma in GANG while the player works toward donation favor", () => {
     const policy = phasePolicy(Approach.GANG);
     expect(policy.chaseGangKarma).toBe(true);
+    expect(policy.playerKarma).toBe(false);
+    expect(policy.donationTarget).toBe(true);
+    expect(policy.grindFactions).toBe(true);
     expect(policy.installLoop).toBe(false);
-    expect(policy.shareByDefault).toBe(false);
   });
 
   it("runs the focused install loop in AUGMENTS", () => {

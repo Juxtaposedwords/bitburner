@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 import { readFreshJson } from "system/fresh_file";
-import { COVENANT, SLEEVES_PATH, SleevesFile } from "sleeves/sleeve_decisions";
+import { COVENANT, SLEEVES_PATH, SleevesFile, sleevesAvailable } from "sleeves/sleeve_decisions";
 import { loadJsonConfig } from "system/config";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import {
@@ -1049,7 +1049,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
   const workable = workableFactions(joinedFactions, gangFaction);
   const karmaCrime =
-    policy.chaseGangKarma && gangAvailable && !ns.gang.inGang() && karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
+    // The player only when nobody else can (no sleeves); otherwise sleeves
+    // chase karma and the player works toward donation favor (PhasePolicy.playerKarma).
+    policy.chaseGangKarma &&
+    (policy.playerKarma || !sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles)) &&
+    gangAvailable &&
+    !ns.gang.inGang() &&
+    karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
       ? pickKarmaCrimeLive(ns)
       : undefined;
   // Gym instead of the crime only while that reaches the karma requirement
