@@ -27,7 +27,6 @@
  * 6. Otherwise, the crime earning the most money.
  */
 
-import { trainingPaysOff } from "factions/faction_decisions";
 
 export type SleeveGoal =
   | { kind: "karmaCrime"; crime: string }
@@ -273,17 +272,36 @@ export function decideSleeveInvestment(
 // horizon alone never stopped it (BN12: seven sleeves at the gym for 3h+).
 export const SLEEVE_KARMA_CHANCE_ENOUGH = 0.8;
 
+/**
+ * `crimeTrainMs`: how long the crime itself takes to give the same levels
+ * (Homicide trains every combat stat as it's committed, just more slowly
+ * than the gym). Comparing training only against crime at a fixed chance
+ * made training look better than it is: BN12's second run had seven
+ * sleeves at the gym for its first ~3 hours, earning no karma. With it,
+ * crime's karma is counted as rising toward chanceAfter's rate over
+ * crimeTrainMs. Infinity (crime trains nothing) is the old comparison.
+ */
 export function sleeveTrainingPaysOff(
   horizonMs: number,
   karmaPerSuccess: number,
   crimeTimeMs: number,
   chanceNow: number,
   chanceAfter: number,
-  trainMs: number
+  trainMs: number,
+  crimeTrainMs = Infinity
 ): boolean {
   if (!(horizonMs > 0) || !Number.isFinite(horizonMs) || chanceNow >= SLEEVE_KARMA_CHANCE_ENOUGH) return false;
-  const shareNow = ((karmaPerSuccess * chanceNow) / crimeTimeMs) * horizonMs;
-  return trainingPaysOff(shareNow > 0 ? shareNow : karmaPerSuccess, karmaPerSuccess, crimeTimeMs, chanceNow, chanceAfter, trainMs);
+  if (!(chanceAfter > chanceNow) || !Number.isFinite(trainMs)) return false;
+  const rateNow = (karmaPerSuccess * chanceNow) / crimeTimeMs;
+  const rateAfter = (karmaPerSuccess * chanceAfter) / crimeTimeMs;
+  const train = rateAfter * Math.max(0, horizonMs - trainMs);
+  // Crime's rate climbs linearly from rateNow to rateAfter over crimeTrainMs.
+  let crime: number;
+  if (!Number.isFinite(crimeTrainMs)) crime = rateNow * horizonMs;
+  else if (crimeTrainMs <= 0) crime = rateAfter * horizonMs;
+  else if (crimeTrainMs >= horizonMs) crime = rateNow * horizonMs + ((rateAfter - rateNow) * horizonMs * horizonMs) / (2 * crimeTrainMs);
+  else crime = ((rateNow + rateAfter) / 2) * crimeTrainMs + rateAfter * (horizonMs - crimeTrainMs);
+  return train > crime;
 }
 
 /**

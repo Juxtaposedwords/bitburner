@@ -158,6 +158,13 @@ describe("sleeve karma training", () => {
     expect(sleeveTrainingPaysOff(10 * 3600_000, 3, 3000, 0.8, 0.9, 1)).toBe(false);
   });
 
+  it("doesn't train when the crime itself builds the stat nearly as fast", () => {
+    // Training takes 20 minutes at the gym; crime gets there in 30 while earning karma.
+    expect(sleeveTrainingPaysOff(10 * 3600_000, 3, 3000, 0.2, 0.6, 20 * 60_000, 30 * 60_000)).toBe(false);
+    // Crime that barely trains (50 hours) leaves training worth it.
+    expect(sleeveTrainingPaysOff(10 * 3600_000, 3, 3000, 0.2, 0.6, 20 * 60_000, 50 * 3600_000)).toBe(true);
+  });
+
   it("doesn't train when the gang is nearly there", () => {
     expect(sleeveTrainingPaysOff(15 * 60_000, 3, 3000, 0.2, 0.6, 20 * 60_000)).toBe(false);
     expect(sleeveTrainingPaysOff(Infinity, 3, 3000, 0.2, 0.6, 20 * 60_000)).toBe(false);

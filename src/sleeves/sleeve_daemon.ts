@@ -198,7 +198,12 @@ function karmaTraining(ns: NS, index: number, crime: string, progress: { remaini
   // the rate is the player's alone, which made training always look worth it.
   const sleevesRate = ns.sleeve.getNumSleeves() * ((stats.karma * chanceNow) / stats.time);
   const horizonMs = progress.remaining / (progress.perMs + sleevesRate);
-  return sleeveTrainingPaysOff(horizonMs, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? { stat: gymType, gym: SLEEVE_GYM } : undefined;
+  // The crime trains the stat too: exp per attempt (a failure gives a
+  // quarter), at the sleeve's sync, one attempt per crime time.
+  const perAttempt = ns.formulas.work.crimeGains(person, crime as CrimeTypeType)[expKey] * (chanceNow + (1 - chanceNow) * 0.25) * (person.sync / 100);
+  const crimeExpPerMs = perAttempt / stats.time;
+  const crimeTrainMs = crimeExpPerMs > 0 ? Math.max(0, expNeeded) / crimeExpPerMs : Infinity;
+  return sleeveTrainingPaysOff(horizonMs, stats.karma, stats.time, chanceNow, boost(stat), trainMs, crimeTrainMs) ? { stat: gymType, gym: SLEEVE_GYM } : undefined;
 }
 
 // Paid classes and the gym cost money per second; below this cash, sleeves
