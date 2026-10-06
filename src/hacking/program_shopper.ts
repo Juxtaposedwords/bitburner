@@ -100,7 +100,7 @@ export async function main(ns: NS): Promise<void> {
 
   if (ns.args.includes("--once")) {
     await purchasePass(ns, log, 1, true);
-    ns.run(BOOT_SCRIPT);
+    if (ns.run(BOOT_SCRIPT) === 0) ns.write("/var/claude_out/boot.txt", `[${new Date().toISOString()}] program_shopper --once couldn't start ${BOOT_SCRIPT} (RAM?)\n`, "a");
     return;
   }
 

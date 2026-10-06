@@ -146,7 +146,10 @@ export async function main(ns: NS): Promise<void> {
       // can fail for RAM, and exiting anyway left nothing running at all
       // (BN12's second start sat dead from its first TOR purchase).
       stopWorkers(ns, hosts);
-      if (ns.run(SHOPPER, 1, "--once") !== 0) return;
+      if (ns.run(SHOPPER, 1, "--once") !== 0) {
+        ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} handed off to ${SHOPPER} --once (it runs boot.js when done)\n`, "w");
+        return;
+      }
       ns.print(`[Bootstrap] ${SHOPPER} didn't start (RAM?); bootstrapping on.`);
       ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} ${SHOPPER} didn't start (needs ${ns.getScriptRam(SHOPPER, HOME)} GB, ${(ns.getServerMaxRam(HOME) - ns.getServerUsedRam(HOME)).toFixed(1)} GB free); bootstrapping on\n`, "w");
     }

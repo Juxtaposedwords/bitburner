@@ -79,12 +79,12 @@ function killEverywhere(ns: NS, script: string): number {
 
 function launchIfNotRunning(ns: NS, script: string): boolean {
   if (ns.scriptRunning(script)) {
-    ns.tprint(`[Boot] ${script} already running, skipping.`);
+    say(ns, `[Boot] ${script} already running, skipping.`);
     return true;
   }
 
   const pid = ns.run(script);
-  ns.tprint(
+  say(ns, 
     pid === 0
       ? `[Boot] ERROR: failed to launch ${script} (insufficient RAM?).`
       : `[Boot] Launched ${script} (pid ${pid}).`
@@ -97,11 +97,23 @@ async function launchAndWait(ns: NS, script: string, timeoutMs: number): Promise
 
   const finished = await rpc.pollWithBackoff(ns, () => !ns.scriptRunning(script), Date.now() + timeoutMs);
   if (!finished) {
-    ns.tprint(`[Boot] WARNING: ${script} still running after ${timeoutMs}ms; continuing anyway.`);
+    say(ns, `[Boot] WARNING: ${script} still running after ${timeoutMs}ms; continuing anyway.`);
   }
 }
 
+// Boot's decisions, also recorded (the terminal isn't visible to tools):
+// BN12's starts stalled twice in the bootstrap -> shopper -> boot chain
+// with nothing to show why.
+const BOOT_REPORT_PATH = "/var/claude_out/boot.txt";
+
+/** ns.tprint, also recorded in BOOT_REPORT_PATH. */
+function say(ns: NS, line: string): void {
+  ns.tprint(line);
+  ns.write(BOOT_REPORT_PATH, `[${new Date().toISOString()}] ${line}\n`, "a");
+}
+
 export async function main(ns: NS): Promise<void> {
+  say(ns, `[Boot] Started: home ${ns.getServerMaxRam("home")} GB, ${(ns.getServerMaxRam("home") - ns.getServerUsedRam("home")).toFixed(1)} GB free.`);
   // The bootstrap hands off through `program_shopper.js --once`, which runs
   // this and then exits - but this starts while the shopper is still in
   // memory, and on a fresh 32 GB home system/bootstrap/bootstrap.js then didn't fit:
@@ -119,7 +131,7 @@ export async function main(ns: NS): Promise<void> {
   // home: treating it as one once started bootstrap on a 16 TB home.
   const unloadable = CORE_SCRIPTS.filter((script) => !(ns.getScriptRam(script, "home") > 0));
   if (unloadable.length > 0) {
-    ns.tprint(
+    say(ns, 
       `[Boot] ERROR: the game can't load ${unloadable.join(", ")} (RAM 0 - missing or out-of-date files). ` +
         "Let filesync push everything (or re-run the watch), then run boot.js again."
     );
@@ -128,7 +140,7 @@ export async function main(ns: NS): Promise<void> {
   const requiredRam = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, "home")));
   const homeRam = ns.getServerMaxRam("home");
   if (homeRam < requiredRam && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
-    ns.tprint(`[Boot] Home has ${homeRam} GB; the full system needs ${requiredRam.toFixed(1)}. Starting ${BOOTSTRAP_SCRIPT} instead.`);
+    say(ns, `[Boot] Home has ${homeRam} GB; the full system needs ${requiredRam.toFixed(1)}. Starting ${BOOTSTRAP_SCRIPT} instead.`);
     launchIfNotRunning(ns, BOOTSTRAP_SCRIPT);
     return;
   }
@@ -139,7 +151,7 @@ export async function main(ns: NS): Promise<void> {
   // start ("insufficient RAM").
   if (ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) ns.scriptKill(BOOTSTRAP_SCRIPT, "home");
   const killed = killEverywhere(ns, BOOTSTRAP_WORKER);
-  if (killed > 0) ns.tprint(`[Boot] Stopped leftover ${BOOTSTRAP_WORKER} on ${killed} server(s).`);
+  if (killed > 0) say(ns, `[Boot] Stopped leftover ${BOOTSTRAP_WORKER} on ${killed} server(s).`);
 
   for (const script of DAEMONS) {
     launchIfNotRunning(ns, script);
@@ -212,13 +224,13 @@ export async function main(ns: NS): Promise<void> {
       continue;
     }
     if (REMOTE_OK.includes(script) && ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home")) {
-      if (placeOnDaemonHost(ns, script, (line) => ns.tprint(`[Boot] ${line}`))) {
+      if (placeOnDaemonHost(ns, script, (line) => say(ns, `[Boot] ${line}`))) {
         started.push(script);
         continue;
       }
     }
     if (!launchIfNotRunning(ns, script)) {
-      ns.tprint(`[Boot] Holding off on everything after ${script} until home has more RAM.`);
+      say(ns, `[Boot] Holding off on everything after ${script} until home has more RAM.`);
       break;
     }
     started.push(script);
