@@ -533,6 +533,15 @@
         "/var/claude_out/web_worker_probe.txt"
       ],
       "note": "can Go's computing leave the game's thread?"
+    },
+    {
+      "id": "2026-10-06-finish-bn12-run2",
+      "script": "tools/finish_bitnode.js",
+      "args": [
+        12,
+        "--confirm"
+      ],
+      "note": "the faction daemon's launch at 10:43 didn't end the node; this one reports why"
     }
   ]
 }
