@@ -7,7 +7,7 @@ import { readSavings } from "system/savings";
 import { LOG_BACKUP_SUFFIX } from "system/logs";
 import { PENDING_BOOST_PATH, PendingBoost } from "factions/skill_progress";
 import { averageRatePerMin, incomePerMin, listSeries, parseWindow, readSeries, windowPoints } from "system/monitoring/timeseries";
-import { FACTION_REPS_PATH, FactionRepsFile } from "factions/faction_decisions";
+import { FACTION_REPS_PATH, FactionRepsFile, INSTALL_HISTORY_PATH } from "factions/faction_decisions";
 import { GANG_STATUS_PATH, GangStatusFile } from "gang/gang_decisions";
 import { HACKNET_STATUS_PATH, HacknetStatusFile } from "economy/hacknet_decisions";
 import { SCHEDULER_TARGETS_PATH, SchedulerTargetsFile } from "hacking/hwgw";
@@ -58,6 +58,26 @@ function ratePerMin(ns: NS, id: string, windowSec: number, falling = false): num
   const series = readSeries(ns, id);
   const rate = series ? averageRatePerMin(series, Math.floor(Date.now() / 1000), windowSec) : undefined;
   return rate !== undefined && falling ? -rate : rate;
+}
+
+/** When the newest install was recorded (/var/install_history.txt). */
+function lastInstallAt(ns: NS): number | undefined {
+  const last = ns.read(INSTALL_HISTORY_PATH).trim().split("\n").pop();
+  if (!last) return undefined;
+  try {
+    return (JSON.parse(last) as { at?: number }).at;
+  } catch {
+    return undefined;
+  }
+}
+
+/** gauge/favor_target_pct now and 30 minutes ago. */
+function favorProgress(ns: NS): { now: number; thirtyMinutesAgo?: number } | undefined {
+  const series = readSeries(ns, "gauge/favor_target_pct");
+  if (!series) return undefined;
+  const points = windowPoints(series, Math.floor(Date.now() / 1000), 30 * 60).filter((p): p is { t: number; v: number } => p.v !== null);
+  if (points.length === 0) return undefined;
+  return { now: points[points.length - 1].v, thirtyMinutesAgo: points.length >= 25 ? points[0].v : undefined };
 }
 
 function money(n: number | undefined): string {
@@ -306,6 +326,10 @@ export async function main(ns: NS): Promise<void> {
     fleetUsedFraction: fleetUsage(ns),
     missingPrograms: ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe", "Formulas.exe"].filter((p) => !ns.fileExists(p, "home")),
     hacknetWrittenAt: readJson<{ writtenAt: number }>(ns, HACKNET_STATUS_PATH)?.writtenAt,
+    phaseName: Approach[approach],
+    lastInstallAt: lastInstallAt(ns),
+    favorProgress: favorProgress(ns),
+    donatableFactions: faction?.donatable?.length,
     augmentLoop: {
       augmentsMode: phasePolicy(approach).installLoop,
       autoPurchase: factionConfig?.autoPurchaseAugmentations === true,

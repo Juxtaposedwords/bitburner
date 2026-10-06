@@ -25,6 +25,8 @@ export const NEUROFLUX_GOVERNOR = "NeuroFlux Governor";
 // Installing it reveals w0r1d_d43m0n - the BitNode's finish line.
 export const RED_PILL = "The Red Pill";
 export const DAEDALUS = "Daedalus";
+// Every install as a JSON line (faction_daemon.ts writes it, tools read it).
+export const INSTALL_HISTORY_PATH = "/var/install_history.txt";
 
 /**
  * Written by faction_daemon.ts every tick: every joined faction's current

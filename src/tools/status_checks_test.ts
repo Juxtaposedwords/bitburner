@@ -158,3 +158,27 @@ describe("summarizeScheduler", () => {
     expect(summarizeScheduler(["[1:00:00 PM] [PID: 1] [WARN ] [Scheduler] [Scheduler] phantasy not hackable for hackFraction 0.05"]).target).toBe("phantasy");
   });
 });
+
+describe("stall alarms", () => {
+  it("flags karma that isn't falling while the gang waits on it", () => {
+    const s = base({ faction: { karmaCrime: "Homicide (100% success, karma -1000 / -54000)", writtenAt: NOW }, rates: { hacking: 1e9, karma: 0 } });
+    expect(messages(s).some((m) => /Karma isn't falling/.test(m))).toBe(true);
+  });
+
+  it("flags a long gap between installs in AUGMENTS only", () => {
+    const longAgo = NOW - 3 * 3600_000;
+    expect(messages(base({ phaseName: "AUGMENTS", lastInstallAt: longAgo })).some((m) => /No install for/.test(m))).toBe(true);
+    expect(messages(base({ phaseName: "DAEDALUS", lastInstallAt: longAgo })).some((m) => /No install for/.test(m))).toBe(false);
+  });
+
+  it("flags a favor target that hasn't moved in 30 minutes", () => {
+    expect(messages(base({ phaseName: "FACTION_GRIND", favorProgress: { now: 40, thirtyMinutesAgo: 40 } })).some((m) => /favor target is stuck/.test(m))).toBe(true);
+    expect(messages(base({ phaseName: "FACTION_GRIND", favorProgress: { now: 45, thirtyMinutesAgo: 40 } })).some((m) => /favor target is stuck/.test(m))).toBe(false);
+  });
+
+  it("flags cash piling up while donations are open", () => {
+    const s = base({ cash: 1e12, rates: { hacking: 1e9, cash: 1e9 }, donatableFactions: 2 });
+    expect(messages(s).some((m) => /piling up/.test(m))).toBe(true);
+    expect(messages({ ...s, donatableFactions: 0 }).some((m) => /piling up/.test(m))).toBe(false);
+  });
+});

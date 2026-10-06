@@ -49,6 +49,13 @@ export type StatusSnapshot = {
   sleeves?: { sleeves: { index: number; goal: string }[]; writtenAt: number };
   installPending?: { since: number; phase?: string };
   schedulerLogTail: string[];
+  // For the stall alarms (stallChecks).
+  phaseName?: string;
+  // When the newest line of /var/install_history.txt was written.
+  lastInstallAt?: number;
+  // gauge/favor_target_pct now and 30 minutes ago.
+  favorProgress?: { now: number; thirtyMinutesAgo?: number };
+  donatableFactions?: number;
 };
 
 // A status file older than this means its writer has stopped.
@@ -273,11 +280,39 @@ function workChecks(s: StatusSnapshot): Finding[] {
   return findings;
 }
 
+// Stall alarms: progress stopped while every daemon still runs. BN12's
+// first run went hours unnoticed more than once (a boot that skipped the
+// faction daemon, a finished node waiting 40 minutes).
+const STALL_INSTALL_HOURS = 2;
+const STALL_CASH_INCOME_MINUTES = 60;
+
+function stallChecks(s: StatusSnapshot): Finding[] {
+  const findings: Finding[] = [];
+  if (s.faction?.karmaCrime && s.rates.karma !== undefined && s.rates.karma <= 0) {
+    findings.push({ level: "WARN", message: "Karma isn't falling, though the gang is still waiting on it." });
+  }
+  if (s.phaseName === "AUGMENTS" && s.lastInstallAt !== undefined && s.nowMs - s.lastInstallAt > STALL_INSTALL_HOURS * 3600_000) {
+    findings.push({ level: "WARN", message: `No install for ${formatMinutes((s.nowMs - s.lastInstallAt) / MINUTE_MS)} in AUGMENTS (multiply).` });
+  }
+  const favor = s.favorProgress;
+  if (s.phaseName === "FACTION_GRIND" && favor?.thirtyMinutesAgo !== undefined && favor.now <= favor.thirtyMinutesAgo && favor.now < 100) {
+    findings.push({ level: "WARN", message: `The favor target is stuck at ${favor.now.toFixed(0)}% for 30 minutes.` });
+  }
+  const income = (s.rates.hacking ?? 0) + (s.rates.gang ?? 0);
+  if ((s.donatableFactions ?? 0) > 0 && income > 0 && s.cash > STALL_CASH_INCOME_MINUTES * income && (s.rates.cash ?? 0) > 0) {
+    findings.push({
+      level: "WARN",
+      message: `Cash ${formatMoney(s.cash)} is piling up (over ${STALL_CASH_INCOME_MINUTES} minutes of income) while donations are open - it should be turning into rep.`,
+    });
+  }
+  return findings;
+}
+
 const ORDER: Record<Level, number> = { ERROR: 0, WARN: 1, info: 2 };
 
 /** Every finding, most severe first. */
 export function checkStatus(s: StatusSnapshot): Finding[] {
-  return [...daemonChecks(s), ...staleChecks(s), ...schedulerChecks(s), ...incomeChecks(s), ...gangChecks(s), ...workChecks(s)].sort(
+  return [...daemonChecks(s), ...staleChecks(s), ...schedulerChecks(s), ...incomeChecks(s), ...gangChecks(s), ...workChecks(s), ...stallChecks(s)].sort(
     (a, b) => ORDER[a.level] - ORDER[b.level]
   );
 }

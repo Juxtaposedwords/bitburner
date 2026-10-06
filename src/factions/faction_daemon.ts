@@ -65,6 +65,7 @@ import {
   donationTarget,
   readyToFinish,
   DAEDALUS,
+  INSTALL_HISTORY_PATH,
   favorPlanReady,
   gangTrainingStat,
   pendingAugmentations,
@@ -123,7 +124,6 @@ let finishLaunched = false;
 // ns.formulas.work.*Gains are per 200ms game cycle.
 const CYCLES_PER_MIN = 300;
 // Every install, newest INSTALL_HISTORY_CAP (archived locally by the bridge).
-export const INSTALL_HISTORY_PATH = "/var/install_history.txt";
 const INSTALL_HISTORY_CAP = 200;
 
 // Install once cash hasn't dropped for this long during the spend-down -
