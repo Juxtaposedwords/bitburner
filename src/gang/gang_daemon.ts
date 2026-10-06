@@ -28,6 +28,7 @@ import {
   EquipmentOption,
   selectBestAscensionCandidate,
   TaskOption,
+  GANG_FACTION_PRIORITY,
 } from "gang/gang_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import * as server_metadata_pb from "system/rpc/server_metadata";
@@ -148,7 +149,7 @@ export const DEFAULT_CONFIG: GangConfig = {
   maxCasualties: 1,
   maxEquipmentCost: 4e9,
   equipmentCooldownMinutes: 20,
-  gangFactionPriority: ["Slum Snakes", "Tetrads", "The Syndicate", "The Dark Army", "Speakers for the Dead"],
+  gangFactionPriority: GANG_FACTION_PRIORITY,
   memberNames: [
     "Clotho",
     "Atropos",

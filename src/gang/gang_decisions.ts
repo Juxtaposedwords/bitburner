@@ -273,6 +273,24 @@ export function karmaBlocksGang(karma: number, node: number | undefined): boolea
  * the sampler, the same way faction rep reaches it.
  */
 export const GANG_STATUS_PATH = "/var/gang_status.txt";
+
+/**
+ * Factions a gang is created with, in order (the gang config's
+ * gangFactionPriority default): the first joined one. Combat gangs only -
+ * the task scoring assumes combat tasks.
+ */
+export const GANG_FACTION_PRIORITY = ["Slum Snakes", "Tetrads", "The Syndicate", "The Dark Army", "Speakers for the Dead"];
+export const GANG_CONFIG_PATH = "/etc/gang.txt";
+
+/**
+ * The faction the gang is or will be created with: the actual one once in
+ * a gang, else the first joined one in `priority`. Nobody can donate to a
+ * gang's own faction, so it's never a donation target - BN12's third run
+ * picked Slum Snakes, the faction its gang was about to take.
+ */
+export function gangFactionFor(inGangFaction: string | undefined, joinedFactions: string[], priority: string[] = GANG_FACTION_PRIORITY): string | undefined {
+  return inGangFaction ?? priority.find((f) => joinedFactions.includes(f));
+}
 export type GangStatusFile = {
   power: number;
   // Fractions (0-1), as the game reports them.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { skipRecentlyAscended,
+import { gangFactionFor, skipRecentlyAscended,
   AscensionCandidate,
   AscensionResult,
   decideAscension,
@@ -425,5 +425,13 @@ describe("skipRecentlyAscended", () => {
   it("buys again once the cooldown has passed", () => {
     const recent = new Map([["Hercules", 0]]);
     expect(skipRecentlyAscended([item("Hercules", false)], recent, 21 * 60_000, 20 * 60_000)).toHaveLength(1);
+  });
+});
+
+describe("gangFactionFor", () => {
+  it("is the gang's faction, or the one it will be created with", () => {
+    expect(gangFactionFor("Tetrads", ["Slum Snakes", "Tetrads"])).toBe("Tetrads");
+    expect(gangFactionFor(undefined, ["Netburners", "Slum Snakes"])).toBe("Slum Snakes");
+    expect(gangFactionFor(undefined, ["Netburners"])).toBeUndefined();
   });
 });

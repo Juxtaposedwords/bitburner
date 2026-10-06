@@ -83,7 +83,7 @@ import {
   wantedInviteFactions,
 } from "factions/faction_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
-import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
+import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
 import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState } from "system/remote_state";
@@ -959,6 +959,16 @@ async function growStatsInstallSaves(
 }
 
 
+/** The gang config's faction order (an override in /etc/gang.txt, else the default). */
+function gangPriority(ns: NS): string[] {
+  try {
+    const list = (JSON.parse(ns.read(GANG_CONFIG_PATH) || "{}") as { gangFactionPriority?: unknown }).gangFactionPriority;
+    return Array.isArray(list) ? list.map(String) : GANG_FACTION_PRIORITY;
+  } catch {
+    return GANG_FACTION_PRIORITY;
+  }
+}
+
 async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
@@ -1046,7 +1056,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // work. gang_daemon.ts creates the gang once karma allows.
   const gangAvailable = gangPossible;
   // Never the gang's own faction for work, favor or rep targets (see workableFactions).
-  const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
+  // The gang's faction - or, before the gang exists, the one it will take.
+  const gangFaction = gangAvailable
+    ? gangFactionFor(ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined, joinedFactions, gangPriority(ns))
+    : undefined;
   const workable = workableFactions(joinedFactions, gangFaction);
   const karmaCrime =
     // The player only when nobody else can (no sleeves); otherwise sleeves
