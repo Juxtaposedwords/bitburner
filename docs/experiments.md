@@ -18,6 +18,11 @@ no sleeves.
   3.3 h.
 - No favor work: Netburners favor 17 (1,245 rep, +11 a minute), The Black Hand favor 20.5. Hacking 728.
 
+**Correction (22:50).** The first version sent the player to Slum Snakes, the faction the gang is created
+with. A gang's faction takes no donations, so that work was wasted. The faction daemon now leaves out the
+gang's future faction (`gangFactionFor`), and the player works for The Black Hand: favor 20.5, 2,059 of
+544,596 rep.
+
 **After:** to be measured about 30 minutes and a few hours after the change:
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
