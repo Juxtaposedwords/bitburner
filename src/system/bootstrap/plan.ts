@@ -11,8 +11,14 @@
 
 /**
  * Scripts the full system can't usefully run without, all at once on home:
- * the RPC hub and player snapshot, log rotation, the scheduler (income),
- * the program shopper (RAM and programs), and the faction daemon.
+ * the RPC hub and player snapshot, log rotation, the network daemon, the
+ * scheduler (income) and the program shopper (RAM and programs) - ~40 GB.
+ * Not the faction daemon (~100 GB): with it the hand-over waited for ~157
+ * GB, ~1.5 hours into BN12's second run, while the scheduler (the better
+ * earner) sat unused. Nothing is lost meanwhile - the bootstrap's karma
+ * crime keeps repeating on its own - and boot starts the faction daemon as
+ * soon as it fits (the program shopper re-runs boot after every home RAM
+ * upgrade).
  */
 export const CORE_SCRIPTS = [
   "system/supervisor.js",
@@ -21,7 +27,6 @@ export const CORE_SCRIPTS = [
   "hacking/network_daemon.js",
   "hacking/scheduler_daemon.js",
   "hacking/program_shopper.js",
-  "factions/faction_daemon.js",
 ];
 
 // Room beyond CORE_SCRIPTS for the one-shots boot runs, the next daemons in
