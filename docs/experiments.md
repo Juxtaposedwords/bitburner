@@ -23,7 +23,19 @@ with. A gang's faction takes no donations, so that work was wasted. The faction 
 gang's future faction (`gangFactionFor`), and the player works for The Black Hand: favor 20.5, 2,059 of
 544,596 rep.
 
-**After:** to be measured about 30 minutes and a few hours after the change:
+**After, 30 minutes (23:19):**
+- **Karma:** −20,994, falling about 186 a minute from the sleeves alone, against about 215 with the player
+  (22:35–22:45). The gang is about 2.95 h away (about 02:16), roughly 13 minutes later than before.
+- **Favor:** three installs in GANG, at 22:59, 23:07 and 23:18. Each bought one cheap augmentation through
+  `pickInstallEnabler`, because `grindInstallPays` judged that banking favor finishes the grind sooner.
+  - The Black Hand's favor went from 20.5 to 27.4, and Netburners' from 17 to 28.2. Before the change,
+    neither had moved for the whole run.
+  - The cost: each install resets hacking to level 1 (728 before) along with money. The sleeves' karma
+    showed only a one-minute dip at each install.
+- **Still to measure (a few hours in):** the time from the run's start to donations opening, compared
+  with run 2 (about 15.5 active hours).
+
+**Measurements planned:**
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
 - The time from the run's start to donations opening, compared with run 2 (about 15.5 active hours).
