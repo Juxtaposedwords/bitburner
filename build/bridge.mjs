@@ -29,7 +29,8 @@ const PULL_INTERVAL_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 // Game paths copied into ./game/ (leading slash optional in the game's names).
 // /var/claude_out/ holds tool output written for this (e.g. status --out).
-const PULL_PREFIXES = ["var/"];
+// etc/: the configs, so a bad value can be seen (share ran at NaN once).
+const PULL_PREFIXES = ["var/", "etc/"];
 // Under a pulled prefix but not worth copying (one file per server, rewritten constantly).
 const PULL_SKIP = ["var/supervisor/"];
 

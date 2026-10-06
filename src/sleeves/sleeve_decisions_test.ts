@@ -17,6 +17,11 @@ describe("decideSleeveGoals", () => {
     expect(goals).toEqual([{ kind: "karmaCrime", crime: "Mug" }]);
   });
 
+  it("works a faction with a rep target even while shocked", () => {
+    const goals = decideSleeveGoals([{ index: 0, shock: 80, sync: 100 }, { index: 1, shock: 80, sync: 100 }], ctx({ repGaps: { Netburners: 250000 } }));
+    expect(goals).toEqual([{ kind: "faction", faction: "Netburners" }, { kind: "recovery" }]);
+  });
+
   it("recovers shock, then synchronizes, before working", () => {
     expect(decideSleeveGoals([{ index: 0, shock: 50, sync: 5 }], ctx())).toEqual([{ kind: "recovery" }]);
     expect(decideSleeveGoals([{ index: 0, shock: 0, sync: 50 }], ctx())).toEqual([{ kind: "sync" }]);

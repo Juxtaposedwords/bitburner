@@ -73,7 +73,10 @@ async function tick(ns: NS, log: Logger, config: ShareConfig): Promise<void> {
     reps || sleeves
       ? shareWanted(!!reps?.workTarget, (sleeves?.sleeves ?? []).map((s) => s.goal))
       : readPhasePolicy(ns).shareByDefault;
-  const fraction = Math.max(config.fleetFraction, readPhasePolicy(ns).shareFleetFraction);
+  // A config value that isn't a number (BN12's second run logged
+  // fraction=NaN and ran no share at all) falls back to the default.
+  const configured = Number.isFinite(Number(config.fleetFraction)) ? Number(config.fleetFraction) : DEFAULT_CONFIG.fleetFraction;
+  const fraction = Math.max(configured, readPhasePolicy(ns).shareFleetFraction ?? 0);
   const target = config.enabled && repWork ? shareThreadTarget(totalRam, fraction, ramPerThread) : 0;
   const running = runningShares(ns, hosts);
   const runningThreads = running.reduce((sum, p) => sum + p.threads, 0);

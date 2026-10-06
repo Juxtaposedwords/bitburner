@@ -798,8 +798,12 @@ function pursueWantedInvites(
     blockers[faction] = describeUnmetRequirements(requirements, snapshot, installedCount);
     const money = unmetMoneyRequirement(requirements, snapshot);
     if (money > 0 && (!moneyNeeded || money > moneyNeeded.amount)) moneyNeeded = { faction, amount: money };
-    // Gym time only once combat is all that's left (onlyCombatLeft).
-    if (found || !onlyCombatLeft(requirements, snapshot)) continue;
+    // Gym time only once combat is all that's left (onlyCombatLeft), and
+    // only while the combat route is realistic (combatBlocksInvite: every
+    // combat stat at least half way). BN12's second run sent the player to
+    // the gym for The Covenant's 850s mid-favor-phase, leaving the favor
+    // target to one shocked sleeve at 155 rep/min.
+    if (found || !onlyCombatLeft(requirements, snapshot) || !combatBlocksInvite(requirements, snapshot)) continue;
     const blocking = findBlockingRequirement(requirements, snapshot);
     if (!blocking) continue;
     const action = requirementToAction(blocking, config.companyJobField, snapshot);

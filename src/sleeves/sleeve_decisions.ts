@@ -88,10 +88,15 @@ export function decideSleeveGoals(sleeves: SleeveState[], ctx: SleeveContext): S
       const training = ctx.karmaTrainingFor?.(sleeve.index);
       return training ? { kind: "gym", ...training, purpose: "karma" } : { kind: "karmaCrime", crime: karmaCrime };
     }
-    if (sleeve.shock > ctx.maxShock) return { kind: "recovery" };
-    if (sleeve.sync < ctx.minSync) return { kind: "sync" };
+    // Rep work before recovery: a shocked sleeve still earns rep at
+    // (100 - shock)%, and recovery is slow - BN12 started its sleeves at
+    // ~80 shock and they recovered ~2 points an hour, so all seven sat in
+    // recovery for hours earning nothing while a favor target waited.
+    // Recovery only displaces the low-value work below.
     const faction = openFactions.shift();
     if (faction) return { kind: "faction", faction };
+    if (sleeve.shock > ctx.maxShock) return { kind: "recovery" };
+    if (sleeve.sync < ctx.minSync) return { kind: "sync" };
     const company = openCompanies.shift();
     if (company) return { kind: "company", company };
     const training = ctx.trainingFor?.(sleeve.index);
