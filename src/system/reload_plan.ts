@@ -1,3 +1,4 @@
+import { NS } from "@ns";
 /**
  * Pure logic for reloader.ts - no `ns`.
  *
@@ -233,3 +234,21 @@ export function readStoppedDaemons(raw: string): string[] {
     return [];
   }
 }
+
+/**
+ * `script` and every script it imports, transitively (as files on home) -
+ * what has to be copied to run it on another server. Here rather than in
+ * remote_place.ts so the reloader can use it without paying for ns.cloud.
+ */
+export function scriptClosure(ns: NS, script: string): string[] {
+  const seen = new Set<string>();
+  const queue = [script.replace(/^\//, "")];
+  while (queue.length > 0) {
+    const file = queue.shift() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const dep of importedScripts(ns.read(file) || ns.read(`/${file}`))) if (!seen.has(dep)) queue.push(dep);
+  }
+  return [...seen];
+}
+

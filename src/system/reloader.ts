@@ -1,3 +1,4 @@
+import { DAEMON_HOST } from "system/remote_state";
 import { NS } from "@ns";
 import {
   COMMANDS_DONE_PATH,
@@ -7,6 +8,7 @@ import {
   readStoppedDaemons,
   RELOADER_STATE_PATH,
   STOPPED_DAEMONS_PATH,
+  scriptClosure,
   seedTracked,
   decideReloads,
   decideRevivals,
@@ -113,6 +115,12 @@ async function runQueuedCommands(ns: NS, log: Logger): Promise<void> {
   }
 }
 
+/** Managed daemons running on home or DAEMON_HOST, each with its host. */
+function managedProcesses(ns: NS): (ReturnType<NS["ps"]>[number] & { host: string })[] {
+  const hosts = ns.serverExists(DAEMON_HOST) ? ["home", DAEMON_HOST] : ["home"];
+  return hosts.flatMap((host) => ns.ps(host).map((p) => ({ ...p, host }))).filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Reloader", LOG_LEVEL.INFO);
@@ -124,10 +132,7 @@ export async function main(ns: NS): Promise<void> {
   // that changed while no reloader was running still gets picked up.
   let tracked = seedTracked(
     readSavedSignatures(ns),
-    ns
-      .ps("home")
-      .filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")))
-      .map((p) => ({ pid: p.pid, ageSec: ns.getRunningScript(p.pid)?.onlineRunningTime ?? Infinity }))
+    managedProcesses(ns).map((p) => ({ pid: p.pid, ageSec: ns.getRunningScript(p.pid)?.onlineRunningTime ?? Infinity }))
   );
   const seen = new Map<string, SeenDaemon>();
   // Seeded with what boot.js started (EXPECTED_DAEMONS_PATH), so a daemon
@@ -144,7 +149,7 @@ export async function main(ns: NS): Promise<void> {
       const key = daemonKey(file, []);
       if (!seen.has(key)) seen.set(key, { filename: file, threads: 1, args: [] });
     }
-    const processes = ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
+    const processes = managedProcesses(ns);
     const sources = new Map<string, string>();
     // An unreadable path counts as an empty file rather than crashing the loop.
     const read = (path: string): string => {
@@ -181,14 +186,18 @@ export async function main(ns: NS): Promise<void> {
       const p = processes.find((proc) => proc.pid === pid);
       if (!p) continue;
       ns.kill(pid);
-      const newPid = ns.run(p.filename, p.threads, ...p.args);
+      // A daemon on DAEMON_HOST is restarted there, with its new code copied over.
+      if (p.host !== "home") ns.scp(scriptClosure(ns, p.filename), p.host, "home");
+      const newPid = p.host === "home" ? ns.run(p.filename, p.threads, ...p.args) : ns.exec(p.filename, p.host, p.threads, ...p.args);
       if (newPid === 0) await log.warn(`[Reloader] ${p.filename} changed; killed it but couldn't restart it (RAM?).`);
       else await log.info(`[Reloader] ${p.filename} changed; restarted (pid ${pid} -> ${newPid}).`);
     }
 
     // Crashes: anything seen before and missing now (restarts above are
     // already running again under their new pid).
-    const running = ns.ps("home").filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
+    // Including DAEMON_HOST's: a daemon running there isn't missing, and
+    // reviving it on home too would run two copies.
+    const running = managedProcesses(ns);
     const runningKeys = new Set(running.map((p) => daemonKey(p.filename, p.args)));
     // Stopped on purpose (tools/kill.js) - leave them down; once running
     // again (started by hand or boot), they're watched as usual.

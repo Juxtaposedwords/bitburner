@@ -157,6 +157,28 @@ idea as gRPC's deadlines:
   answered `DEADLINE_EXCEEDED`, because the caller has stopped waiting.
 - **Local computation:** IPvGO move choice takes the same type (see the IPvGO section).
 
+## Daemons on other servers (`system/remote_state.ts`, `system/remote_place.ts`)
+
+Daemons coordinate through files on home: `/etc` configs and `/var` status. Files are per server, so
+a daemon running anywhere else would only see its own server's copies.
+- **The supervisor serves home's files** as `StateService` (`state.proto`: `List`, `GetMany`,
+  `PutMany`), on its own port next to `PlayerService`.
+- **A remote daemon brackets each tick:**
+  - `pullState` copies home's state files to its server.
+  - The tick runs with its usual `ns.read`/`ns.write`.
+  - `pushState` sends back whatever changed, plus its new log lines (appended to
+    `/var/log/<host>/` on home, then cleared locally).
+- **Home stays the one place state lives,** so persistence, the bridge mirror and every tool are
+  unchanged.
+- **Boot places the faction daemon (about 100 GB) on `DAEMON_HOST`** (`daemons-0`) while home is
+  too small for it, buying or upgrading that server when cash allows, and copying the script with
+  everything it imports (`scriptClosure`). The rest of boot's order then still starts.
+  - `daemons-0` is never a worker host.
+  - The reloader counts daemons running there (no second copy on home) and restarts them there,
+    with fresh code, when their code changes.
+  - Purchased servers go at an install, and home has grown by then, so the next boot puts the
+    daemon back on home.
+
 ## `PlayerService`: player context over RPC
 
 `player_metadata.proto` defines a second service, `PlayerService`, with

@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package state;
+
+// The shared state daemons coordinate through - the /etc configs and /var
+// status files on home - for a daemon running on another server, where
+// ns.read/ns.write would see only that server's own files. The supervisor
+// serves it from home's files, so home stays the single place they live
+// (persistence, the bridge mirror, tools all unchanged). See
+// system/remote_state.ts for how a remote daemon uses it.
+message Document {
+  // Absolute game path, e.g. "/var/phase.txt".
+  string path = 1;
+  string content = 2;
+  // PutMany: add content to the end instead of replacing (a remote daemon's
+  // new log lines).
+  bool append = 3;
+}
+
+message ListRequest {
+  // Paths starting with any of these ("/var/", "/etc/").
+  repeated string prefixes = 1;
+  // ... except those starting with any of these ("/var/log/").
+  repeated string exclude = 2;
+}
+
+message ListResponse {
+  repeated string paths = 1;
+}
+
+message GetManyRequest {
+  repeated string paths = 1;
+}
+
+message GetManyResponse {
+  repeated Document documents = 1;
+}
+
+message PutManyRequest {
+  repeated Document documents = 1;
+}
+
+message PutManyResponse {
+  int32 written = 1;
+}
+
+service StateService {
+  rpc List (ListRequest) returns (ListResponse);
+  rpc GetMany (GetManyRequest) returns (GetManyResponse);
+  rpc PutMany (PutManyRequest) returns (PutManyResponse);
+}

@@ -6,6 +6,8 @@ import * as rpc from "system/rpc/rpc";
 import { Codes } from "system/rpc/status";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import * as server_metadata_pb from "system/rpc/server_metadata";
+import * as state_pb from "system/rpc/state";
+import { createStateHandlers } from "system/remote_state";
 
 const CONFIG_PATH = "/etc/supervisor.txt";
 
@@ -447,6 +449,8 @@ export async function main(ns: NS): Promise<void> {
   const server = rpc.NewServer(ns, server_metadata_pb.SupervisorServicePort);
   server_metadata_pb.RegisterSupervisorService(server, handlers);
   player_metadata_pb.RegisterPlayerService(server, playerHandlers);
+  // Shared state for daemons on other servers (system/remote_state.ts).
+  state_pb.RegisterStateService(server, createStateHandlers(ns));
 
   server.addBackgroundTask(() => {
     applyDefined(state.player, readPlayerContext(ns, config.playerInfoPath));

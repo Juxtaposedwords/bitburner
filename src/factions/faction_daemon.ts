@@ -86,6 +86,8 @@ import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_KARMA_REQUIREMENT, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
 import { appendJsonLine } from "system/history";
+import { isRemote, pullState, pushState } from "system/remote_state";
+import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
 import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
@@ -1124,7 +1126,8 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     worldVisible ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : Infinity
   );
   if (finishReady && config.nextBitNode > 0 && Date.now() - finishLaunchedAt > FINISH_RETRY_MS) {
-    if (ns.run(FINISH_TOOL, 1, config.nextBitNode, "--confirm") !== 0) {
+    // On home: this daemon may be running elsewhere (DAEMON_HOST).
+    if (ns.exec(FINISH_TOOL, "home", 1, config.nextBitNode, "--confirm") !== 0) {
       finishLaunchedAt = Date.now();
       await log.info(`[Faction] The BitNode can be finished: running ${FINISH_TOOL} ${config.nextBitNode} --confirm.`);
     } else {
@@ -1505,12 +1508,20 @@ export async function main(ns: NS): Promise<void> {
 
   await log.info("=== Faction manager online ===");
 
+  // Away from home (boot.ts put it on DAEMON_HOST while home was small),
+  // each tick works on a copy of home's state files: pulled before it,
+  // changes pushed back after (system/remote_state.ts, via the
+  // supervisor's StateService).
+  const remote = isRemote(ns);
+  if (remote) await log.info(`[Faction] Running on ${ns.getHostname()}; syncing state with home each tick.`);
   while (true) {
+    const pulled = remote ? await pullState(ns, deadlineIn(TICK_INTERVAL_MS)) : undefined;
     const config = loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
 
     if (config.enabled) {
       await tick(ns, log, config);
     }
+    if (pulled) await pushState(ns, pulled, deadlineIn(TICK_INTERVAL_MS));
 
     await ns.asleep(TICK_INTERVAL_MS);
   }

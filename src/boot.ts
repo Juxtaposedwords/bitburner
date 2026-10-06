@@ -2,6 +2,8 @@ import { NS } from "@ns";
 import { EXPECTED_DAEMONS_PATH } from "system/reload_plan";
 import { CORE_SCRIPTS, requiredHomeRam } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
+import { placeOnDaemonHost } from "system/remote_place";
+import { DAEMON_HOST } from "system/remote_state";
 import * as rpc from "system/rpc/rpc";
 import { sleevesAvailable } from "sleeves/sleeve_decisions";
 
@@ -22,6 +24,8 @@ const GO_SCRIPT = "go/go_daemon.js";
 const BOOTSTRAP_SCRIPT = "system/bootstrap/bootstrap.js";
 const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
 const SUPERVISOR_SCRIPT = "system/supervisor.js";
+// Daemons boot may run on DAEMON_HOST while home is too small for them.
+const REMOTE_OK = [FACTION_SCRIPT];
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -199,6 +203,20 @@ export async function main(ns: NS): Promise<void> {
   const started = [...DAEMONS];
   for (const [script, available] of ordered) {
     if (!available) continue;
+    // Too big for home yet: on DAEMON_HOST instead (system/remote_place.ts),
+    // where it syncs its state with home - so the rest of the order still
+    // starts. BN12 runs began at 32 GB with the ~100 GB faction daemon (the
+    // karma crime, factions, purchases) waiting for hours of home upgrades.
+    if (REMOTE_OK.includes(script) && (ns.serverExists(DAEMON_HOST) && ns.isRunning(script, DAEMON_HOST))) {
+      started.push(script);
+      continue;
+    }
+    if (REMOTE_OK.includes(script) && ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home")) {
+      if (placeOnDaemonHost(ns, script, (line) => ns.tprint(`[Boot] ${line}`))) {
+        started.push(script);
+        continue;
+      }
+    }
     if (!launchIfNotRunning(ns, script)) {
       ns.tprint(`[Boot] Holding off on everything after ${script} until home has more RAM.`);
       break;
