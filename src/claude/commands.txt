@@ -823,6 +823,20 @@
         "9"
       ],
       "note": "user: finish BN12 into BN9 for SF9.2 (128 GB starting home)"
+    },
+    {
+      "id": "2026-10-07-bn9-stop-bootstrap",
+      "script": "tools/kill.js",
+      "args": [
+        "system/bootstrap/bootstrap.js"
+      ],
+      "note": "restart the bootstrap with free CS study instead of Mug"
+    },
+    {
+      "id": "2026-10-07-bn9-boot",
+      "script": "boot.js",
+      "args": [],
+      "note": "starts the new bootstrap"
     }
   ]
 }

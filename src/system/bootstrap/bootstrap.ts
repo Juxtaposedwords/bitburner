@@ -14,8 +14,11 @@ import {
  *
  * No supervisor, RPC, generated code, or config - direct calls only, so it
  * fits a fresh BitNode's home with room for workers. Every tick it:
- * 1. commits a crime while the player is idle (money; the only income that
- *    works at hacking level ~1),
+ * 1. studies Computer Science at Rothman University while the player is
+ *    idle - free, and hacking level is what the workers' income and the
+ *    targets they can reach grow with. (It used to be Mug, for money - but
+ *    every stat is 1 after a BitNode reset, so Mug succeeds ~2% of the time:
+ *    ~$180/s. Study is also 3 GB cheaper here than commitCrime.)
  * 2. roots every server the owned port openers allow,
  * 3. runs system/bootstrap/bootstrap_worker.js on every rooted server and spare home RAM
  *    against the best early target (pickBootstrapTarget),
@@ -32,8 +35,9 @@ const WORKER = "system/bootstrap/bootstrap_worker.js";
 const SHOPPER = "hacking/program_shopper.js";
 const BOOT = "boot.js";
 const HOME = "home";
-// Reliable early money at low combat stats; it repeats on its own.
-const CRIME = "Mug";
+// Free, in Sector-12 (where every BitNode starts); it continues on its own.
+const UNIVERSITY = "Rothman University";
+const COURSE = "Computer Science";
 const TICK_MS = 10_000;
 const SLEEVE_KICK = "system/bootstrap/bootstrap_sleeves.js";
 const STATUS_FILE = "/var/bootstrap_status.txt";
@@ -46,7 +50,8 @@ const OPENERS: [string, (ns: NS, host: string) => void][] = [
   ["SQLInject.exe", (ns, host) => ns.sqlinject(host)],
 ];
 
-type CrimeName = Parameters<NS["singularity"]["commitCrime"]>[0];
+type UniversityName = Parameters<NS["singularity"]["universityCourse"]>[0];
+type CourseName = Parameters<NS["singularity"]["universityCourse"]>[1];
 type ProgramName = Parameters<NS["singularity"]["purchaseProgram"]>[0];
 
 /**
@@ -137,11 +142,14 @@ export async function main(ns: NS): Promise<void> {
       return;
     }
 
-    if (!ns.singularity.isBusy()) ns.singularity.commitCrime(CRIME as CrimeName);
+    // Idle, or on a crime (an older bootstrap's Mug): to the course. Other
+    // work - someone doing something by hand - is left alone.
+    const work = ns.singularity.getCurrentWork();
+    if (!work || work.type === "CRIME") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
     rootAll(ns, hosts);
 
     if (readyToShop(ns)) {
-      // The crime keeps going on its own; the shopper runs boot.js when done.
+      // The course keeps going on its own; the shopper runs boot.js when done.
       // Only hand off once it has actually started: on a fresh 32 GB home it
       // can fail for RAM, and exiting anyway left nothing running at all
       // (BN12's second start sat dead from its first TOR purchase).
