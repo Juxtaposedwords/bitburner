@@ -35,6 +35,18 @@ gang's future faction (`gangFactionFor`), and the player works for The Black Han
 - **Still to measure (a few hours in):** the time from the run's start to donations opening, compared
   with run 2 (about 15.5 active hours).
 
+**After, 2.5 hours (01:19):**
+- **Karma:** −46,467. It fell 211 a minute over the last 2 hours, as fast as the player and sleeves managed
+  together before the change, so giving up the player's crime cost the gang nothing. The gang is about
+  36 minutes away (about 01:55).
+- **Favor:**
+  - Netburners went from 17 to 75.1, The Black Hand to 31.3.
+  - Installs come every 17–21 minutes, each banking 7.5–9 favor for Netburners. The gain slowly shrinks
+    as the gap between installs grows.
+  - At this pace, the 150 favor that opens donations is about 10 installs (about 3.5 h) away: around
+    04:50, about 11 hours into the run, against about 15.5 active hours in run 2.
+- **Hacking:** resets to 1 at each install, and is back to about 700 by the next one.
+
 **Measurements planned:**
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
