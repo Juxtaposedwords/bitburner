@@ -1220,3 +1220,17 @@ export function describeUnmetRequirements(requirements: PlayerRequirement[], sna
   }
   return out;
 }
+
+/**
+ * Whether the player's work slot goes to the gang's karma crime (GANG).
+ * Sleeves earn karma either way; the player joins them when the phase says
+ * so, when there are no sleeves, or once donations are open - favor work
+ * has nothing left to do then and karma is the only critical path left.
+ * Sleeves earn next to nothing for their first hours (shock scales their
+ * exp to ~0, so they train first): a simulation by the game's formulas put
+ * a sleeves-only gang near 11 h, against 7.95 h in BN12's third run with
+ * the player on the crime for its first 4.85 h.
+ */
+export function playerChasesKarma(phaseSaysSo: boolean, sleeves: boolean, donationsOpen: boolean): boolean {
+  return phaseSaysSo || !sleeves || donationsOpen;
+}

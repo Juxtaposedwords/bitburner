@@ -105,8 +105,8 @@ export type PhasePolicy = {
   // gang_daemon.ts creates it then.
   chaseGangKarma: boolean;
   // The player commits it too. Not in GANG any more: the player's work
-  // slot goes to the donation target instead (faction_daemon.ts still
-  // falls back to the crime without sleeves). BN12's second run spent its
+  // slot goes to the donation target instead, and to the crime only once
+  // donations are open or without sleeves (playerChasesKarma). BN12's second run spent its
   // first ~7.5 hours with the player on Homicide; everything after
   // donations opened took ~2.6 hours, so the run's length was set by when
   // favor work started.

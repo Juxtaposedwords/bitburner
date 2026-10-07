@@ -1,6 +1,6 @@
 import { PlayerRequirement } from "@ns";
 import { describe, expect, it } from "vitest";
-import {
+import { playerChasesKarma,
   AugmentationInfo,
   focusPriceLimit,
   focusStatsFor,
@@ -1128,5 +1128,15 @@ describe("readyToFinish", () => {
     expect(readyToFinish(false, true, 16679, 3060)).toBe(false);
     expect(readyToFinish(true, false, 16679, 3060)).toBe(false);
     expect(readyToFinish(true, true, 3000, 3060)).toBe(false);
+  });
+});
+
+describe("playerChasesKarma", () => {
+  it("leaves karma to sleeves while favor work still matters", () => {
+    expect(playerChasesKarma(false, true, false)).toBe(false);
+  });
+  it("joins in without sleeves, or once donations are open", () => {
+    expect(playerChasesKarma(false, false, false)).toBe(true);
+    expect(playerChasesKarma(false, true, true)).toBe(true);
   });
 });

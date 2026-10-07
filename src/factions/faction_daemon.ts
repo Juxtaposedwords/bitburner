@@ -81,6 +81,7 @@ import {
   usefulCatalog,
   workableFactions,
   wantedInviteFactions,
+  playerChasesKarma,
 } from "factions/faction_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
@@ -1061,11 +1062,11 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     ? gangFactionFor(ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined, joinedFactions, gangPriority(ns))
     : undefined;
   const workable = workableFactions(joinedFactions, gangFaction);
+  const favorToDonate = ns.getFavorToDonate();
+  const donationsOpen = workable.some((faction) => ns.singularity.getFactionFavor(faction as FactionNameType) >= favorToDonate);
   const karmaCrime =
-    // The player only when nobody else can (no sleeves); otherwise sleeves
-    // chase karma and the player works toward donation favor (PhasePolicy.playerKarma).
     policy.chaseGangKarma &&
-    (policy.playerKarma || !sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles)) &&
+    playerChasesKarma(policy.playerKarma, sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles), donationsOpen) &&
     gangAvailable &&
     !ns.gang.inGang() &&
     karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
@@ -1099,8 +1100,8 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // (donationTarget); otherwise factions selling something dearer than favor.
   const favorToRep = (favor: number): number => ns.formulas.reputation.calculateFavorToRep(favor);
   const formulas = ns.fileExists("Formulas.exe", "home");
-  const target = formulas && policy.donationTarget ? donationTarget(workable, reps, favors, ns.getFavorToDonate(), favorToRep) : undefined;
-  const plan = !growingStats && formulas ? (target ? [target] : favorPlan(workable, reps, favors, useful, owned, ns.getFavorToDonate(), favorToRep)) : [];
+  const target = formulas && policy.donationTarget ? donationTarget(workable, reps, favors, favorToDonate, favorToRep) : undefined;
+  const plan = !growingStats && formulas ? (target ? [target] : favorPlan(workable, reps, favors, useful, owned, favorToDonate, favorToRep)) : [];
   const planReady = favorPlanReady(plan);
   if (planReady && !favorPlanWasReady) {
     await log.info(
