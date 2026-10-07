@@ -29,7 +29,9 @@ function arg(name, fallback) {
 
 const root = arg("--root", "dist");
 const costsFile = arg("--costs", "game/var/claude_out/ram_costs.txt");
-const scripts = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !all[i - 1]?.startsWith("--"));
+// Flags that take a value; --detail doesn't.
+const VALUED = ["--root", "--costs"];
+const scripts = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && !VALUED.includes(all[i - 1]));
 
 // Bare name -> cost, top-level functions first (the game searches them before namespaces).
 const priceList = JSON.parse(fs.readFileSync(costsFile, "utf8"));
