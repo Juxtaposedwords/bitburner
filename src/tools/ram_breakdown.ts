@@ -8,6 +8,15 @@ import { scriptClosure } from "system/reload_plan";
  *
  *   run tools/ram_breakdown.js <script> [--out /var/claude_out/ram_breakdown.txt]
  */
+/** The game's cost for one function; 0 for anything it won't price (a namespace, an enum). */
+function ramCost(ns: NS, name: string): number {
+  try {
+    return ns.getFunctionRamCost(name);
+  } catch {
+    return 0;
+  }
+}
+
 export async function main(ns: NS): Promise<void> {
   const script = String(ns.args[0] ?? "");
   if (!script) {
@@ -17,14 +26,15 @@ export async function main(ns: NS): Promise<void> {
   const byFunction = new Map<string, Set<string>>();
   for (const file of scriptClosure(ns, script)) {
     const text = ns.read(file) || ns.read(`/${file}`);
-    for (const m of text.matchAll(/\bns\.((?:[a-z]+\.)?[a-zA-Z0-9]+)\b/g)) {
+    // Up to two namespaces deep: ns.formulas.work.factionGains.
+    for (const m of text.matchAll(/\bns\.((?:[a-z]+\.){0,2}[a-zA-Z0-9]+)\b/g)) {
       const name = m[1];
       if (!byFunction.has(name)) byFunction.set(name, new Set());
       byFunction.get(name)?.add(file);
     }
   }
   const rows = [...byFunction]
-    .map(([name, files]) => ({ name, files: [...files], cost: ns.getFunctionRamCost(name) }))
+    .map(([name, files]) => ({ name, files: [...files], cost: ramCost(ns, name) }))
     .filter((r) => r.cost > 0)
     .sort((a, b) => b.cost - a.cost);
   const lines = [

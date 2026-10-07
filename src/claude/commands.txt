@@ -740,6 +740,16 @@
         "/var/claude_out/ram_breakdown.txt"
       ],
       "note": "plan the faction daemon split"
+    },
+    {
+      "id": "2026-10-07-ram-breakdown-faction-2",
+      "script": "tools/ram_breakdown.js",
+      "args": [
+        "factions/faction_daemon.js",
+        "--out",
+        "/var/claude_out/ram_breakdown.txt"
+      ],
+      "note": "retry: first version crashed on ns.formulas.work"
     }
   ]
 }
