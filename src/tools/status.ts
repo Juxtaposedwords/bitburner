@@ -1,5 +1,6 @@
 import { NS } from "@ns";
 import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
+import { daemonHosts } from "system/remote_state";
 import { PHASE_PATH, PhaseFile, phasePolicy, readApproach } from "system/phase";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { readInstallPending } from "system/install_handshake";
@@ -261,6 +262,11 @@ export async function main(ns: NS): Promise<void> {
     { script: "system/player.js", core: true },
     { script: "hacking/scheduler_daemon.js", core: true },
     { script: "hacking/program_shopper.js", core: true },
+    // The faction daemon plans through these (docs/faction_split.md).
+    { script: "factions/services/faction_info_service.js", core: true },
+    { script: "factions/services/faction_work_service.js", core: true },
+    { script: "factions/services/crime_service.js", core: true },
+    { script: "factions/services/augment_purchase_service.js", core: true },
     { script: "factions/faction_daemon.js", core: true },
     { script: "gang/gang_daemon.js", core: false, when: gangPossible },
     { script: "sleeves/sleeve_daemon.js", core: false, when: sleevesAvailable(info?.node, info?.sourceFiles) },
@@ -272,7 +278,9 @@ export async function main(ns: NS): Promise<void> {
     { script: "go/go_daemon.js", core: false },
   ];
   // Bootstrap replaces the whole system on a small home - nothing else is expected then.
-  const running = ns.ps("home").map((p) => p.filename.replace(/^\//, ""));
+  // On home or any daemon host (boot puts daemons there while home is small).
+  const hosts = ["home", ...daemonHosts(ns).filter((host) => ns.serverExists(host))];
+  const running = hosts.flatMap((host) => ns.ps(host)).map((p) => p.filename.replace(/^\//, ""));
   const bootstrapping = running.includes("system/bootstrap/bootstrap.js");
   const stopped = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
 

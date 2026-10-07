@@ -231,11 +231,15 @@ export async function main(ns: NS): Promise<void> {
     // - so the rest of the order still starts. BN12's third run had the
     // ~100 GB faction daemon wait 38 minutes for a $7.9M server; split into
     // services of 32 GB or less, it fits early hacked servers.
-    if (REMOTE_OK.includes(script) && daemonHosts(ns).some((host) => ns.serverExists(host) && ns.isRunning(script, host))) {
+    // Already running, here or there: never a second copy (two faction
+    // daemons would both act; two services would share one port).
+    if (REMOTE_OK.includes(script) && ["home", ...daemonHosts(ns)].some((host) => ns.serverExists(host) && ns.isRunning(script, host))) {
       started.push(script);
       continue;
     }
-    if (REMOTE_OK.includes(script) && ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home")) {
+    // --place-remote: as if home were full, to try placement on a big home.
+    const homeFull = ns.args.includes("--place-remote") || ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
+    if (REMOTE_OK.includes(script) && homeFull) {
       if (placeDaemon(ns, script, (line) => say(ns, `[Boot] ${line}`))) {
         started.push(script);
         continue;
