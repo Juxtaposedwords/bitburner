@@ -750,6 +750,15 @@
         "/var/claude_out/ram_breakdown.txt"
       ],
       "note": "retry: first version crashed on ns.formulas.work"
+    },
+    {
+      "id": "2026-10-07-ram-costs",
+      "script": "tools/ram_costs.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_costs.txt"
+      ],
+      "note": "price list for build/ram_estimate.mjs"
     }
   ]
 }
