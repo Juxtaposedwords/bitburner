@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickBootstrapTarget, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
+import { pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
 
 describe("requiredHomeRam", () => {
   it("sums the core scripts' RAM plus the margin", () => {
@@ -75,5 +75,22 @@ describe("pickBootstrapTarget keeps its target", () => {
   it("but switches for one worth twice as much, or when it's no longer allowed", () => {
     expect(pickBootstrapTarget(servers, 200, "sigma-cosmetics")).toBe("phantasy");
     expect(pickBootstrapTarget(servers, 24, "gone")).toBe("joesguns");
+  });
+});
+
+describe("pickHacknetPurchase", () => {
+  const options = [
+    { kind: "server" as const, index: -1, cost: 1e6 },
+    { kind: "level" as const, index: 0, cost: 2e4 },
+    { kind: "ram" as const, index: 0, cost: 3e5 },
+    { kind: "core" as const, index: 0, cost: Infinity },
+  ];
+
+  it("buys the cheapest improvement within the share of cash", () => {
+    expect(pickHacknetPurchase(options, 1e5, 0.5)).toMatchObject({ kind: "level", index: 0 });
+  });
+
+  it("buys nothing it can't afford within the share (cash keeps building)", () => {
+    expect(pickHacknetPurchase(options, 3e4, 0.5)).toBeUndefined();
   });
 });

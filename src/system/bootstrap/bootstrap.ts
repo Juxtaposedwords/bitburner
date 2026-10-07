@@ -1,6 +1,9 @@
 import { NS } from "@ns";
 import {
   CORE_SCRIPTS,
+  HACKNET_SPEND_FRACTION,
+  HacknetOption,
+  pickHacknetPurchase,
   pickBootstrapTarget,
   requiredHomeRam,
   shouldHandOffToShopper,
@@ -122,8 +125,47 @@ function stopWorkers(ns: NS, hosts: string[]): void {
   }
 }
 
+const SELL_FOR_MONEY = "Sell for Money";
+// Purchases per tick at most, so a tick stays short.
+const HACKNET_BUYS_PER_TICK = 20;
+
+/**
+ * BitNode 9: sells every hash for cash, then buys the cheapest hacknet
+ * improvements (pickHacknetPurchase). Returns what it did, for the status line.
+ */
+function runHacknet(ns: NS): string {
+  let sold = 0;
+  while (ns.hacknet.numHashes() >= ns.hacknet.hashCost(SELL_FOR_MONEY) && ns.hacknet.spendHashes(SELL_FOR_MONEY)) sold++;
+  let bought = 0;
+  for (let i = 0; i < HACKNET_BUYS_PER_TICK; i++) {
+    const options: HacknetOption[] = [{ kind: "server", index: -1, cost: ns.hacknet.getPurchaseNodeCost() }];
+    for (let n = 0; n < ns.hacknet.numNodes(); n++) {
+      options.push(
+        { kind: "level", index: n, cost: ns.hacknet.getLevelUpgradeCost(n, 1) },
+        { kind: "ram", index: n, cost: ns.hacknet.getRamUpgradeCost(n, 1) },
+        { kind: "core", index: n, cost: ns.hacknet.getCoreUpgradeCost(n, 1) }
+      );
+    }
+    const pick = pickHacknetPurchase(options, ns.getServerMoneyAvailable(HOME), HACKNET_SPEND_FRACTION);
+    if (!pick) break;
+    const ok =
+      pick.kind === "server"
+        ? ns.hacknet.purchaseNode() >= 0
+        : pick.kind === "level"
+          ? ns.hacknet.upgradeLevel(pick.index, 1)
+          : pick.kind === "ram"
+            ? ns.hacknet.upgradeRam(pick.index, 1)
+            : ns.hacknet.upgradeCore(pick.index, 1);
+    if (!ok) break;
+    bought++;
+  }
+  return ` hacknet=${ns.hacknet.numNodes()} sold=${sold} bought=${bought}`;
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
+  // BitNode 9 earns through hacknet servers (runHacknet), not hacking.
+  const hacknetIncome = ns.getResetInfo().currentNode === 9;
   const workerRam = ns.getScriptRam(WORKER, HOME);
   // Leave room on home to run boot.js at handoff.
   const homeKeepGb = ns.getScriptRam(BOOT, HOME);
@@ -179,13 +221,14 @@ export async function main(ns: NS): Promise<void> {
       ns.print(`[Bootstrap] Target: ${target}.`);
     }
     const threads = target ? deploy(ns, hosts, target, workerRam, homeKeepGb) : 0;
+    const hacknet = hacknetIncome ? runHacknet(ns) : "";
 
     // One status line per tick (ns.print is free) - `tail system/bootstrap/bootstrap.js`.
     const rooted = hosts.filter((host) => ns.hasRootAccess(host)).length;
     const line =
       `money=$${ns.getServerMoneyAvailable(HOME).toFixed(0)} hacking=${ns.getHackingLevel()} ` +
       `home=${ns.getServerMaxRam(HOME)}/${required.toFixed(0)} GB rooted=${rooted}/${hosts.length} ` +
-      `target=${target ?? "none"} workerThreads=${threads} tor=${ns.hasTorRouter()}`;
+      `target=${target ?? "none"} workerThreads=${threads} tor=${ns.hasTorRouter()}${hacknet}`;
     ns.print(line);
     // Also as a file (ns.write is free): `cat /var/bootstrap_status.txt`
     // works while home has no room for tools/status.js.

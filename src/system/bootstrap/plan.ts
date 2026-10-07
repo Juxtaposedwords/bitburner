@@ -87,3 +87,21 @@ export function shouldHandOffToShopper(cash: number, hasTor: boolean, programCos
 export function workerThreads(freeRam: number, workerRam: number): number {
   return workerRam > 0 ? Math.max(0, Math.floor(freeRam / workerRam)) : 0;
 }
+
+export type HacknetOption = { kind: "server" | "level" | "ram" | "core"; index: number; cost: number };
+
+/**
+ * BitNode 9's bootstrap income: hacknet servers, whose hashes sell for cash
+ * (scripts' hacking pays ~1/1000th there: ServerMaxMoney 0.01 x
+ * ScriptHackMoney 0.1). The cheapest improvement - a new server, or a
+ * level, RAM or core upgrade on one - if it costs at most `spendFraction`
+ * of cash, so the rest still builds toward TOR, programs and home RAM
+ * (shouldHandOffToShopper). Cheap upgrades first compound fastest early.
+ */
+export function pickHacknetPurchase(options: HacknetOption[], cash: number, spendFraction: number): HacknetOption | undefined {
+  const affordable = options.filter((o) => Number.isFinite(o.cost) && o.cost > 0 && o.cost <= cash * spendFraction);
+  return affordable.length === 0 ? undefined : affordable.reduce((a, b) => (b.cost < a.cost ? b : a));
+}
+
+// Share of cash one hacknet purchase may use (pickHacknetPurchase).
+export const HACKNET_SPEND_FRACTION = 0.5;
