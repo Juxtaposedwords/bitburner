@@ -795,6 +795,15 @@
         "/var/claude_out/faction_services_check.txt"
       ],
       "note": "live smoke test of every faction service method"
+    },
+    {
+      "id": "2026-10-07-install-test",
+      "script": "tools/install_test.js",
+      "args": [
+        "--out",
+        "/var/claude_out/install_test.txt"
+      ],
+      "note": "user approved: test install through the purchase service, then the reboot"
     }
   ]
 }
