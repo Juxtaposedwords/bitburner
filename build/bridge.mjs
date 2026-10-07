@@ -86,7 +86,7 @@ const mirrored = new Map();
 
 // Game records the game only keeps the newest of (JSON lines with an `at`
 // and `opponent`), appended here as they arrive so none are lost.
-const ARCHIVES = { "var/go_history.txt": "archive/go_history.jsonl", "var/install_history.txt": "archive/install_history.jsonl" };
+const ARCHIVES = { "var/go_history.txt": "archive/go_history.jsonl", "var/install_history.txt": "archive/install_history.jsonl", "var/run_milestones.txt": "archive/run_milestones.jsonl" };
 const archivedKeys = new Map();
 
 function archive(rel, content) {
@@ -100,7 +100,7 @@ function archive(rel, content) {
       for (const line of fs.readFileSync(file, "utf8").split("\n")) {
         try {
           const e = JSON.parse(line);
-          seen.add(`${e.at}|${e.opponent}`);
+          seen.add(`${e.at}|${e.opponent ?? e.milestone}`);
         } catch {
           // blank or partial line
         }
@@ -112,7 +112,7 @@ function archive(rel, content) {
   for (const line of content.split("\n")) {
     try {
       const e = JSON.parse(line);
-      const key = `${e.at}|${e.opponent}`;
+      const key = `${e.at}|${e.opponent ?? e.milestone}`;
       if (!seen.has(key)) {
         seen.add(key);
         fresh.push(line);

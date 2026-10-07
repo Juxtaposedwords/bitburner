@@ -1,4 +1,6 @@
 import { NS } from "@ns";
+import { readBitNodeInfo } from "system/bitnode_info";
+import { appendMilestones, milestone, MILESTONES_PATH } from "system/monitoring/milestones";
 
 const RED_PILL = "The Red Pill";
 const WORLD_DAEMON = "w0r1d_d43m0n";
@@ -42,6 +44,8 @@ export async function main(ns: NS): Promise<void> {
     return;
   }
   say(`[FinishBitNode] Destroying ${WORLD_DAEMON}; starting BitNode ${next} with ${BOOT_SCRIPT} (${report}, root ${ns.hasRootAccess(WORLD_DAEMON)}).`);
+  const info = readBitNodeInfo(ns);
+  if (info) ns.write(MILESTONES_PATH, appendMilestones(ns.read(MILESTONES_PATH), [milestone(info.node, info.lastNodeReset, "finish", Date.now())]), "w");
   try {
     ns.singularity.destroyW0r1dD43m0n(next, BOOT_SCRIPT);
   } catch (e) {

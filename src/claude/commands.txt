@@ -542,6 +542,125 @@
         "--confirm"
       ],
       "note": "the faction daemon's launch at 10:43 didn't end the node; this one reports why"
+    },
+    {
+      "id": "2026-10-07-milestone-run_start",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "run_start",
+        "2026-10-06T17:54:03.930Z"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-full_system",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "full_system",
+        "2026-10-06T18:19:19Z",
+        "--note",
+        "backfill from /var/claude_out/boot.txt"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-faction_daemon",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "faction_daemon",
+        "2026-10-06T18:57:00Z",
+        "--note",
+        "backfill: placed on daemons-0"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-phase_GANG",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "phase_GANG",
+        "2026-10-06T18:57:00Z",
+        "--note",
+        "backfill"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-sleeves_karma",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "sleeves_karma",
+        "2026-10-06T22:35:00Z",
+        "--note",
+        "backfill from the karma gauge"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-gang",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "gang",
+        "2026-10-07T01:51:00Z",
+        "--note",
+        "backfill from the karma gauge"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-phase_FACTION_GRIND",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "phase_FACTION_GRIND",
+        "2026-10-07T01:52:00Z",
+        "--note",
+        "backfill from the phase gauge"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-donations",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "donations",
+        "2026-10-07T05:02:00Z",
+        "--note",
+        "backfill from the donatable gauge"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-phase_AUGMENTS",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "phase_AUGMENTS",
+        "2026-10-07T05:02:00Z",
+        "--note",
+        "backfill from the phase gauge"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-pause",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "pause",
+        "2026-10-07T05:18:00Z",
+        "--note",
+        "game closed 05:18-18:37 UTC (13.3 h)"
+      ],
+      "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-phase_DAEDALUS",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "phase_DAEDALUS",
+        "2026-10-07T18:38:00Z",
+        "--note",
+        "backfill; 11.4 active hours"
+      ],
+      "note": "backfill BN12 run 3"
     }
   ]
 }
