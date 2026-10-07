@@ -6,7 +6,7 @@ import { createInfoHandlers } from "factions/services/info_handlers";
 import { createWorkHandlers } from "factions/services/work_handlers";
 import { createCrimeHandlers } from "factions/services/crime_handlers";
 import { createPurchaseHandlers } from "factions/services/purchase_handlers";
-import { factionClients, fetchView, fetchWork, isFailure, succeeded } from "factions/faction_gateway";
+import { factionClients, FactionClients, fetchView, fetchWork, isFailure, succeeded } from "factions/faction_gateway";
 import { FactionView } from "factions/faction_view";
 import { deadlineIn } from "system/deadline";
 
@@ -148,5 +148,36 @@ describe("FactionView", () => {
     expect(view.requirementsOf("Nobody")).toEqual([]);
     expect(view.currentWork).toBeNull();
     expect(view.favorToDonate).toBe(Infinity);
+  });
+});
+
+describe("in-process clients (no ports, no game)", () => {
+  const localClients = (ns: NS): FactionClients => ({
+    info: fs_pb.NewFactionInfoServiceLocalClient(createInfoHandlers(ns)),
+    work: fs_pb.NewFactionWorkServiceLocalClient(createWorkHandlers(ns)),
+    crime: fs_pb.NewCrimeServiceLocalClient(createCrimeHandlers(ns)),
+    purchase: fs_pb.NewAugmentPurchaseServiceLocalClient(createPurchaseHandlers(ns)),
+  });
+
+  it("give the gateway the same view as the port clients", async () => {
+    game = { ports: new Map(), calls: [], stopped: false };
+    const c = localClients(fakeNs(game, 7));
+    const work = await fetchWork(c, request, deadlineIn(1000));
+    if (isFailure(work)) throw new Error(work.call);
+    const view = await fetchView(c, request, work, deadlineIn(1000));
+    if (isFailure(view)) throw new Error(view.call);
+    expect(view.catalogFor(["Netburners", "Daedalus"]).map((a) => a.name)).toEqual(["BitWire", "QLink"]);
+    expect(view.offered("Daedalus")).toEqual(["QLink"]);
+    expect(game.ports.size).toBe(0);
+  });
+
+  it("answer a passed deadline and a throwing handler like the real service", async () => {
+    const info = fs_pb.NewFactionInfoServiceLocalClient({
+      Snapshot: () => {
+        throw new rpc.RpcError(5, "nothing here");
+      },
+    });
+    expect((await info.Snapshot({}, { at: 0 })).status).toBe(4);
+    expect(await info.Snapshot({}, 1000)).toMatchObject({ status: 5, error: "nothing here" });
   });
 });

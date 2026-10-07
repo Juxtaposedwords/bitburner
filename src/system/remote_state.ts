@@ -21,6 +21,29 @@ export const HOME = "home";
 // A purchased server reserved for daemons that don't fit on home yet
 // (boot.ts places them there with system/remote_place.ts).
 export const DAEMON_HOST = "daemons-0";
+// Hacked servers boot has put daemons on (system/remote_place.ts's
+// placeDaemon) - workers stay off them, and the reloader looks there too.
+export const DAEMON_HOSTS_PATH = "/var/daemon_hosts.txt";
+export type DaemonHostsFile = { hosts: string[]; writtenAt: number };
+
+/** Hosts recorded in DAEMON_HOSTS_PATH ([] when missing or unreadable). */
+export function readDaemonHosts(ns: NS): string[] {
+  try {
+    const hosts = (JSON.parse(ns.read(DAEMON_HOSTS_PATH) || "{}") as Partial<DaemonHostsFile>).hosts;
+    return Array.isArray(hosts) ? hosts.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeDaemonHosts(ns: NS, hosts: string[]): void {
+  ns.write(DAEMON_HOSTS_PATH, JSON.stringify({ hosts: [...new Set(hosts)], writtenAt: Date.now() } satisfies DaemonHostsFile), "w");
+}
+
+/** Every server other than home that may run daemons: the purchased fallback and the recorded hacked ones. */
+export function daemonHosts(ns: NS): string[] {
+  return [DAEMON_HOST, ...readDaemonHosts(ns).filter((h) => h !== DAEMON_HOST)];
+}
 
 // What's synced: configs and status files - not logs, the supervisor's own
 // cache, tool output or the big append-only histories.

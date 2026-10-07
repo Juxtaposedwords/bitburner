@@ -1,4 +1,4 @@
-import { DAEMON_HOST } from "system/remote_state";
+import { daemonHosts } from "system/remote_state";
 import { NS } from "@ns";
 import {
   COMMANDS_DONE_PATH,
@@ -115,9 +115,9 @@ async function runQueuedCommands(ns: NS, log: Logger): Promise<void> {
   }
 }
 
-/** Managed daemons running on home or DAEMON_HOST, each with its host. */
+/** Managed daemons running on home or a daemon host (system/remote_state.ts's daemonHosts), each with its host. */
 function managedProcesses(ns: NS): (ReturnType<NS["ps"]>[number] & { host: string })[] {
-  const hosts = ns.serverExists(DAEMON_HOST) ? ["home", DAEMON_HOST] : ["home"];
+  const hosts = ["home", ...daemonHosts(ns).filter((host) => ns.serverExists(host))];
   return hosts.flatMap((host) => ns.ps(host).map((p) => ({ ...p, host }))).filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")));
 }
 
