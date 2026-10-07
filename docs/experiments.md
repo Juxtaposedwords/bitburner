@@ -110,3 +110,13 @@ only) compared sleeve policies for a gang from sleeves alone:
   only started at 18:01, so the next finish will show whether the finish's call to `boot.js` runs at all.
 - **No faction daemon for 38 minutes (18:19–18:57).** It's 100.8 GB and waited for $7.9M to buy
   `daemons-0`. No early hacked server fits it: the 128 GB ones need 3 or more ports.
+
+## 2026-10-07: BN12 run 3 ends; BN9 next for a 128 GB starting home
+
+- **Run 3:** ready to finish at 22:04 on 10-07 (The Red Pill installed). The finish was held to land and
+  test the faction daemon split live (`docs/faction_split.md`), including an install through the
+  services.
+- **Next BitNode is 9, not 12.** The game starts every BitNode with a 128 GB home at Source-File 9 level 2
+  (32 GB with any SF1; we have SF9 level 1). That would remove the bootstrap stage from every later run.
+- **Run 4's predictions** (above) carry over to the first BN12 run after BN9. That run also changes the
+  starting home, so judge its gains by milestone, not by total time.
