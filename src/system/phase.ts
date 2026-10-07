@@ -62,6 +62,9 @@ export function requiredHackingMult(level: number, exp: number): number {
   return level / (32 * Math.log(exp + 534.6) - 200);
 }
 
+// Daedalus's installed-augmentation requirement when the BitNode's isn't recorded (SF5 records it).
+export const DEFAULT_DAEDALUS_AUGS = 30;
+
 export type PhaseInputs = {
   gangAvailable: boolean;
   inGang: boolean;
@@ -72,13 +75,25 @@ export type PhaseInputs = {
   hackingMult: number;
   requiredHackingMult: number;
   inDaedalus: boolean;
+  // Daedalus's invite also needs this many installed augmentations
+  // (BitNodeMultipliers.DaedalusAugsRequirement; NeuroFlux counts once).
+  installedAugs: number;
+  daedalusAugs: number;
 };
+
+/** The hacking multiplier is enough but Daedalus's invite still waits on installed augmentations. */
+export function daedalusAugsShort(inputs: PhaseInputs): boolean {
+  return inputs.pursueFinish && !inputs.inDaedalus && inputs.hackingMult >= inputs.requiredHackingMult && inputs.installedAugs < inputs.daedalusAugs;
+}
 
 /**
  * The phase from the game, toward the BitNode's finish line:
  * - GANG while a gang is possible and not created yet (karma, then creation);
  * - DAEDALUS (with pursueFinish) once the hacking multiplier can reach
- *   Daedalus's requirement in one stint, or Daedalus is joined;
+ *   Daedalus's requirement in one stint and enough augmentations are
+ *   installed for its invite, or Daedalus is joined. DAEDALUS buys only
+ *   The Red Pill, so entering it short of augmentations never ends: BN12's
+ *   third run sat there 2.8 h with 24 of 31 and $2 quadrillion;
  * - FACTION_GRIND (favor) while no faction takes donations - money can't
  *   buy rep yet, and rep gates every augmentation;
  * - AUGMENTS (multiply) otherwise: donations and installs build the
@@ -91,9 +106,11 @@ export function derivePhase(inputs: PhaseInputs): { approach: Approach; reason: 
   if (inputs.gangAvailable && !inputs.inGang) return { approach: Approach.GANG, reason: "gang possible, not created yet" };
   const mult = `hacking mult ${inputs.hackingMult.toFixed(2)} of ${inputs.requiredHackingMult.toFixed(2)}`;
   if (inputs.pursueFinish && inputs.inDaedalus) return { approach: Approach.DAEDALUS, reason: "Daedalus joined" };
-  if (inputs.pursueFinish && inputs.hackingMult >= inputs.requiredHackingMult) return { approach: Approach.DAEDALUS, reason: `${mult}: Daedalus within one stint` };
-  if (!inputs.donationReady) return { approach: Approach.FACTION_GRIND, reason: "no faction takes donations yet" };
-  return { approach: Approach.AUGMENTS, reason: inputs.pursueFinish ? mult : "donations open" };
+  const short = daedalusAugsShort(inputs);
+  if (inputs.pursueFinish && inputs.hackingMult >= inputs.requiredHackingMult && !short) return { approach: Approach.DAEDALUS, reason: `${mult}: Daedalus within one stint` };
+  const augs = short ? `; Daedalus needs ${inputs.daedalusAugs} installed augmentations (have ${inputs.installedAugs})` : "";
+  if (!inputs.donationReady) return { approach: Approach.FACTION_GRIND, reason: `no faction takes donations yet${augs}` };
+  return { approach: Approach.AUGMENTS, reason: (inputs.pursueFinish ? mult : "donations open") + augs };
 }
 
 /**

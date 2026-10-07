@@ -90,7 +90,7 @@ import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
-import { derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
+import { daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
   compareInstall,
@@ -1018,7 +1018,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const gangFactionName = inGang ? ns.gang.getGangInformation().faction : undefined;
   const hackingMult = player.mults.hacking * (readBitNodeInfo(ns)?.multipliers?.HackingLevelMultiplier ?? 1);
   const neededMult = requiredHackingMult(config.finishHackingLevel, config.finishExpBudget);
-  const phase = derivePhase({
+  // Unique installed augmentations (NeuroFlux once), as Daedalus's invite counts them.
+  const installedAugs = ns.singularity.getOwnedAugmentations(false).length;
+  const phaseInputs: PhaseInputs = {
     gangAvailable: gangPossible,
     inGang,
     donationReady: joinedFactions.some((f) => f !== gangFactionName && ns.singularity.getFactionFavor(f as FactionNameType) >= ns.getFavorToDonate()),
@@ -1026,7 +1028,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     hackingMult,
     requiredHackingMult: neededMult,
     inDaedalus: joinedFactions.includes(DAEDALUS),
-  });
+    installedAugs,
+    daedalusAugs: readBitNodeInfo(ns)?.multipliers?.DaedalusAugsRequirement ?? DEFAULT_DAEDALUS_AUGS,
+  };
+  const phase = derivePhase(phaseInputs);
+  // Short of Daedalus's augmentation count: any augmentation counts, so
+  // spending isn't narrowed to useful stats until it's met.
+  const augsForDaedalus = daedalusAugsShort(phaseInputs);
   ns.write(PHASE_PATH, JSON.stringify({ ...phase, writtenAt: Date.now() } satisfies PhaseFile), "w");
   const policy = phasePolicy(parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach);
   const growingStats = policy.studyForStats;
@@ -1043,7 +1051,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Combat (secondaryAugmentationStats) is useful only while a wanted
   // invite is blocked on combat stats (combatBlocksInvite).
   const combatNeeded = wantedInvitesNeedCombat(ns, config, gatherEligibilitySnapshot(player), joinedFactions, owned);
-  const usefulStats = [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : [])];
+  const usefulStats = augsForDaedalus
+    ? [...new Set(catalog.flatMap((aug) => Object.keys(aug.stats ?? {})))]
+    : [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : [])];
   const useful = usefulCatalog(catalog, usefulStats);
   const catalogs = catalogsFor(useful, owned);
 
@@ -1163,7 +1173,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     inviteBlockers: invite?.blockers,
     favors,
     donatable: [...donatable],
-    installedAugs: ns.singularity.getOwnedAugmentations(false).length,
+    installedAugs,
     reps,
     repTargets: repTargets(workable, reps, catalogs.regular, owned, plan, donatable),
     workTarget,

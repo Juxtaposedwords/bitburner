@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
+import { daedalusAugsShort, derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
 import { Approach } from "system/rpc/scheduler";
 
 describe("parseApproach", () => {
@@ -28,7 +28,7 @@ describe("parseApproachOverride", () => {
 });
 
 describe("derivePhase", () => {
-  const base: PhaseInputs = { gangAvailable: true, inGang: true, donationReady: true, pursueFinish: true, hackingMult: 3, requiredHackingMult: 4.4, inDaedalus: false };
+  const base: PhaseInputs = { gangAvailable: true, inGang: true, donationReady: true, pursueFinish: true, hackingMult: 3, requiredHackingMult: 4.4, inDaedalus: false, installedAugs: 31, daedalusAugs: 31 };
 
   it("is GANG while a gang is possible but not created", () => {
     expect(derivePhase({ ...base, inGang: false }).approach).toBe(Approach.GANG);
@@ -47,6 +47,13 @@ describe("derivePhase", () => {
     expect(derivePhase({ ...base, hackingMult: 4.5 }).approach).toBe(Approach.DAEDALUS);
     expect(derivePhase({ ...base, inDaedalus: true, donationReady: false }).approach).toBe(Approach.DAEDALUS);
     expect(derivePhase({ ...base, hackingMult: 9, pursueFinish: false }).approach).toBe(Approach.AUGMENTS);
+  });
+
+  it("keeps installing (AUGMENTS) while Daedalus's invite waits on installed augmentations", () => {
+    const short = { ...base, hackingMult: 5.78, requiredHackingMult: 3.87, installedAugs: 24 };
+    expect(derivePhase(short).approach).toBe(Approach.AUGMENTS);
+    expect(derivePhase(short).reason).toContain("31 installed augmentations (have 24)");
+    expect(derivePhase({ ...short, inDaedalus: true }).approach).toBe(Approach.DAEDALUS);
   });
 });
 
@@ -88,5 +95,13 @@ describe("goWeights", () => {
     const top = (w: Record<string, number>): string => Object.entries(w).sort((a, b) => b[1] - a[1])[0][0];
     expect(top(phasePolicy(Approach.GANG).goWeights)).toBe("Slum Snakes");
     expect(top(phasePolicy(Approach.AUGMENTS).goWeights)).toBe("Daedalus");
+  });
+});
+
+describe("daedalusAugsShort", () => {
+  it("only once the multiplier is enough", () => {
+    const inputs: PhaseInputs = { gangAvailable: false, inGang: false, donationReady: true, pursueFinish: true, hackingMult: 3, requiredHackingMult: 4, inDaedalus: false, installedAugs: 10, daedalusAugs: 31 };
+    expect(daedalusAugsShort(inputs)).toBe(false);
+    expect(daedalusAugsShort({ ...inputs, hackingMult: 5 })).toBe(true);
   });
 });
