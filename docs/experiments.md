@@ -66,3 +66,39 @@ run 2, finishing took about 18.1 active hours in total.
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
 - The time from the run's start to donations opening, compared with run 2 (about 15.5 active hours).
+
+## 2026-10-07: predictions for BN12 run 4
+
+**Changes since run 3:**
+- The player works toward donation favor from the start of the run, not from hour 4.9 as in run 3.
+- The player turns to karma crime once donations are open (`playerChasesKarma`).
+- Run milestones are recorded in `/var/run_milestones.txt`, archived to `game/archive/run_milestones.jsonl`.
+
+**Sleeves.** A simulation by the game's formulas (kept out of the repo, as the game's code is for testing
+only) compared sleeve policies for a gang from sleeves alone:
+
+| Policy | Gang after |
+|---|---|
+| Homicide from the start | 15.7 h |
+| Gym until a 20% success chance, then crime | 11.8 h |
+| Run 3's schedule (gym for 4.7 h, then crime) | 11.3 h |
+| Recovery to shock 80, then 2 at the gym and the rest on crime | 11.6 h |
+
+- Sleeves start every BitNode at 100 shock, and all of their experience is scaled by (100 − shock)/100, so
+  nothing builds their stats quickly at first. The current train-first behavior is about as good as any
+  policy tried.
+- The simulation is slightly pessimistic: at a 30% chance it gives about 125 karma a minute, against
+  150–210 observed.
+- No sleeve change.
+
+**Predicted for run 4:**
+- **Donations:** about 6.5–7 h, against 11.1 h in run 3.
+- **Gang:** about 9 h, against 7.95 h. The player only joins the crime once donations are open, and until
+  then the sleeves are training.
+- **DAEDALUS:** about 9–10 h, against 11.4 active hours.
+
+**Known start-of-run losses in run 3:**
+- **No boot for 7 minutes after the finish (17:54–18:01).** Boot's record (`/var/claude_out/boot.txt`)
+  only started at 18:01, so the next finish will show whether the finish's call to `boot.js` runs at all.
+- **No faction daemon for 38 minutes (18:19–18:57).** It's 100.8 GB and waited for $7.9M to buy
+  `daemons-0`. No early hacked server fits it: the 128 GB ones need 3 or more ports.
