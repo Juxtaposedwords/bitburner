@@ -205,9 +205,13 @@ export async function main(ns: NS): Promise<void> {
     // The services before the faction daemon, which only plans through them.
     ...FACTION_SERVICES.map((script): [string, boolean] => [script, singularity]),
     [FACTION_SCRIPT, singularity],
+    // Income, and small (12 GB): ahead of the gang daemon (32.5 GB), which
+    // waits on karma before it does anything. In BitNode 9 the hacknet is
+    // the income (scripts' hacking pays ~1/1000th) - its start was held
+    // behind a gang daemon that didn't fit.
+    [HACKNET_SCRIPT, true],
     [GANG_SCRIPT, gang],
     [SLEEVE_SCRIPT, sleeves],
-    [HACKNET_SCRIPT, true],
     [STUDY_SCRIPT, singularity],
     [BACKDOOR_SCRIPT, singularity],
     [STOCK_SCRIPT, true],
