@@ -759,6 +759,16 @@
         "/var/claude_out/ram_costs.txt"
       ],
       "note": "price list for build/ram_estimate.mjs"
+    },
+    {
+      "id": "2026-10-07-hold-finish",
+      "script": "tools/set_config.js",
+      "args": [
+        "/etc/faction.txt",
+        "nextBitNode",
+        "0"
+      ],
+      "note": "user: don't finish BN12 until the faction split lands and they say so"
     }
   ]
 }
