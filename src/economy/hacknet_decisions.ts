@@ -184,15 +184,34 @@ const NO_INCOME_TICK_SHARE = 0.02;
 
 export type NodePolicy = { kind: "none" } | { kind: "income"; maxItemCost: number; tickBudget: number } | { kind: "payback" };
 
+/**
+ * Whether hashes, not scripts' hacking, are the income: the BitNode cuts
+ * hacking money ~1000x (BitNode 9: ServerMaxMoney 0.01 x ScriptHackMoney
+ * 0.1). Then hashes are sold for cash first and the Hacknet is built by
+ * payback, not held to a share of an income it mostly is.
+ */
+export function hashesAreIncome(node: number | undefined, multipliers: Record<string, number> | undefined): boolean {
+  if (multipliers && multipliers.ServerMaxMoney !== undefined && multipliers.ScriptHackMoney !== undefined) {
+    return multipliers.ServerMaxMoney * multipliers.ScriptHackMoney < HACKING_INCOME_FLOOR;
+  }
+  return node === 9;
+}
+
+// Hacking money (ServerMaxMoney x ScriptHackMoney) below which hashes are the income.
+const HACKING_INCOME_FLOOR = 0.05;
+
 export function nodePolicy(
   installLoop: boolean,
   incomePerMin: number | undefined,
   budgetMinutes: number,
   incomeShare = 0.05,
   tickMinutes = 5 / 60,
-  cash?: number
+  cash?: number,
+  hashIncome = false
 ): NodePolicy {
   if (installLoop) return { kind: "none" };
+  // The Hacknet is the income: build it by payback (hashes valued at Sell for Money).
+  if (hashIncome) return { kind: "payback" };
   if (!(budgetMinutes > 0)) return { kind: "payback" };
   // No income data (monitoring not running yet, e.g. a fresh BitNode's
   // small home): a small share of cash instead. The payback test valued
@@ -243,6 +262,9 @@ export type HashChoiceInputs = {
   topEarner?: { host: string; chance: number };
   // Sell only past this fraction of capacity.
   sellAboveFraction: number;
+  // Hashes are the income (hashesAreIncome): sell them ahead of everything
+  // but training a goal waits on.
+  hashIncome?: boolean;
 };
 
 export type HashChoice = { upgrade: string; target?: string; reason: string };
@@ -267,6 +289,7 @@ export function chooseHashUpgrade(inputs: HashChoiceInputs): { buy?: HashChoice;
   const steps: HashChoice[] = [];
   if (inputs.gymForGoal) steps.push({ upgrade: IMPROVE_GYM, reason: "a goal waits on combat stats being trained" });
   if (inputs.classForGoal) steps.push({ upgrade: IMPROVE_STUDYING, reason: "a goal waits on hacking being studied" });
+  if (inputs.hashIncome) steps.push({ upgrade: SELL_FOR_MONEY, reason: "hashes are this BitNode's income" });
   if (inputs.companyTarget) steps.push({ upgrade: COMPANY_FAVOR, target: inputs.companyTarget, reason: "sleeves work toward a corporate invite" });
   if (inputs.topEarner && inputs.topEarner.chance < 0.95) {
     steps.push({ upgrade: REDUCE_MIN_SECURITY, target: inputs.topEarner.host, reason: `top earner's hack chance is ${(inputs.topEarner.chance * 100).toFixed(0)}%` });

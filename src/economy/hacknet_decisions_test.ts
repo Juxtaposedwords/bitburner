@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseHashUpgrade, decideNodeInvestment, nodePolicy } from "economy/hacknet_decisions";
+import { hashesAreIncome, chooseHashUpgrade, decideNodeInvestment, nodePolicy } from "economy/hacknet_decisions";
 
 describe("decideNodeInvestment", () => {
   it("buys a new node when it's the cheapest affordable option", () => {
@@ -283,5 +283,20 @@ describe("chooseHashUpgrade", () => {
     const r = chooseHashUpgrade({ ...base, numHashes: 4600, costs: { ...costs, "Increase Maximum Money": 9000 }, topEarner: earner });
     expect(r.buy?.upgrade).toBe("Sell for Money");
     expect(r.wanted?.upgrade).toBe("Increase Maximum Money");
+  });
+});
+
+describe("hashesAreIncome", () => {
+  it("is BitNode 9's case: scripts' hacking money cut ~1000x", () => {
+    expect(hashesAreIncome(9, { ServerMaxMoney: 0.01, ScriptHackMoney: 0.1 })).toBe(true);
+    expect(hashesAreIncome(12, { ServerMaxMoney: 0.888, ScriptHackMoney: 0.942 })).toBe(false);
+    expect(hashesAreIncome(9, undefined)).toBe(true);
+  });
+
+  it("sells hashes first and builds by payback then", () => {
+    const inputs = { numHashes: 10, capacity: 1000, costs: { "Sell for Money": 4, "Company Favor": 200 }, gymForGoal: false, classForGoal: false, companyTarget: "ECorp", sellAboveFraction: 0.9 };
+    expect(chooseHashUpgrade({ ...inputs, hashIncome: true }).buy?.upgrade).toBe("Sell for Money");
+    expect(chooseHashUpgrade(inputs).buy).toBeUndefined();
+    expect(nodePolicy(false, 1e6, 60, 0.05, 1 / 12, 1e6, true)).toEqual({ kind: "payback" });
   });
 });

@@ -21,6 +21,7 @@ import {
   IMPROVE_STUDYING as IMPROVE_STUDYING_NAME,
   REDUCE_MIN_SECURITY,
   SELL_FOR_MONEY,
+  hashesAreIncome,
 } from "economy/hacknet_decisions";
 import { FACTION_REPS_PATH, FactionRepsFile, INSTALL_LOOP_PATH, InstallLoopFile } from "factions/faction_decisions";
 import { incomePerMin } from "system/monitoring/timeseries";
@@ -207,7 +208,8 @@ async function tick(ns: NS, log: Logger, configIn: HacknetConfig): Promise<void>
     config.incomeBudgetMinutes,
     config.incomeShare,
     TICK_INTERVAL_MS / 60_000,
-    ns.getServerMoneyAvailable("home")
+    ns.getServerMoneyAvailable("home"),
+    hashesAreIncome(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.multipliers)
   );
 
   const playerRes = await player_metadata_pb
@@ -367,6 +369,7 @@ function gatherHashInputs(ns: NS, config: HacknetConfig): (numHashes: number) =>
     companyTarget: faction?.companyTargets?.[0]?.company,
     topEarner: earner ? { host: earner.host, chance: earner.chance } : undefined,
     sellAboveFraction: config.hashDrainAboveFraction,
+    hashIncome: hashesAreIncome(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.multipliers),
   });
 }
 
