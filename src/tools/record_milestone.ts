@@ -1,14 +1,16 @@
 import { NS } from "@ns";
 import { readBitNodeInfo } from "system/bitnode_info";
-import { appendMilestones, milestone, MILESTONES_PATH, recordedFor } from "system/monitoring/milestones";
+import { appendMilestones, milestone, MILESTONES_PATH, recordedFor, withoutMilestone } from "system/monitoring/milestones";
 
 /**
  * Records a run milestone by hand, for the current run:
  *
- *   run tools/record_milestone.js <name> <ISO time> [--note <text>]
+ *   run tools/record_milestone.js <name> <ISO time> [--note <text>] [--replace]
  *
  * For backfilling stages reached before monitoring recorded them, or for
- * notes like a pause. A name already recorded for this run is skipped.
+ * notes like a pause. A name already recorded for this run is skipped,
+ * or with --replace corrected (the bridge's archive keeps both lines; the
+ * later one wins).
  */
 export async function main(ns: NS): Promise<void> {
   const [name, when] = ns.args.map(String);
@@ -20,7 +22,8 @@ export async function main(ns: NS): Promise<void> {
     ns.tprint("usage: run tools/record_milestone.js <name> <ISO time> [--note <text>] (needs /var/bitnode/current.txt)");
     return;
   }
-  const raw = ns.read(MILESTONES_PATH);
+  const replace = ns.args.includes("--replace");
+  const raw = replace ? withoutMilestone(ns.read(MILESTONES_PATH), info.lastNodeReset, name) : ns.read(MILESTONES_PATH);
   if (recordedFor(raw, info.lastNodeReset).has(name)) {
     ns.tprint(`${name} is already recorded for this run.`);
     return;

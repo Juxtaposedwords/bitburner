@@ -70,6 +70,19 @@ export function dueMilestones(recorded: Set<string>, obs: MilestoneObservation):
   return due.filter(([name]) => !recorded.has(name)).map(([name, at]) => milestone(obs.node, obs.runStart, name, at));
 }
 
+/** `raw` without `run`'s entries named `name`. */
+export function withoutMilestone(raw: string, run: number, name: string): string {
+  const kept = raw.split("\n").filter((line) => {
+    try {
+      const m = JSON.parse(line) as Partial<Milestone>;
+      return !(m.run === run && m.milestone === name);
+    } catch {
+      return false;
+    }
+  });
+  return kept.length === 0 ? "" : kept.join("\n") + "\n";
+}
+
 /** `raw` with `entries` appended (newest MILESTONES_CAP kept). */
 export function appendMilestones(raw: string, entries: Milestone[]): string {
   return entries.reduce((acc, m) => appendJsonLine(acc, m, MILESTONES_CAP), raw);

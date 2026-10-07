@@ -661,6 +661,66 @@
         "backfill; 11.4 active hours"
       ],
       "note": "backfill BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-fix-full_system",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "full_system",
+        "2026-10-06T18:19:19Z",
+        "--note",
+        "backfill from /var/claude_out/boot.txt",
+        "--replace"
+      ],
+      "note": "correct BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-fix-faction_daemon",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "faction_daemon",
+        "2026-10-06T18:57:00Z",
+        "--note",
+        "backfill: placed on daemons-0",
+        "--replace"
+      ],
+      "note": "correct BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-fix-gang",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "gang",
+        "2026-10-07T01:51:00Z",
+        "--note",
+        "backfill from the karma gauge",
+        "--replace"
+      ],
+      "note": "correct BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-fix-donations",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "donations",
+        "2026-10-07T05:02:00Z",
+        "--note",
+        "backfill from the donatable gauge",
+        "--replace"
+      ],
+      "note": "correct BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-milestone-fix-phase_DAEDALUS",
+      "script": "tools/record_milestone.js",
+      "args": [
+        "phase_DAEDALUS",
+        "2026-10-07T18:38:00Z",
+        "--note",
+        "backfill; 11.4 active hours",
+        "--replace"
+      ],
+      "note": "correct BN12 run 3"
     }
   ]
 }

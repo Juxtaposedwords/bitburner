@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendMilestones, dueMilestones, MilestoneObservation, recordedFor } from "system/monitoring/milestones";
+import { appendMilestones, dueMilestones, MilestoneObservation, recordedFor, withoutMilestone } from "system/monitoring/milestones";
 import { Approach } from "system/rpc/scheduler";
 
 const HOUR = 3_600_000;
@@ -35,5 +35,14 @@ describe("recordedFor", () => {
     const raw = appendMilestones("", [...dueMilestones(new Set(), obs({ inGang: true })), ...dueMilestones(new Set(), obs({ runStart: 2 * HOUR }))]);
     expect([...recordedFor(raw, HOUR)]).toEqual(["run_start", "gang"]);
     expect([...recordedFor(raw, 2 * HOUR)]).toEqual(["run_start"]);
+  });
+});
+
+describe("withoutMilestone", () => {
+  it("drops one run's entry by name, keeping the rest", () => {
+    const raw = appendMilestones("", [...dueMilestones(new Set(), obs({ inGang: true })), ...dueMilestones(new Set(), obs({ runStart: 2 * HOUR, inGang: true }))]);
+    const left = withoutMilestone(raw, HOUR, "gang");
+    expect([...recordedFor(left, HOUR)]).toEqual(["run_start"]);
+    expect([...recordedFor(left, 2 * HOUR)]).toEqual(["run_start", "gang"]);
   });
 });
