@@ -27,6 +27,9 @@ import { effectiveReserve, readSavings } from "system/savings";
 const PORT_OPENER_PROGRAMS = ["BruteSSH.exe", "FTPCrack.exe", "relaySMTP.exe", "HTTPWorm.exe", "SQLInject.exe"] as const;
 const FORMULAS = "Formulas.exe";
 const BOOT_SCRIPT = "boot.js";
+// --once: how long to keep trying to start boot.js (see main()).
+const BOOT_RETRIES = 120;
+const BOOT_RETRY_MS = 500;
 
 // A home RAM upgrade may use this share of cash above the reserve - it's the
 // best-value purchase early on, but shouldn't drain everything in one go.
@@ -100,7 +103,21 @@ export async function main(ns: NS): Promise<void> {
 
   if (ns.args.includes("--once")) {
     await purchasePass(ns, log, 1, true);
-    if (ns.run(BOOT_SCRIPT) === 0) ns.write("/var/claude_out/boot.txt", `[${new Date().toISOString()}] program_shopper --once couldn't start ${BOOT_SCRIPT} (RAM?)\n`, "a");
+    // The bootstrap that ran this exits right after, but its RAM can still
+    // be held on the first try - one attempt then left nothing running at
+    // all (BN12 runs 2 and 3, BN9's start). Retry until it's freed.
+    for (let tries = 0; tries < BOOT_RETRIES; tries++) {
+      if (ns.run(BOOT_SCRIPT) !== 0) return;
+      await ns.asleep(BOOT_RETRY_MS);
+    }
+    const free = ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
+    const running = ns.ps("home").map((p) => p.filename).join(", ");
+    ns.write(
+      "/var/claude_out/boot.txt",
+      `[${new Date().toISOString()}] program_shopper --once couldn't start ${BOOT_SCRIPT} in ${(BOOT_RETRIES * BOOT_RETRY_MS) / 1000}s: ` +
+        `${free.toFixed(1)} GB free, it needs ${ns.getScriptRam(BOOT_SCRIPT, "home")}; running: ${running}\n`,
+      "a"
+    );
     return;
   }
 
