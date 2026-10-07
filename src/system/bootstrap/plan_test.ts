@@ -60,3 +60,20 @@ describe("shouldHandOffToShopper", () => {
     expect(shouldHandOffToShopper(1e6, true, [0], 1.5e6)).toBe(false);
   });
 });
+
+describe("pickBootstrapTarget keeps its target", () => {
+  const servers = [
+    { host: "sigma-cosmetics", maxMoney: 57.5e6, requiredHackingLevel: 5, hasRoot: true },
+    { host: "joesguns", maxMoney: 62.5e6, requiredHackingLevel: 10, hasRoot: true },
+    { host: "phantasy", maxMoney: 600e6, requiredHackingLevel: 100, hasRoot: true },
+  ];
+
+  it("over one barely richer (a switch restarts every worker)", () => {
+    expect(pickBootstrapTarget(servers, 24, "sigma-cosmetics")).toBe("sigma-cosmetics");
+  });
+
+  it("but switches for one worth twice as much, or when it's no longer allowed", () => {
+    expect(pickBootstrapTarget(servers, 200, "sigma-cosmetics")).toBe("phantasy");
+    expect(pickBootstrapTarget(servers, 24, "gone")).toBe("joesguns");
+  });
+});

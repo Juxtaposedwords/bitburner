@@ -169,7 +169,8 @@ export async function main(ns: NS): Promise<void> {
         requiredHackingLevel: ns.getServerRequiredHackingLevel(host),
         hasRoot: ns.hasRootAccess(host),
       })),
-      ns.getHackingLevel()
+      ns.getHackingLevel(),
+      target
     );
     if (next && next !== target) {
       // New target: restart every worker on it.

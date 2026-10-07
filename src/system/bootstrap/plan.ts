@@ -50,12 +50,21 @@ export type BootstrapServer = { host: string; maxMoney: number; requiredHackingL
  * at most half the player's hacking level (the classic early rule - fast,
  * reliable hacks), or at most the full level while hacking is under 10.
  */
-export function pickBootstrapTarget(servers: BootstrapServer[], hackingLevel: number): string | undefined {
+export function pickBootstrapTarget(servers: BootstrapServer[], hackingLevel: number, current?: string): string | undefined {
   const cap = hackingLevel < 10 ? hackingLevel : hackingLevel / 2;
   const candidates = servers.filter((s) => s.hasRoot && s.maxMoney > 0 && s.requiredHackingLevel <= cap);
   if (candidates.length === 0) return undefined;
-  return candidates.reduce((best, s) => (s.maxMoney > best.maxMoney ? s : best)).host;
+  const best = candidates.reduce((top, s) => (s.maxMoney > top.maxMoney ? s : top));
+  // A switch restarts every worker, and the new target is weakened and
+  // grown before it's hacked at all: only for one worth at least
+  // SWITCH_FACTOR times as much. BN9's start, with hacking rising fast
+  // from study, switched every few levels and earned nothing for minutes.
+  const kept = candidates.find((s) => s.host === current);
+  return kept && best.maxMoney < kept.maxMoney * SWITCH_FACTOR ? kept.host : best.host;
 }
+
+// How much richer a target must be to switch to it (pickBootstrapTarget).
+export const SWITCH_FACTOR = 2;
 
 // TOR's price: the game has no function to query it before it's bought
 // (getDarkwebProgramCost returns -1 without TOR), so it's the one constant.
