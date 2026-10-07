@@ -39,3 +39,34 @@ Every generated client method resolves to the *whole* `RpcResponse<T>` — it ne
 ### One `.proto` file, multiple services
 
 A single `.proto` file may declare more than one `service` block; the generator renders all of them into one output file in a single pass, deduplicating any messages/enums shared between them. Each service still gets its own port (registered under `package.ServiceName` in `port_registry.json`), and its own `New{{ServiceName}}Client`/`Register{{ServiceName}}` pair — the constructor is always namespaced by service name (not a bare `NewClient`) specifically so two services in the same file, or even the same package, never collide.
+## Best practices: services for distributed work
+
+Ports are global, so a generated client reaches its service on whatever server it runs on. That makes
+a service the way to spread work across servers. Lessons from splitting the faction daemon
+(`docs/faction_split.md` on branch `faction-split`):
+
+- **Make a service of anything heavy in RAM.** The game charges each script for every function it
+  references, so a large daemon can't start until some server is big enough. Split the game calls into
+  services of 32 GB or less, each running on any server with room, and keep the decisions in a small
+  client. The faction daemon went from 100.8 GB to a 6.7 GB planner plus four services of 17–30 GB.
+- **One service can serve many clients.** A service pays for its functions once, so a daemon that only
+  needs reads another service already offers can drop those functions. That's worth it for expensive
+  functions (≥ ~2 GB); for cheap ones the RPC plumbing costs more than it saves.
+- **RAM spreads, CPU doesn't.** Every script shares the browser's single JavaScript thread, so a service
+  on another server holds RAM there but computes on the same thread. For CPU-heavy work (Go move search),
+  put a Web Worker behind the service (`tools/web_worker_probe.ts` showed workers run off the main
+  thread).
+- **Keep services dumb.** No decisions, config or state files: each request is one or a few game calls.
+  Then nothing needs syncing with home, and any server works.
+- **Snapshot, then act.** A client reads one snapshot per service per tick and decides synchronously from
+  it, so RPC latency (~10–50 ms per call) is paid once per tick, not in a loop. If a snapshot fails, skip
+  the tick; never act on half a view.
+- **Pass the deadline.** Every call takes the caller's `Deadline`, so a slow service costs the caller a
+  tick, not a hang.
+- **Mind the game's RAM rules:**
+  - Names are charged by bare identifier, whatever object they belong to, so don't name fields or
+    methods after game functions. A field called `run` or `share` costs RAM wherever it's read.
+  - `import * as m` reaches everything in `m`.
+  - A main script pays for all its own top-level functions; imported modules only for what's reached.
+- **Measure before shipping.** `node build/ram_estimate.mjs [--root dist] --detail <script.js>` sizes a
+  script the way the game does, offline, using the price list from `tools/ram_costs.js`.
