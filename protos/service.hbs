@@ -2,7 +2,7 @@
 {{#if services.length}}
 import { NS } from "@ns";
 import * as rpc from "system/rpc/rpc";
-import { Deadline, toDeadline } from "system/deadline";
+import { Deadline, expired, toDeadline } from "system/deadline";
 import { Codes } from "system/rpc/status";
 
 {{#each services}}
@@ -65,6 +65,30 @@ export function New{{name}}Client(ns: NS, targetPort = {{name}}Port) {
 
 export function Register{{name}}(server: rpc.RpcServer, handlers: {{name}}Handlers) {
     server.registerService("{{name}}", handlers as unknown as Record<string, Function>);
+}
+
+export type {{name}}Client = ReturnType<typeof New{{name}}Client>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses {{name}}: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function New{{name}}LocalClient(handlers: {{name}}Handlers): {{name}}Client {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to {{name}}.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+{{#each methods}}
+        {{name}}: (req: {{requestType}}, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("{{name}}", handlers.{{name}}, req, deadline),
+{{/each}}
+    };
 }
 
 {{/each}}

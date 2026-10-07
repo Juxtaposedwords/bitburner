@@ -1,4 +1,4 @@
-import { DAEMON_HOST } from "system/remote_state";
+import { DAEMON_HOST, daemonHosts } from "system/remote_state";
 import { NS } from "@ns";
 
 /**
@@ -33,7 +33,7 @@ export type NetworkServer = {
 export type NetworkFile = { servers: NetworkServer[]; hackingLevel: number; writtenAt: number };
 
 export const HOME = "home";
-const HACKNET_NAME = /^hacknet-(server|node)-\d+$/;
+export const HACKNET_NAME = /^hacknet-(server|node)-\d+$/;
 // The purchased server kept for daemons (system/remote_state.ts) - never a
 // worker host, so batches can't take its RAM.
 export { DAEMON_HOST };
@@ -64,9 +64,11 @@ export function scanWithPaths(ns: NS): { host: string; path: string[] }[] {
  * cuts hash production).
  */
 export function liveWorkerHosts(ns: NS): string[] {
+  // Not where daemons run (DAEMON_HOST and hacked servers boot placed them on).
+  const reserved = new Set(daemonHosts(ns));
   return scanWithPaths(ns)
     .map((s) => s.host)
-    .filter((host) => host !== HOME && host !== DAEMON_HOST && !HACKNET_NAME.test(host) && ns.hasRootAccess(host));
+    .filter((host) => host !== HOME && !reserved.has(host) && !HACKNET_NAME.test(host) && ns.hasRootAccess(host));
 }
 
 /** Port openers, in the order the game expects them. */

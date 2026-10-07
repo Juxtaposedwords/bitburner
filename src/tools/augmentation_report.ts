@@ -3,10 +3,8 @@ import { loadJsonConfig } from "system/config";
 import {
   CONFIG_PATH as FACTION_CONFIG_PATH,
   DEFAULT_CONFIG as FACTION_DEFAULT_CONFIG,
-  gatherCatalog,
-  gatherReps,
-  getPendingAugmentations,
 } from "factions/faction_daemon";
+import { gatherCatalog, gatherReps, getPendingAugmentations } from "factions/faction_game_ns";
 import {
   catalogsFor,
   decideAugmentationPurchase,
