@@ -730,6 +730,16 @@
         "/var/claude_out/ram_report.txt"
       ],
       "note": "daemon sizes for placing daemons on hacked servers"
+    },
+    {
+      "id": "2026-10-07-ram-breakdown-faction",
+      "script": "tools/ram_breakdown.js",
+      "args": [
+        "factions/faction_daemon.js",
+        "--out",
+        "/var/claude_out/ram_breakdown.txt"
+      ],
+      "note": "plan the faction daemon split"
     }
   ]
 }
