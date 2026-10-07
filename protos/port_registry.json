@@ -2,5 +2,9 @@
   "server_metadata.SupervisorService": 10,
   "player_metadata.PlayerService": 11,
   "scheduler.SchedulerService": 12,
-  "state.StateService": 13
+  "state.StateService": 13,
+  "faction_services.FactionInfoService": 14,
+  "faction_services.FactionWorkService": 15,
+  "faction_services.CrimeService": 16,
+  "faction_services.AugmentPurchaseService": 17
 }
