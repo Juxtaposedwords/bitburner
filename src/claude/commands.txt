@@ -721,6 +721,15 @@
         "--replace"
       ],
       "note": "correct BN12 run 3"
+    },
+    {
+      "id": "2026-10-07-ram-report",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ],
+      "note": "daemon sizes for placing daemons on hacked servers"
     }
   ]
 }
