@@ -97,6 +97,14 @@ only) compared sleeve policies for a gang from sleeves alone:
   then the sleeves are training.
 - **DAEDALUS:** about 9–10 h, against 11.4 active hours.
 
+**Stall found at the end of run 3 (21:26 on 10-07).**
+- The run had sat in DAEDALUS since 18:38: hacking 3,207 (3,121 needed), $1.98 quadrillion.
+- The Daedalus invite also needs 31 installed augmentations, and there were 24. DAEDALUS buys only The
+  Red Pill, so the invite could never come.
+- **Fix:** the phase now waits for the count (`daedalusAugsShort`). It stays in AUGMENTS, buying any
+  augmentation, until the count is met.
+- About 2.9 h lost; run 3's total includes it.
+
 **Known start-of-run losses in run 3:**
 - **No boot for 7 minutes after the finish (17:54–18:01).** Boot's record (`/var/claude_out/boot.txt`)
   only started at 18:01, so the next finish will show whether the finish's call to `boot.js` runs at all.
