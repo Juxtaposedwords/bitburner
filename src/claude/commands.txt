@@ -797,8 +797,8 @@
       "note": "live smoke test of every faction service method"
     },
     {
-      "id": "2026-10-07-install-test",
-      "script": "tools/install_test.js",
+      "id": "2026-10-07-test-install",
+      "script": "tools/test_install.js",
       "args": [
         "--out",
         "/var/claude_out/install_test.txt"

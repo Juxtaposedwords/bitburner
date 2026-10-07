@@ -122,6 +122,7 @@ function parseModule(file, deps, queue) {
 }
 
 export function estimate(script) {
+  if (!fs.existsSync(path.join(root, moduleFile(script)))) throw new Error(`${path.join(root, moduleFile(script))} doesn't exist (not built yet?)`);
   const deps = {};
   const parsed = new Set();
   const queue = [moduleFile(script)];

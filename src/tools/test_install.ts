@@ -6,7 +6,7 @@ import { factionClients, succeeded } from "factions/faction_gateway";
 /**
  * Tests the install path through the faction services, live:
  *
- *   run tools/install_test.js [--out /var/claude_out/install_test.txt]
+ *   run tools/test_install.js [--out /var/claude_out/install_test.txt]
  *
  * Buys one NeuroFlux Governor through AugmentPurchaseService at a faction
  * taking donations (donating the rep it lacks), sells every stock position
