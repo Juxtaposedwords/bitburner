@@ -143,12 +143,13 @@ const GYM_RUNWAY_MINUTES = 10;
 const GYM_FALLBACK_MIN_CASH = 1e9;
 
 /**
- * The third file allowed to import ns.singularity (after
- * hacking/program_shopper.ts and backdoor_daemon.ts) - kept isolated for the
- * same RAM-cost reason (see server_metadata.md). Only launched by boot.ts
- * when PlayerMetadata.singularityAvailable is true. (A fourth,
- * tools/augmentation_report.ts, reuses this file's own gather/decide
- * exports rather than re-deriving anything - see its module doc.)
+ * Plans; four services act (docs/faction_split.md). It makes no
+ * ns.singularity calls itself: each tick it reads one snapshot from each
+ * faction service (factions/faction_gateway.ts) into a FactionView, decides
+ * from that, then acts through the services' clients - 6.7 GB instead of
+ * the 100.8 GB it took with the game calls inline, so it and each service
+ * fit small servers early in a BitNode. Only launched by boot.ts when
+ * Singularity is available.
  *
  * No RPC service of its own. Faction reputation/augmentation state is
  * cheap to re-derive fresh from ns.singularity.* every tick, and so is
