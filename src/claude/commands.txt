@@ -837,6 +837,21 @@
       "script": "boot.js",
       "args": [],
       "note": "starts the new bootstrap"
+    },
+    {
+      "id": "2026-10-07-bn9-hacknet-daemon",
+      "script": "economy/hacknet_daemon.js",
+      "args": [],
+      "note": "BN9's income; boot held it behind the gang daemon"
+    },
+    {
+      "id": "2026-10-07-bn9-ram-report",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ],
+      "note": "what fits on BN9's 128 GB home"
     }
   ]
 }
