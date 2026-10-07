@@ -769,6 +769,23 @@
         "0"
       ],
       "note": "user: don't finish BN12 until the faction split lands and they say so"
+    },
+    {
+      "id": "2026-10-07-boot-place-remote",
+      "script": "boot.js",
+      "args": [
+        "--place-remote"
+      ],
+      "note": "start the faction services on hacked servers (the faction split's live test)"
+    },
+    {
+      "id": "2026-10-07-ram-report-split",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ],
+      "note": "actual sizes after the split"
     }
   ]
 }
