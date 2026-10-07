@@ -10,6 +10,8 @@ import { PHASE_PATH, PhaseFile } from "system/phase";
 import { readSavings } from "system/savings";
 import { PENDING_BOOST_PATH, PendingBoost } from "factions/skill_progress";
 import { SLEEVES_PATH, SleevesFile } from "sleeves/sleeve_decisions";
+import { appendMilestones, dueMilestones, MILESTONES_PATH, recordedFor } from "system/monitoring/milestones";
+import { readBitNodeInfo } from "system/bitnode_info";
 
 /**
  * Samples the economy once a minute into fixed-size time series under
@@ -191,6 +193,31 @@ function recordSystem(ns: NS, t: number): string {
   return parts.join(" ");
 }
 
+/** Appends the run milestones this sample shows for the first time (system/monitoring/milestones.ts). */
+function recordMilestones(ns: NS): string {
+  const info = readBitNodeInfo(ns);
+  if (!info) return "";
+  const now = Date.now();
+  const supervisor = ns.getRunningScript("system/supervisor.js", "home");
+  const faction = readStatus<FactionRepsFile>(ns, FACTION_REPS_PATH);
+  const phase = readStatus<PhaseFile>(ns, PHASE_PATH);
+  const raw = ns.read(MILESTONES_PATH);
+  const due = dueMilestones(recordedFor(raw, info.lastNodeReset), {
+    now,
+    node: info.node,
+    runStart: info.lastNodeReset,
+    supervisorSince: supervisor ? now - supervisor.onlineRunningTime * 1000 : undefined,
+    factionDaemon: faction !== undefined,
+    sleeveGoals: readStatus<SleevesFile>(ns, SLEEVES_PATH)?.sleeves.map((s) => s.goal) ?? [],
+    inGang: readStatus<GangStatusFile>(ns, GANG_STATUS_PATH) !== undefined,
+    donatable: faction?.donatable?.length ?? 0,
+    phase: phase && phase.writtenAt >= info.lastNodeReset ? phase.approach : undefined,
+  });
+  if (due.length === 0) return "";
+  ns.write(MILESTONES_PATH, appendMilestones(raw, due), "w");
+  return `milestones=${due.map((m) => `${m.milestone}@${m.hours.toFixed(2)}h`).join(",")}`;
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Monitoring", LOG_LEVEL.DEBUG);
@@ -227,8 +254,9 @@ export async function main(ns: NS): Promise<void> {
     const reps = recordReps(ns, t);
     const gang = recordGang(ns, t);
     const system = recordSystem(ns, t);
+    const milestones = recordMilestones(ns);
 
-    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet} ${reps} ${gang} ${system}`);
+    await log.debug(`[Monitoring] sampled ${counters} counter(s), cash=$${cash.toFixed(0)} stock=$${(stock ?? 0).toFixed(0)} ${hacknet} ${reps} ${gang} ${system} ${milestones}`);
 
     await ns.asleep(TICK_INTERVAL_MS);
   }
