@@ -804,6 +804,15 @@
         "/var/claude_out/install_test.txt"
       ],
       "note": "user approved: test install through the purchase service, then the reboot"
+    },
+    {
+      "id": "2026-10-07-ram-report-after-install",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ],
+      "note": "where the services run after the install test"
     }
   ]
 }

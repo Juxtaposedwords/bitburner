@@ -233,7 +233,9 @@ export async function main(ns: NS): Promise<void> {
     // services of 32 GB or less, it fits early hacked servers.
     // Already running, here or there: never a second copy (two faction
     // daemons would both act; two services would share one port).
-    if (REMOTE_OK.includes(script) && ["home", ...daemonHosts(ns)].some((host) => ns.serverExists(host) && ns.isRunning(script, host))) {
+    const runningOn = REMOTE_OK.includes(script) ? ["home", ...daemonHosts(ns)].find((host) => ns.serverExists(host) && ns.isRunning(script, host)) : undefined;
+    if (runningOn) {
+      say(ns, `[Boot] ${script} already running on ${runningOn}, skipping.`);
       started.push(script);
       continue;
     }
