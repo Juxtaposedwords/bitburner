@@ -786,6 +786,15 @@
         "/var/claude_out/ram_report.txt"
       ],
       "note": "actual sizes after the split"
+    },
+    {
+      "id": "2026-10-07-faction-services-check",
+      "script": "tools/faction_services_check.js",
+      "args": [
+        "--out",
+        "/var/claude_out/faction_services_check.txt"
+      ],
+      "note": "live smoke test of every faction service method"
     }
   ]
 }
