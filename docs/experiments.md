@@ -57,6 +57,11 @@ about 15.5 active hours in run 2, so about 4.4 hours sooner.
 - **Phase now:** AUGMENTS, with the hacking multiplier at 2.55 of the 3.87 required. Run 2 needed about
   2.6 hours from donations to the finish.
 
+**Pause.** The game was closed from 05:18 to 18:37 on 10-07; active-time figures leave that out. On
+restart, the augmentations bought in AUGMENTS were installed (18:38). That took the hacking multiplier from
+2.55 to 5.78, past the 3.87 required, so the run went straight to DAEDALUS after 11.4 active hours. In
+run 2, finishing took about 18.1 active hours in total.
+
 **Measurements planned:**
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
