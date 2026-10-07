@@ -102,6 +102,9 @@ import {
   PendingBoost,
 } from "factions/skill_progress";
 import * as server_metadata_pb from "system/rpc/server_metadata";
+import { FactionView } from "factions/faction_view";
+import { CallFailure, factionClients, FactionClients, fetchView, fetchWork, isFailure, succeeded, ViewRequest } from "factions/faction_gateway";
+import { Deadline } from "system/deadline";
 
 // FactionName/FactionWorkType/CompanyName/CityName/JobField/CrimeType/
 // GymLocationName are big string-literal unions not exported by name
@@ -376,35 +379,6 @@ function saveState(ns: NS, state: FactionState): void {
   ns.write(STATE_PATH, JSON.stringify(state, null, 2), "w");
 }
 
-/** Every augmentation offered by any joined faction, queried live - no persisted catalog. */
-export function gatherCatalog(ns: NS, joinedFactions: string[]): AugmentationInfo[] {
-  const catalog: AugmentationInfo[] = [];
-  for (const faction of joinedFactions) {
-    for (const name of ns.singularity.getAugmentationsFromFaction(faction as FactionNameType)) {
-      catalog.push({
-        name,
-        faction,
-        price: ns.singularity.getAugmentationPrice(name),
-        repReq: ns.singularity.getAugmentationRepReq(name),
-        prereqs: ns.singularity.getAugmentationPrereq(name),
-        stats: ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>,
-      });
-    }
-  }
-  return catalog;
-}
-
-export function gatherReps(ns: NS, joinedFactions: string[]): Record<string, number> {
-  const reps: Record<string, number> = {};
-  for (const faction of joinedFactions) reps[faction] = ns.singularity.getFactionRep(faction as FactionNameType);
-  return reps;
-}
-
-/** Augmentations bought but not yet applied via installAugmentations - the owned(true)/owned(false) diff already inlined in tick(), pulled out so augmentation_report.ts shares the same definition. */
-export function getPendingAugmentations(ns: NS): string[] {
-  return pendingAugmentations(ns.singularity.getOwnedAugmentations(true), ns.singularity.getOwnedAugmentations(false));
-}
-
 /**
  * The work type earning the most rep at `faction` right now (bestWorkType),
  * with each offered type's rep/min from ns.formulas.work.factionGains (0 GB,
@@ -414,15 +388,16 @@ export function getPendingAugmentations(ns: NS): string[] {
  */
 function pickWorkType(
   ns: NS,
+  view: FactionView,
   faction: string,
   player: ReturnType<NS["getPlayer"]>
 ): { type: string | undefined; gains?: Record<string, number> } {
-  const types = ns.singularity.getFactionWorkTypes(faction as FactionNameType);
+  const types = view.workTypesOf(faction);
   if (!ns.fileExists("Formulas.exe", "home")) return { type: types.includes("hacking") ? "hacking" : types[0] };
 
-  const favor = ns.singularity.getFactionFavor(faction as FactionNameType);
+  const favor = view.favorOf(faction);
   const gains: Record<string, number> = {};
-  for (const type of types) gains[type] = ns.formulas.work.factionGains(player, type, favor).reputation * CYCLES_PER_MIN;
+  for (const type of types) gains[type] = ns.formulas.work.factionGains(player, type as FactionWorkTypeType, favor).reputation * CYCLES_PER_MIN;
   return { type: bestWorkType(types, gains), gains };
 }
 
@@ -435,8 +410,8 @@ function pickWorkType(
  * "last assigned" state, so it stays correct even if the player manually
  * starts different work in between ticks.
  */
-function isAlreadyWorking(ns: NS, faction: string, workType: string): boolean {
-  const current = ns.singularity.getCurrentWork();
+function isAlreadyWorking(view: FactionView, faction: string, workType: string): boolean {
+  const current = view.currentWork;
   return current?.type === "FACTION" && current.factionName === faction && current.factionWorkType === workType;
 }
 
@@ -475,12 +450,12 @@ function gatherEligibilitySnapshot(player: ReturnType<NS["getPlayer"]>): Eligibi
  * point would be pure waste. cityFactionPriority controls which one gets
  * pursued first.
  */
-function pursueCityFactions(ns: NS, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[]): EligibilityAction {
+function pursueCityFactions(view: FactionView, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[]): EligibilityAction {
   if (hasAnyCityFaction(joinedFactions)) return { kind: "none" };
 
   for (const faction of config.cityFactionPriority) {
     if (joinedFactions.includes(faction)) continue;
-    const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
+    const requirements = view.requirementsOf(faction);
     const blocking = findBlockingRequirement(requirements, snapshot);
     if (!blocking) continue;
     const action = requirementToAction(blocking, config.companyJobField, snapshot);
@@ -498,15 +473,15 @@ function pursueCityFactions(ns: NS, config: FactionConfig, snapshot: Eligibility
  * from its faction name - the one mismatch, resolved via
  * COMPANY_FACTION_EMPLOYER.
  */
-function pursueCompanyFactions(ns: NS, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[]): EligibilityAction {
+function pursueCompanyFactions(view: FactionView, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[]): EligibilityAction {
   for (const faction of config.companyPriority) {
     if (joinedFactions.includes(faction)) continue;
     const employer = COMPANY_FACTION_EMPLOYER[faction] ?? faction;
     const candidateSnapshot: EligibilitySnapshot = {
       ...snapshot,
-      companyReps: { ...snapshot.companyReps, [employer]: ns.singularity.getCompanyRep(employer as CompanyNameType) },
+      companyReps: { ...snapshot.companyReps, [employer]: view.companyRepOf(employer) },
     };
-    const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
+    const requirements = view.requirementsOf(faction);
     const blocking = findBlockingRequirement(requirements, candidateSnapshot);
     if (!blocking) continue;
     const action = requirementToAction(blocking, config.companyJobField, candidateSnapshot);
@@ -540,6 +515,7 @@ function crimeChanceWithBoost(ns: NS, player: ReturnType<NS["getPlayer"]>, crime
  */
 function decideGangTraining(
   ns: NS,
+  view: FactionView,
   config: FactionConfig,
   player: ReturnType<NS["getPlayer"]>,
   crime: string,
@@ -551,7 +527,8 @@ function decideGangTraining(
 
   const stat = gangTrainingStat(chanceNow, 1, snapshot.skills, boost);
   if (!stat) return undefined;
-  const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
+  const stats = view.crimeOf(crime);
+  if (!stats) return undefined;
   const gymType = ns.enums.GymType[stat];
   const expPerMin =
     ns.formulas.work.gymGains(player, gymType, config.gymLocation as GymLocationNameType)[`${gymType}Exp` as "strExp" | "defExp" | "dexExp" | "agiExp"] *
@@ -563,25 +540,16 @@ function decideGangTraining(
   const expNeeded = ns.formulas.skills.calculateExp(player.skills[stat] + TRAINING_PROBE_LEVELS, mult) - player.exp[stat];
   const trainMs = (Math.max(0, expNeeded) / expPerMin) * 60_000;
   const remainingKarma = player.karma - GANG_KARMA_REQUIREMENT;
-  return trainingPaysOff(remainingKarma, stats.karma, stats.time, chanceNow, boost(stat), trainMs) ? stat : undefined;
+  return trainingPaysOff(remainingKarma, stats.karma ?? 0, stats.timeMs ?? Infinity, chanceNow, boost(stat), trainMs) ? stat : undefined;
 }
 
 /** pickKarmaCrime over every live CrimeType's karma, time, and success chance. */
-function pickKarmaCrimeLive(ns: NS): string | undefined {
-  return pickKarmaCrime(
-    Object.values(ns.enums.CrimeType).map((crime) => {
-      const stats = ns.singularity.getCrimeStats(crime as CrimeTypeType);
-      return { crime, karma: stats.karma, timeMs: stats.time, successChance: ns.singularity.getCrimeChance(crime as CrimeTypeType) };
-    })
-  );
+function pickKarmaCrimeLive(view: FactionView): string | undefined {
+  return pickKarmaCrime(view.crimes().map((c) => ({ crime: c.crime ?? "", karma: c.karma ?? 0, timeMs: c.timeMs ?? Infinity, successChance: c.chance ?? 0 })));
 }
 
-function pickCrimeForKills(ns: NS, minSuccessChance: number): string | undefined {
-  const candidates = Object.values(ns.enums.CrimeType).map((crime) => ({
-    crime,
-    kills: ns.singularity.getCrimeStats(crime as CrimeTypeType).kills,
-    successChance: ns.singularity.getCrimeChance(crime as CrimeTypeType),
-  }));
+function pickCrimeForKills(view: FactionView, minSuccessChance: number): string | undefined {
+  const candidates = view.crimes().map((c) => ({ crime: c.crime ?? "", kills: c.kills ?? 0, successChance: c.chance ?? 0 }));
   return decideCrimeForKills(candidates, minSuccessChance);
 }
 
@@ -596,7 +564,7 @@ function pickCrimeForKills(ns: NS, minSuccessChance: number): string | undefined
  * is logged once here (not per-candidate) so it doesn't spam.
  */
 async function pursueCriminalFactions(
-  ns: NS,
+  view: FactionView,
   log: Logger,
   config: FactionConfig,
   state: FactionState,
@@ -607,7 +575,7 @@ async function pursueCriminalFactions(
 
   for (const faction of config.criminalFactionPriority) {
     if (joinedFactions.includes(faction)) continue;
-    const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
+    const requirements = view.requirementsOf(faction);
     const blocking = findBlockingRequirement(requirements, snapshot);
     if (!blocking) continue;
     const action = requirementToAction(blocking, config.companyJobField, snapshot);
@@ -615,7 +583,7 @@ async function pursueCriminalFactions(
 
     if (action.kind === "commitCrime") {
       if (!deferredCrime) {
-        const crime = pickCrimeForKills(ns, config.minCrimeSuccessChance);
+        const crime = pickCrimeForKills(view, config.minCrimeSuccessChance);
         if (crime) deferredCrime = { kind: "commitCrime", crime };
       }
       continue;
@@ -650,7 +618,7 @@ async function pursueCriminalFactions(
  * new use of the work slot.
  */
 async function decideEligibilityWorkSlotAction(
-  ns: NS,
+  view: FactionView,
   log: Logger,
   config: FactionConfig,
   state: FactionState,
@@ -658,11 +626,11 @@ async function decideEligibilityWorkSlotAction(
   joinedFactions: string[]
 ): Promise<EligibilityAction> {
   if (config.pursueCompanyFactions) {
-    const companyAction = pursueCompanyFactions(ns, config, snapshot, joinedFactions);
+    const companyAction = pursueCompanyFactions(view, config, snapshot, joinedFactions);
     if (companyAction.kind !== "none") return companyAction;
   }
   if (config.pursueCriminalFactions) {
-    return await pursueCriminalFactions(ns, log, config, state, snapshot, joinedFactions);
+    return await pursueCriminalFactions(view, log, config, state, snapshot, joinedFactions);
   }
   return { kind: "none" };
 }
@@ -695,33 +663,41 @@ function gymAffordable(ns: NS, gymType: GymTypeType, gymLocation: string): boole
  * "bound how many times we resort to this" intent (see
  * gang_decisions.ts's decideStandDown).
  */
-async function executeEligibilityAction(ns: NS, log: Logger, action: EligibilityAction, gymLocation: string): Promise<boolean> {
-  const current = ns.singularity.getCurrentWork();
+async function executeEligibilityAction(
+  ns: NS,
+  c: FactionClients,
+  view: FactionView,
+  log: Logger,
+  action: EligibilityAction,
+  gymLocation: string,
+  deadline: Deadline
+): Promise<boolean> {
+  const current = view.currentWork;
 
   switch (action.kind) {
     case "none":
       return false;
 
     case "travel":
-      if (ns.getPlayer().city !== action.city && ns.singularity.travelToCity(action.city as CityNameType)) {
+      if (ns.getPlayer().city !== action.city && succeeded(await c.work.Travel({ city: action.city }, deadline))) {
         await log.info(`[Faction] Traveled to ${action.city}.`);
       }
       return false;
 
     case "quitJob":
-      ns.singularity.quitJob(action.company as CompanyNameType);
+      await c.work.QuitJob({ company: action.company }, deadline);
       await log.info(`[Faction] Quit job at ${action.company} to clear a criminal-faction requirement.`);
       return false;
 
     case "applyToCompany": {
-      const job = ns.singularity.applyToCompany(action.company as CompanyNameType, action.field as JobFieldType);
+      const job = (await c.work.ApplyToCompany({ company: action.company, field: action.field }, deadline)).data?.job;
       if (job) await log.info(`[Faction] Applied to ${action.company}, hired as ${job}.`);
       return false;
     }
 
     case "workForCompany":
       if (!(current?.type === "COMPANY" && current.companyName === action.company)) {
-        if (ns.singularity.workForCompany(action.company as CompanyNameType)) {
+        if (succeeded(await c.work.WorkForCompany({ company: action.company }, deadline))) {
           await log.info(`[Faction] Working for ${action.company} to build reputation toward its faction invite.`);
         }
       }
@@ -732,19 +708,19 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
       // gymWorkout fails outside the gym's city - the study daemon may have
       // left the player at a university elsewhere.
       const gymCity = GYM_CITY[gymLocation];
-      if (gymCity && ns.getPlayer().city !== gymCity && ns.singularity.travelToCity(gymCity as CityNameType)) {
+      if (gymCity && ns.getPlayer().city !== gymCity && succeeded(await c.work.Travel({ city: gymCity }, deadline))) {
         await log.info(`[Faction] Traveled to ${gymCity} for ${gymLocation}.`);
       }
       // The gym charges per second: only with cash for a runway of it, and
       // stop a workout already running rather than go into debt.
       if (!gymAffordable(ns, gymType, gymLocation)) {
-        if (current?.type === "CLASS" && current.location === gymLocation && ns.singularity.stopAction()) {
+        if (current?.type === "CLASS" && current.location === gymLocation && succeeded(await c.work.Stop({}, deadline))) {
           await log.warn(`[Faction] Stopped training ${action.stat}: cash doesn't cover ${GYM_RUNWAY_MINUTES} minutes at ${gymLocation}.`);
         }
         return false;
       }
       if (!(current?.type === "CLASS" && current.location === gymLocation && current.classType === gymType)) {
-        if (ns.singularity.gymWorkout(gymLocation as GymLocationNameType, gymType)) {
+        if (succeeded(await c.work.Gym({ location: gymLocation, gymType }, deadline))) {
           await log.info(`[Faction] Training ${action.stat} at ${gymLocation}.`);
         }
       }
@@ -753,7 +729,7 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
 
     case "commitCrime":
       if (!(current?.type === "CRIME" && current.crimeType === action.crime)) {
-        ns.singularity.commitCrime(action.crime as CrimeTypeType);
+        await c.crime.Commit({ crime: action.crime }, deadline);
         await log.info(`[Faction] Committing ${action.crime}.`);
         return true;
       }
@@ -774,6 +750,7 @@ async function executeEligibilityAction(ns: NS, log: Logger, action: Eligibility
  */
 function pursueWantedInvites(
   ns: NS,
+  view: FactionView,
   config: FactionConfig,
   snapshot: EligibilitySnapshot,
   joinedFactions: string[],
@@ -787,12 +764,10 @@ function pursueWantedInvites(
   for (const faction of config.pursueAugmentationFactions) {
     // Without pursueRedPill, The Red Pill doesn't make a faction worth an
     // invite (Daedalus sells nothing else but NeuroFlux).
-    offered[faction] = ns.singularity
-      .getAugmentationsFromFaction(faction as FactionNameType)
-      .filter((name) => config.pursueRedPill || name !== RED_PILL);
+    offered[faction] = view.offered(faction).filter((name) => config.pursueRedPill || name !== RED_PILL);
   }
   const blockers: Record<string, string[]> = {};
-  const installedCount = ns.singularity.getOwnedAugmentations(false).length;
+  const installedCount = view.installed.length;
   let found: { faction: string; action: EligibilityAction } | undefined;
   let moneyNeeded: { faction: string; amount: number } | undefined;
   // BitNode 10: The Covenant sells sleeves too (sleeve_daemon.ts publishes
@@ -800,7 +775,7 @@ function pursueWantedInvites(
   const shop = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.shop;
   const alsoWanted = shop && Number.isFinite(shop.nextSleeveCost) ? [COVENANT] : [];
   for (const faction of wantedInviteFactions(config.pursueAugmentationFactions, joinedFactions, offered, owned, alsoWanted)) {
-    const requirements = ns.singularity.getFactionInviteRequirements(faction as FactionNameType);
+    const requirements = view.requirementsOf(faction);
     blockers[faction] = describeUnmetRequirements(requirements, snapshot, installedCount);
     const money = unmetMoneyRequirement(requirements, snapshot);
     if (money > 0 && (!moneyNeeded || money > moneyNeeded.amount)) moneyNeeded = { faction, amount: money };
@@ -830,7 +805,9 @@ let favorPlanWasReady = false;
  * Applying takes no time; the work itself is the sleeves' (sleeve_daemon.ts).
  */
 async function gatherCompanyTargets(
-  ns: NS,
+  c: FactionClients,
+  view: FactionView,
+  deadline: Deadline,
   log: Logger,
   config: FactionConfig,
   joinedFactions: string[],
@@ -842,34 +819,32 @@ async function gatherCompanyTargets(
   const candidates: CompanyTarget[] = [];
   for (const faction of COMPANY_FACTION_NAMES) {
     if (joinedFactions.includes(faction)) continue;
-    const wanted = ns.singularity
-      .getAugmentationsFromFaction(faction as FactionNameType)
-      .some((name) => name !== NEUROFLUX_GOVERNOR && !ownedSet.has(name) && matchesFocus(ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>, usefulStats));
+    const wanted = view
+      .offered(faction)
+      .some((name) => name !== NEUROFLUX_GOVERNOR && !ownedSet.has(name) && matchesFocus(view.statsOf(name), usefulStats));
     if (!wanted) continue;
-    const need = companyRepRequirement(ns.singularity.getFactionInviteRequirements(faction as FactionNameType));
+    const need = companyRepRequirement(view.requirementsOf(faction));
     if (!need) continue;
     const before = jobs[need.company];
-    const job = ns.singularity.applyToCompany(need.company as CompanyNameType, config.companyJobField as JobFieldType);
+    const job = (await c.work.ApplyToCompany({ company: need.company, field: config.companyJobField }, deadline)).data?.job;
     if (job && job !== before) await log.info(`[Faction] ${before ? "Promoted" : "Hired"} at ${need.company}: ${job} (toward the ${faction} invite).`);
-    candidates.push({ faction, company: need.company, rep: ns.singularity.getCompanyRep(need.company as CompanyNameType), needed: need.reputation });
+    candidates.push({ faction, company: need.company, rep: view.companyRepOf(need.company), needed: need.reputation });
   }
   return companyTargets(candidates);
 }
 
 /** Whether any wanted, not-yet-joined faction's invite is blocked on combat stats (combatBlocksInvite). */
-function wantedInvitesNeedCombat(ns: NS, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[], owned: string[]): boolean {
+function wantedInvitesNeedCombat(ns: NS, view: FactionView, config: FactionConfig, snapshot: EligibilitySnapshot, joinedFactions: string[], owned: string[]): boolean {
   const offered: Record<string, string[]> = {};
   for (const faction of config.pursueAugmentationFactions) {
     // Without pursueRedPill, The Red Pill doesn't make a faction worth an
     // invite (Daedalus sells nothing else but NeuroFlux).
-    offered[faction] = ns.singularity
-      .getAugmentationsFromFaction(faction as FactionNameType)
-      .filter((name) => config.pursueRedPill || name !== RED_PILL);
+    offered[faction] = view.offered(faction).filter((name) => config.pursueRedPill || name !== RED_PILL);
   }
   const shop = readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.shop;
   const alsoWanted = shop && Number.isFinite(shop.nextSleeveCost) ? [COVENANT] : [];
   return wantedInviteFactions(config.pursueAugmentationFactions, joinedFactions, offered, owned, alsoWanted).some((faction) =>
-    combatBlocksInvite(ns.singularity.getFactionInviteRequirements(faction as FactionNameType), snapshot)
+    combatBlocksInvite(view.requirementsOf(faction), snapshot)
   );
 }
 
@@ -970,16 +945,52 @@ function gangPriority(ns: NS): string[] {
   }
 }
 
+/**
+ * What this tick asks the services about: every faction whose invite or
+ * catalog can matter, and the employers behind the corporate factions.
+ */
+function viewRequest(config: FactionConfig, joined: string[]): ViewRequest {
+  const candidates = [
+    ...(config.pursueCityFactions ? config.cityFactionPriority : []),
+    ...(config.pursueCompanyFactions ? config.companyPriority : []),
+    ...(config.pursueCriminalFactions ? config.criminalFactionPriority : []),
+    ...config.pursueAugmentationFactions,
+    ...(config.pursueCompanyTargets ? COMPANY_FACTION_NAMES : []),
+  ];
+  return {
+    joined,
+    requirementFactions: [...new Set(candidates)].filter((f) => !joined.includes(f)),
+    offerFactions: [...new Set([...config.pursueAugmentationFactions, ...(config.pursueCompanyTargets ? COMPANY_FACTION_NAMES : [])])],
+    companies: [...new Set(COMPANY_FACTION_NAMES.map((f) => COMPANY_FACTION_EMPLOYER[f] ?? f))],
+  };
+}
+
+// The services' last failure, logged once per streak rather than every tick.
+let lastFailure: string | undefined;
+
+async function reportFailure(log: Logger, failure: CallFailure): Promise<void> {
+  const text = `${failure.call}: ${failure.error ?? `status ${failure.status}`}`;
+  if (text !== lastFailure) await log.warn(`[Faction] Skipping ticks: ${text} (are the faction services running? see docs/faction_split.md).`);
+  lastFailure = text;
+}
+
 async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
+  const c = factionClients(ns);
+  // Each service call this tick gets until the next tick starts.
+  const deadline = deadlineIn(TICK_INTERVAL_MS);
   const playerRes = await player_metadata_pb
     .NewPlayerServiceClient(ns, server_metadata_pb.SupervisorServicePort)
     .GetPlayerMetadata({});
   const money = playerRes.data?.player?.money ?? 0;
 
-  const invitations = ns.singularity.checkFactionInvitations();
-  const toJoin = decideFactionsToJoin(invitations, ns.getPlayer().factions, config.joinAllowlist);
+  // The work snapshot first: its invitations decide what to join before
+  // the rest of the view (standing, catalog) is read for the joined list.
+  const request = viewRequest(config, ns.getPlayer().factions);
+  const workSnapshot = await fetchWork(c, request, deadline);
+  if (isFailure(workSnapshot)) return reportFailure(log, workSnapshot);
+  const toJoin = decideFactionsToJoin(workSnapshot.invitations ?? [], request.joined, config.joinAllowlist);
   for (const faction of toJoin) {
-    if (ns.singularity.joinFaction(faction as FactionNameType)) await log.info(`[Faction] Joined ${faction}.`);
+    if (succeeded(await c.work.Join({ faction }, deadline))) await log.info(`[Faction] Joined ${faction}.`);
   }
 
   // Re-read rather than reuse the pre-join snapshot - joinFaction takes
@@ -989,19 +1000,21 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // and the eligibility snapshot below come from this single call.
   const player = ns.getPlayer();
   const joinedFactions = player.factions;
+  const fetched = await fetchView(c, { ...request, joined: joinedFactions }, workSnapshot, deadline);
+  if (isFailure(fetched)) return reportFailure(log, fetched);
+  const view = fetched;
+  lastFailure = undefined;
 
-  const reps: Record<string, number> = joinedFactions.length > 0 ? gatherReps(ns, joinedFactions) : {};
+  const reps: Record<string, number> = view.repsFor(joinedFactions);
   // Without pursueRedPill, The Red Pill is left out of everything - rep
   // targets, the favor plan, priority work, savings - so the BitNode isn't
   // pushed toward its end (e.g. BN10 kept running to buy Covenant sleeves).
-  const catalog: AugmentationInfo[] = (joinedFactions.length > 0 ? gatherCatalog(ns, joinedFactions) : []).filter(
-    (aug) => config.pursueRedPill || aug.name !== RED_PILL
-  );
-  const owned = ns.singularity.getOwnedAugmentations(true);
-  const pending = getPendingAugmentations(ns);
+  const catalog: AugmentationInfo[] = view.catalogFor(joinedFactions).filter((aug) => config.pursueRedPill || aug.name !== RED_PILL);
+  const owned = view.ownedWithQueued;
+  const pending = view.pending();
   const pendingBoost: PendingBoost = {
     count: pending.length,
-    multipliers: combineMultipliers(pending.map((name) => ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>)),
+    multipliers: combineMultipliers(pending.map((name) => view.statsOf(name))),
     writtenAt: Date.now(),
   };
   ns.write(PENDING_BOOST_PATH, JSON.stringify(pendingBoost), "w");
@@ -1019,11 +1032,11 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const hackingMult = player.mults.hacking * (readBitNodeInfo(ns)?.multipliers?.HackingLevelMultiplier ?? 1);
   const neededMult = requiredHackingMult(config.finishHackingLevel, config.finishExpBudget);
   // Unique installed augmentations (NeuroFlux once), as Daedalus's invite counts them.
-  const installedAugs = ns.singularity.getOwnedAugmentations(false).length;
+  const installedAugs = view.installed.length;
   const phaseInputs: PhaseInputs = {
     gangAvailable: gangPossible,
     inGang,
-    donationReady: joinedFactions.some((f) => f !== gangFactionName && ns.singularity.getFactionFavor(f as FactionNameType) >= ns.getFavorToDonate()),
+    donationReady: joinedFactions.some((f) => f !== gangFactionName && view.favorOf(f) >= view.favorToDonate),
     pursueFinish: config.pursueRedPill,
     hackingMult,
     requiredHackingMult: neededMult,
@@ -1053,7 +1066,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // in every mode; augmentationFocus narrows further in GROW_STATS/AUGMENTS.
   // Combat (secondaryAugmentationStats) is useful only while a wanted
   // invite is blocked on combat stats (combatBlocksInvite).
-  const combatNeeded = wantedInvitesNeedCombat(ns, config, gatherEligibilitySnapshot(player), joinedFactions, owned);
+  const combatNeeded = wantedInvitesNeedCombat(ns, view, config, gatherEligibilitySnapshot(player), joinedFactions, owned);
   const usefulStats = augsForDaedalus
     ? [...new Set(catalog.flatMap((aug) => Object.keys(aug.stats ?? {})))]
     : [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : [])];
@@ -1075,21 +1088,21 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     ? gangFactionFor(ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined, joinedFactions, gangPriority(ns))
     : undefined;
   const workable = workableFactions(joinedFactions, gangFaction);
-  const favorToDonate = ns.getFavorToDonate();
-  const donationsOpen = workable.some((faction) => ns.singularity.getFactionFavor(faction as FactionNameType) >= favorToDonate);
+  const favorToDonate = view.favorToDonate;
+  const donationsOpen = workable.some((faction) => view.favorOf(faction) >= favorToDonate);
   const karmaCrime =
     policy.chaseGangKarma &&
     playerChasesKarma(policy.playerKarma, sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles), donationsOpen) &&
     gangAvailable &&
     !ns.gang.inGang() &&
     karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
-      ? pickKarmaCrimeLive(ns)
+      ? pickKarmaCrimeLive(view)
       : undefined;
   // Gym instead of the crime only while that reaches the karma requirement
   // sooner (trainingPaysOff, by formula); without Formulas.exe, while the
   // chance is below gangCrimeMinChance. Only if the gym is affordable.
-  const karmaCrimeChance = karmaCrime ? ns.singularity.getCrimeChance(karmaCrime as CrimeTypeType) : 0;
-  const trainStat = karmaCrime ? decideGangTraining(ns, config, player, karmaCrime, karmaCrimeChance, snapshot) : undefined;
+  const karmaCrimeChance = karmaCrime ? (view.crimeOf(karmaCrime)?.chance ?? 0) : 0;
+  const trainStat = karmaCrime ? decideGangTraining(ns, view, config, player, karmaCrime, karmaCrimeChance, snapshot) : undefined;
   const karmaAction: EligibilityAction | undefined = !karmaCrime
     ? undefined
     : trainStat && gymAffordable(ns, ns.enums.GymType[trainStat], config.gymLocation)
@@ -1098,16 +1111,16 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   if (karmaAction) {
     // Not counted toward crimeAttempts - that circuit breaker bounds
     // crime-for-kills, which this isn't.
-    await executeEligibilityAction(ns, log, karmaAction, config.gymLocation);
+    await executeEligibilityAction(ns, c, view, log, karmaAction, config.gymLocation, deadline);
   }
 
-  const invite = growingStats || karmaCrime ? undefined : pursueWantedInvites(ns, config, snapshot, joinedFactions, owned);
+  const invite = growingStats || karmaCrime ? undefined : pursueWantedInvites(ns, view, config, snapshot, joinedFactions, owned);
   const inviteAction: EligibilityAction = invite?.action?.action ?? { kind: "none" };
 
   // Favor plan (favorPlan): work each faction whose augmentation is cheaper
   // to reach by donation favor only up to that favor, then move on.
   const favors: Record<string, number> = Object.fromEntries(
-    joinedFactions.map((faction) => [faction, ns.singularity.getFactionFavor(faction as FactionNameType)])
+    joinedFactions.map((faction) => [faction, view.favorOf(faction)])
   );
   // FACTION_GRIND aims at the one faction closest to donation favor
   // (donationTarget); otherwise factions selling something dearer than favor.
@@ -1129,7 +1142,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // The Red Pill can take over purchases (redPillFocus).
   const donatable =
     config.autoPurchaseAugmentations && config.autoDonate && ns.fileExists("Formulas.exe", "home")
-      ? donatableFactions(ns, joinedFactions, gangAvailable)
+      ? donatableFactions(view, joinedFactions, gangFaction)
       : new Set<string>();
   // Rep is ground only up to where cash takes over (favor targets); never
   // for NeuroFlux, whose rep is bought with its price once donations open.
@@ -1140,20 +1153,20 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     !growingStats && !karmaCrime && !waitingForDaedalus && inviteAction.kind === "none" && joinedFactions.length > 0
       ? decideWorkTarget(workable, reps, catalogs.regular, owned, plan, donatable)
       : undefined;
-  const work = workTarget ? pickWorkType(ns, workTarget, player) : undefined;
+  const work = workTarget ? pickWorkType(ns, view, workTarget, player) : undefined;
   // Factions being ground: the player's target plus each sleeve's.
   const sleeveFactions = (readFreshJson<SleevesFile>(ns, SLEEVES_PATH, 120_000)?.sleeves ?? [])
     .map((s) => /^faction work: (.+)$/.exec(s.goal)?.[1])
     .filter((f): f is string => !!f);
   const grinds = measureGrinds(ns, config, [...new Set([...(workTarget ? [workTarget] : []), ...sleeveFactions])], reps, favors, plan);
   const companyGoals = config.pursueCompanyTargets
-    ? await gatherCompanyTargets(ns, log, config, joinedFactions, owned, player.jobs as Partial<Record<string, string>>, usefulStats)
+    ? await gatherCompanyTargets(c, view, deadline, log, config, joinedFactions, owned, player.jobs as Partial<Record<string, string>>, usefulStats)
     : [];
   // The finish line itself: launch tools/finish_bitnode.js once (it checks
   // everything again before destroying the World Daemon).
   const worldVisible = ns.serverExists(WORLD_DAEMON);
   const finishReady = readyToFinish(
-    ns.singularity.getOwnedAugmentations(false).includes(RED_PILL),
+    view.installed.includes(RED_PILL),
     worldVisible,
     player.skills.hacking,
     worldVisible ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : Infinity
@@ -1198,9 +1211,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     writtenAt: Date.now(),
   };
   ns.write(FACTION_REPS_PATH, JSON.stringify(repsFile), "w");
-  await executeEligibilityAction(ns, log, inviteAction, config.gymLocation);
-  if (workTarget && work?.type && !isAlreadyWorking(ns, workTarget, work.type)) {
-    ns.singularity.workForFaction(workTarget as FactionNameType, work.type as FactionWorkTypeType);
+  await executeEligibilityAction(ns, c, view, log, inviteAction, config.gymLocation, deadline);
+  if (workTarget && work?.type && !isAlreadyWorking(view, workTarget, work.type)) {
+    await c.work.WorkForFaction({ faction: workTarget, workType: work.type }, deadline);
     const rates = work.gains ? ` (rep/min by formula: ${Object.entries(work.gains).map(([t, r]) => `${t}=${r.toFixed(0)}`).join(", ")})` : "";
     await log.info(`[Faction] Working ${work.type} for ${workTarget}${rates}.`);
   }
@@ -1217,22 +1230,22 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Also skipped during GROW_STATS: study_daemon.ts may need the player in
   // a different city (a university), and the two would travel back and forth.
   const cityAction: EligibilityAction = config.pursueCityFactions && !growingStats
-    ? pursueCityFactions(ns, config, snapshot, joinedFactions)
+    ? pursueCityFactions(view, config, snapshot, joinedFactions)
     : { kind: "none" };
-  await executeEligibilityAction(ns, log, cityAction, config.gymLocation);
+  await executeEligibilityAction(ns, c, view, log, cityAction, config.gymLocation, deadline);
 
   // Only tried when the work slot isn't already claimed by grinding rep
   // at an already-joined faction - see decideEligibilityWorkSlotAction's doc.
   const eligibilityAction: EligibilityAction =
     workTarget || growingStats || karmaCrime || inviteAction.kind !== "none"
     ? { kind: "none" }
-    : await decideEligibilityWorkSlotAction(ns, log, config, state, snapshot, joinedFactions);
+    : await decideEligibilityWorkSlotAction(view, log, config, state, snapshot, joinedFactions);
   const slotFile: WorkSlotFile = {
     free: !growingStats && workSlotFree(workTarget, inviteAction.kind, !!karmaCrime, eligibilityAction.kind),
     writtenAt: Date.now(),
   };
   ns.write(WORK_SLOT_PATH, JSON.stringify(slotFile), "w");
-  const crimeAttempted = await executeEligibilityAction(ns, log, eligibilityAction, config.gymLocation);
+  const crimeAttempted = await executeEligibilityAction(ns, c, view, log, eligibilityAction, config.gymLocation, deadline);
   if (crimeAttempted) {
     state.crimeAttempts += 1;
     saveState(ns, state);
@@ -1349,7 +1362,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   };
 
   if (purchaseDecision.kind === "buy") {
-    if (ns.singularity.purchaseAugmentation(purchaseDecision.faction as FactionNameType, purchaseDecision.augmentation)) {
+    if (succeeded(await c.purchase.Purchase({ faction: purchaseDecision.faction, augmentation: purchaseDecision.augmentation }, deadline))) {
       await log.info(`[Faction] Purchased ${purchaseDecision.augmentation} from ${purchaseDecision.faction}.`);
     }
     if (config.autoInstall) refreshWindDown();
@@ -1368,7 +1381,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
 
   const donation = decideDonationWith(spendReserve, focusAug ? 1 : config.donationSpendFraction, spendCatalog);
   if (donation.kind === "donate") {
-    await executeDonation(ns, log, donation);
+    await executeDonation(c, deadline, log, donation);
     if (config.autoInstall) refreshWindDown();
     return;
   }
@@ -1387,7 +1400,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // pending the focus cap drops back to 5 minutes, which clears the hold.
   if (installWanted && config.autoInstall && config.autoPurchaseAugmentations && pending.length === 0 && purchaseDecision.kind === "none") {
     const enabler = pickInstallEnabler(catalog, reps, owned, money);
-    if (enabler && ns.singularity.purchaseAugmentation(enabler.faction as FactionNameType, enabler.name)) {
+    if (enabler && succeeded(await c.purchase.Purchase({ faction: enabler.faction, augmentation: enabler.name }, deadline))) {
       await log.info(`[Faction] Bought ${enabler.name} from ${enabler.faction} so the install banking favor can happen (nothing else was pending).`);
       return;
     }
@@ -1423,16 +1436,19 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     // wipe this cash, so rep bought now is the last thing it can become.
     const finalDonation = decideDonationWith(0, 1, finalCatalog);
     if (finalDonation.kind === "donate") {
-      await executeDonation(ns, log, finalDonation);
+      await executeDonation(c, deadline, log, finalDonation);
       refreshWindDown();
       return;
     }
   }
-  const heldPositions = stockPositionsHeld(ns);
+  // Unknown stock positions mustn't read as none: an install deletes them with no refund.
+  const purchaseSnapshot = (await c.purchase.Snapshot({}, deadline)).data;
+  if (!purchaseSnapshot) return;
+  const heldPositions = purchaseSnapshot.positionsHeld ?? 0;
   const action = decidePreInstall(finalPurchase, heldPositions);
 
   if (action.kind === "buy") {
-    if (ns.singularity.purchaseAugmentation(action.faction as FactionNameType, action.augmentation)) {
+    if (succeeded(await c.purchase.Purchase({ faction: action.faction, augmentation: action.augmentation }, deadline))) {
       await log.info(`[Faction] Pre-install: purchased ${action.augmentation} from ${action.faction} with the remaining cash.`);
     }
     refreshWindDown();
@@ -1464,10 +1480,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   if (starting) {
     await log.info("[Faction] Augmentations done; spending the rest on gang equipment and home RAM before installing.");
   }
-  for (let i = 0; i < 50; i++) {
-    const ramCost = ns.singularity.getUpgradeHomeRamCost();
-    if (!(ramCost <= ns.getServerMoneyAvailable("home")) || !ns.singularity.upgradeHomeRam()) break;
-    await log.info(`[Faction] Pre-install: upgraded home RAM to ${ns.getServerMaxRam("home")} GB ($${ramCost.toFixed(0)}).`);
+  const upgrades = (await c.purchase.UpgradeHomeRam({}, deadline)).data;
+  if (upgrades && (upgrades.costs ?? []).length > 0) {
+    const spent = (upgrades.costs ?? []).reduce((a, b) => a + b, 0);
+    await log.info(`[Faction] Pre-install: upgraded home RAM ${(upgrades.costs ?? []).length} time(s) to ${upgrades.ramAfter} GB ($${spent.toFixed(0)}).`);
   }
   writeInstallPending(ns, { since: pendingState?.since ?? now, heartbeat: now, phase: "spendDown", spendDown });
   if (starting || !spendDownSettled(spendDown, nowMs, SPEND_DOWN_SETTLE_MS)) return;
@@ -1487,7 +1503,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
         phase: Approach[phase.approach],
         reason: phase.reason,
         augmentations: pending,
-        installedBefore: ns.singularity.getOwnedAugmentations(false).length,
+        installedBefore: view.installed.length,
         hackingLevel: player.skills.hacking,
         hackingMult,
         requiredHackingMult: neededMult,
@@ -1499,7 +1515,8 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     "w"
   );
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
-  ns.singularity.installAugmentations(config.bootScript);
+  // The install ends every script, the purchase service included, before it can answer.
+  await c.purchase.Install({ bootScript: config.bootScript }, deadline);
 }
 
 /**
@@ -1507,30 +1524,17 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
  * never the gang's own faction (donateToFaction always refuses it). The gang
  * check is skipped entirely without Source-File 2, where ns.gang would throw.
  */
-function donatableFactions(ns: NS, joinedFactions: string[], gangAvailable: boolean): Set<string> {
-  const threshold = ns.getFavorToDonate();
-  const gangFaction = gangAvailable && ns.gang.inGang() ? ns.gang.getGangInformation().faction : undefined;
-  return new Set(
-    joinedFactions.filter((faction) => faction !== gangFaction && ns.singularity.getFactionFavor(faction as FactionNameType) >= threshold)
-  );
+function donatableFactions(view: FactionView, joinedFactions: string[], gangFaction: string | undefined): Set<string> {
+  return new Set(joinedFactions.filter((faction) => faction !== gangFaction && view.favorOf(faction) >= view.favorToDonate));
 }
 
-async function executeDonation(ns: NS, log: Logger, donation: { faction: string; augmentation: string; amount: number }): Promise<void> {
+async function executeDonation(c: FactionClients, deadline: Deadline, log: Logger, donation: { faction: string; augmentation: string; amount: number }): Promise<void> {
   const amount = `$${(donation.amount / 1e9).toFixed(2)}B`;
-  if (ns.singularity.donateToFaction(donation.faction as FactionNameType, donation.amount)) {
+  if (succeeded(await c.purchase.Donate({ faction: donation.faction, amount: donation.amount }, deadline))) {
     await log.info(`[Faction] Donated ${amount} to ${donation.faction} to cover the reputation for ${donation.augmentation}.`);
   } else {
     await log.warn(`[Faction] Donation of ${amount} to ${donation.faction} (for ${donation.augmentation}) was refused.`);
   }
-}
-
-/** Symbols with any shares held, long or short. 0 without TIX API access - every other ns.stock call needs it. */
-function stockPositionsHeld(ns: NS): number {
-  if (!ns.stock.hasTixApiAccess()) return 0;
-  return ns.stock.getSymbols().filter((sym) => {
-    const [long, , short] = ns.stock.getPosition(sym);
-    return long > 0 || short > 0;
-  }).length;
 }
 
 export async function main(ns: NS): Promise<void> {
