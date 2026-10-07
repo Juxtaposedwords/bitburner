@@ -47,6 +47,16 @@ gang's future faction (`gangFactionFor`), and the player works for The Black Han
     04:50, about 11 hours into the run, against about 15.5 active hours in run 2.
 - **Hacking:** resets to 1 at each install, and is back to about 700 by the next one.
 
+**Result (05:15):** donations opened at **05:02, 11.1 hours into the run** (it started at 17:54), against
+about 15.5 active hours in run 2, so about 4.4 hours sooner.
+- **Gang:** formed at 01:51, 7.95 hours in, after the karma reached −54,000. That's about as long as run 2's
+  GANG phase (about 7.5 h, which included the player's crime), so the player's favor work cost the gang
+  essentially nothing.
+- **FACTION_GRIND:** ran 01:52–05:02, with installs at 01:52, 02:17, 03:01 and 05:00. The gaps grew to
+  118 minutes as rep needed per install rose. Netburners went from 81.9 to 159 favor.
+- **Phase now:** AUGMENTS, with the hacking multiplier at 2.55 of the 3.87 required. Run 2 needed about
+  2.6 hours from donations to the finish.
+
 **Measurements planned:**
 - The player's work target, and the donation target's reputation per minute.
 - Karma per minute from the sleeves alone, and the time to the gang.
