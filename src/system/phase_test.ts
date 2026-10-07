@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daedalusAugsShort, derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
+import { daedalusAugsCovered, daedalusAugsShort, derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
 import { Approach } from "system/rpc/scheduler";
 
 describe("parseApproach", () => {
@@ -103,5 +103,12 @@ describe("daedalusAugsShort", () => {
     const inputs: PhaseInputs = { gangAvailable: false, inGang: false, donationReady: true, pursueFinish: true, hackingMult: 3, requiredHackingMult: 4, inDaedalus: false, installedAugs: 10, daedalusAugs: 31 };
     expect(daedalusAugsShort(inputs)).toBe(false);
     expect(daedalusAugsShort({ ...inputs, hackingMult: 5 })).toBe(true);
+  });
+});
+
+describe("daedalusAugsCovered", () => {
+  it("counts installed plus distinct pending, NeuroFlux not at all", () => {
+    expect(daedalusAugsCovered(24, ["A", "B", "C", "D", "E", "F", "NeuroFlux Governor"], 31)).toBe(false);
+    expect(daedalusAugsCovered(24, ["A", "B", "C", "D", "E", "F", "G"], 31)).toBe(true);
   });
 });

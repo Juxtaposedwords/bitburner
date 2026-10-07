@@ -81,6 +81,17 @@ export type PhaseInputs = {
   daedalusAugs: number;
 };
 
+/**
+ * Whether installing what's pending meets Daedalus's count: installed plus
+ * pending, NeuroFlux not counted (it's one entry however many levels).
+ * Once true, the install should go ahead - BN12's third run had 20 pending
+ * for 7 missing and kept saving for ever-dearer augmentations instead.
+ */
+export function daedalusAugsCovered(installedAugs: number, pending: string[], daedalusAugs: number): boolean {
+  const fresh = new Set(pending.filter((name) => name !== "NeuroFlux Governor"));
+  return installedAugs + fresh.size >= daedalusAugs;
+}
+
 /** The hacking multiplier is enough but Daedalus's invite still waits on installed augmentations. */
 export function daedalusAugsShort(inputs: PhaseInputs): boolean {
   return inputs.pursueFinish && !inputs.inDaedalus && inputs.hackingMult >= inputs.requiredHackingMult && inputs.installedAugs < inputs.daedalusAugs;

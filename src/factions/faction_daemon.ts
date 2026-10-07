@@ -90,7 +90,7 @@ import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
-import { daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
+import { daedalusAugsCovered, daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
   compareInstall,
@@ -1033,8 +1033,11 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   };
   const phase = derivePhase(phaseInputs);
   // Short of Daedalus's augmentation count: any augmentation counts, so
-  // spending isn't narrowed to useful stats until it's met.
-  const augsForDaedalus = daedalusAugsShort(phaseInputs);
+  // spending isn't narrowed to useful stats until pending covers it - then
+  // nothing more is bought or saved for, and the install goes ahead.
+  const daedalusCovered = daedalusAugsCovered(installedAugs, pending, phaseInputs.daedalusAugs);
+  const augsForDaedalus = daedalusAugsShort(phaseInputs) && !daedalusCovered;
+  const installForDaedalus = daedalusAugsShort(phaseInputs) && daedalusCovered;
   ns.write(PHASE_PATH, JSON.stringify({ ...phase, writtenAt: Date.now() } satisfies PhaseFile), "w");
   const policy = phasePolicy(parseApproachOverride(ns.read(SCHEDULER_CONFIG_PATH)) ?? phase.approach);
   const growingStats = policy.studyForStats;
@@ -1285,7 +1288,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
         ? priorityFocus(catalog, reps, owned, donatable, focusStats ?? config.augmentationFocus, Infinity, true)
         : undefined))
     : redPillFocus(catalog, reps, owned, donatable);
-  const focusAug = sleeveSave > 0 && candidateFocus?.name !== RED_PILL ? undefined : candidateFocus;
+  const focusAug = installForDaedalus || (sleeveSave > 0 && candidateFocus?.name !== RED_PILL) ? undefined : candidateFocus;
   // The install loop is "on" only while an install is near: something
   // pending, or the saved-for augmentation within the short (5-minute)
   // cap. A long save (BN10: 9.3h for QLink) is a long phase - the Hacknet,
@@ -1304,7 +1307,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   ns.write(INSTALL_LOOP_PATH, JSON.stringify(loopFile), "w");
   // DAEDALUS buys only The Red Pill: anything else would sit pending, and
   // its price would be cash not donated for Daedalus rep.
-  const spendCatalog = focusAug ? [focusAug] : policy.redPillOnly ? [] : buyCatalog;
+  const spendCatalog = focusAug ? [focusAug] : policy.redPillOnly || installForDaedalus ? [] : buyCatalog;
   const focusRepGap = focusAug ? Math.max(0, focusAug.repReq - (reps[focusAug.faction] ?? 0)) : 0;
   const focusSavings =
     focusAug && config.autoPurchaseAugmentations ? focusAug.price + (focusRepGap > 0 ? donationForRep(focusRepGap) : 0) : 0;
