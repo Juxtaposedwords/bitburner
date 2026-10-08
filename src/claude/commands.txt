@@ -852,6 +852,12 @@
         "/var/claude_out/ram_report.txt"
       ],
       "note": "what fits on BN9's 128 GB home"
+    },
+    {
+      "id": "2026-10-08-bn9-reboot",
+      "script": "boot.js",
+      "args": [],
+      "note": "boot held everything behind an unplaceable crime service after the 23:28 restart; hacked servers are rooted now"
     }
   ]
 }
