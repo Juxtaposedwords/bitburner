@@ -126,6 +126,11 @@ message TravelRequest {
   string city = 1;
 }
 
+message StudyRequest {
+  string university = 1;
+  string course = 2;
+}
+
 message GymRequest {
   string location = 1;
   // A GymType value ("str", "def", "dex", "agi").
@@ -142,6 +147,7 @@ service FactionWorkService {
   rpc Travel (TravelRequest) returns (Done);
   rpc Gym (GymRequest) returns (Done);
   rpc Stop (Empty) returns (Done);
+  rpc Study (StudyRequest) returns (Done);
 }
 
 // ---- CrimeService -----------------------------------------------------------

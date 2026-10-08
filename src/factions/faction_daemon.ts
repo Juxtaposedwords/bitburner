@@ -85,7 +85,7 @@ import {
 } from "factions/faction_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
-import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
+import { canAffordTraining, freeClass, GYM_CITY, trainingCostPerMin, UNIVERSITY_CITY } from "factions/study_decisions";
 import { hashesAreIncome } from "economy/hacknet_decisions";
 import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState, putOnHome } from "system/remote_state";
@@ -126,6 +126,9 @@ type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 
 const WORLD_DAEMON = "w0r1d_d43m0n";
 const FINISH_TOOL = "tools/finish_bitnode.js";
+// Who normally uses a free work slot, and where the fallback studies without it.
+const STUDY_SCRIPT = "factions/study_daemon.js";
+const FALLBACK_UNIVERSITY = "Rothman University";
 // When finish_bitnode.js was last launched (it ends the BitNode and this
 // script with it); retried after FINISH_RETRY_MS - BN12's second run sat
 // ready for over an hour after one launch that didn't take.
@@ -1253,6 +1256,20 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     writtenAt: Date.now(),
   };
   ns.write(WORK_SLOT_PATH, JSON.stringify(slotFile), "w");
+  // The study daemon takes a free slot - but while it's held for RAM nobody
+  // did, and the player sat idle (BN9 after an install: no factions, $11K).
+  // Then the free course here: hacking exp is never wasted.
+  if (slotFile.free && !ns.isRunning(STUDY_SCRIPT, "home")) {
+    const course = freeClass(player.city, FALLBACK_UNIVERSITY, money);
+    const current = view.currentWork;
+    if (course && !(current?.type === "CLASS" && current.location === course.location)) {
+      const city = UNIVERSITY_CITY[course.location];
+      if (city && player.city !== city) await c.work.Travel({ city }, deadline);
+      if (succeeded(await c.work.Study({ university: course.location, course: course.detail }, deadline))) {
+        await log.info(`[Faction] Nothing else for the player and the study daemon isn't running: ${course.detail} at ${course.location}.`);
+      }
+    }
+  }
   const crimeAttempted = await executeEligibilityAction(ns, c, view, log, eligibilityAction, config.gymLocation, deadline);
   if (crimeAttempted) {
     state.crimeAttempts += 1;

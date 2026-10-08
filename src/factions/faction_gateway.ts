@@ -52,8 +52,10 @@ export async function fetchView(c: FactionClients, req: ViewRequest, work: fs_pb
     c.crime.Snapshot({}, deadline),
   ]);
   if (info.status !== Codes.OK || !info.data) return { call: "FactionInfoService.Snapshot", status: info.status, error: info.error };
-  if (crimes.status !== Codes.OK || !crimes.data) return { call: "CrimeService.Snapshot", status: crimes.status, error: crimes.error };
-  return new FactionView(info.data, work, crimes.data);
+  // Without the crime service the view has no crimes: karma and
+  // crime-for-kills decisions wait, everything else goes on. (In BitNode 9
+  // it was stopped to give the hacknet daemon - the income - its RAM.)
+  return new FactionView(info.data, work, crimes.status === Codes.OK ? crimes.data : undefined);
 }
 
 export function isFailure<T>(x: T | CallFailure): x is CallFailure {

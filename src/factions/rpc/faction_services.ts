@@ -79,6 +79,11 @@ export interface GymRequest {
 export interface Empty {
 }
 
+export interface StudyRequest {
+    university?: string;
+    course?: string;
+}
+
 export interface CrimeSnapshot {
     crimes?: CrimeInfo[];
 }
@@ -225,6 +230,7 @@ export interface FactionWorkServiceHandlers {
     Travel: (req: TravelRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
     Gym: (req: GymRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
     Stop: (req: Empty, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    Study: (req: StudyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
 }
 
 export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServicePort) {
@@ -427,6 +433,28 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             // The server replies with JSON.stringify(response); parse it back.
             return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
         },
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Study: async (req: StudyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<StudyRequest> = { service: "FactionWorkService", method: "Study", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Study could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Study timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
     };
 }
 
@@ -461,6 +489,7 @@ export function NewFactionWorkServiceLocalClient(handlers: FactionWorkServiceHan
         Travel: (req: TravelRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Travel", handlers.Travel, req, deadline),
         Gym: (req: GymRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Gym", handlers.Gym, req, deadline),
         Stop: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Stop", handlers.Stop, req, deadline),
+        Study: (req: StudyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Study", handlers.Study, req, deadline),
     };
 }
 

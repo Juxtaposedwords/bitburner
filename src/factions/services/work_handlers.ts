@@ -8,6 +8,8 @@ type CompanyNameType = Parameters<NS["singularity"]["applyToCompany"]>[0];
 type JobFieldType = Parameters<NS["singularity"]["applyToCompany"]>[1];
 type GymLocationNameType = Parameters<NS["singularity"]["gymWorkout"]>[0];
 type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
+type UniversityNameType = Parameters<NS["singularity"]["universityCourse"]>[0];
+type CourseNameType = Parameters<NS["singularity"]["universityCourse"]>[1];
 
 const done = (ok: boolean, detail = ""): fs_pb.Done => ({ ok, detail });
 
@@ -41,5 +43,6 @@ export function createWorkHandlers(ns: NS): fs_pb.FactionWorkServiceHandlers {
     Travel: (req) => done(ns.singularity.travelToCity(req.city as CityNameType)),
     Gym: (req) => done(ns.singularity.gymWorkout(req.location as GymLocationNameType, req.gymType as GymTypeType)),
     Stop: () => done(ns.singularity.stopAction()),
+    Study: (req) => done(ns.singularity.universityCourse(req.university as UniversityNameType, req.course as CourseNameType, false)),
   };
 }
