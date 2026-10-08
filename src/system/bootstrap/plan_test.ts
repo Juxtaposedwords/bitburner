@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullSystemFits, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
+import { fullSystemFits, hashIncomePerSec, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
 
 describe("requiredHomeRam", () => {
   it("sums the core scripts' RAM plus the margin", () => {
@@ -104,5 +104,13 @@ describe("fullSystemFits", () => {
   it("needs only the core and the planner once services can go on hacked servers", () => {
     expect(fullSystemFits(60, 56, stack, 4)).toBe(false);
     expect(fullSystemFits(128, 56, stack, 4)).toBe(true);
+  });
+});
+
+describe("hashIncomePerSec", () => {
+  it("is the hash rate at Sell for Money's payout", () => {
+    expect(hashIncomePerSec(0.001, 4)).toBe(250);
+    expect(hashIncomePerSec(1, 4)).toBe(250_000);
+    expect(hashIncomePerSec(1, 0)).toBe(0);
   });
 });

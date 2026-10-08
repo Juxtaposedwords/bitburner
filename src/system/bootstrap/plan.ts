@@ -135,3 +135,17 @@ export function fullSystemFits(homeRam: number, coreRequired: number, stackRams:
   if (roomyHackedServers >= services.length) return homeRam >= coreRequired + planner;
   return homeRam >= coreRequired + stackRams.reduce((a, b) => a + b, 0);
 }
+
+/**
+ * Cash per second from selling hashes: `hashesPerSec` at Sell for Money's
+ * payout ($1M per `sellCost` hashes).
+ */
+export function hashIncomePerSec(hashesPerSec: number, sellCost: number): number {
+  return sellCost > 0 ? (hashesPerSec * 1e6) / sellCost : 0;
+}
+
+// Below this hash income the player commits a crime for money instead of
+// studying (BitNode 9's bootstrap): about what Mug pays at modest stats.
+// One level-1 server makes ~0.001 hashes/s ($250/s) - BN9's restart sat on
+// one for minutes, studying, with cash flat at $38,626.
+export const SEED_INCOME_PER_SEC = 1000;

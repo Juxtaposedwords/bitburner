@@ -2,6 +2,8 @@ import { NS } from "@ns";
 import {
   CORE_SCRIPTS,
   FACTION_STACK,
+  hashIncomePerSec,
+  SEED_INCOME_PER_SEC,
   fullSystemFits,
   SERVICE_HOST_MIN_RAM,
   HACKNET_SPEND_FRACTION,
@@ -198,8 +200,11 @@ export async function main(ns: NS): Promise<void> {
     // earn with (an install wipes it): a crime until the first server is
     // affordable - study earns nothing, hacking ~nothing there.
     const work = ns.singularity.getCurrentWork();
-    const needSeedMoney =
-      hacknetIncome && ns.hacknet.numNodes() === 0 && ns.getServerMoneyAvailable(HOME) < ns.hacknet.getPurchaseNodeCost() / HACKNET_SPEND_FRACTION;
+    // Crime until the hacknet out-earns it (SEED_INCOME_PER_SEC): its first
+    // servers make a few hundred $/s, while study makes nothing.
+    const hashRate = Array.from({ length: ns.hacknet.numNodes() }, (_, i) => ns.hacknet.getNodeStats(i).production).reduce((a, b) => a + b, 0);
+    const hashIncome = hashIncomePerSec(hashRate, ns.hacknet.hashCost(SELL_FOR_MONEY));
+    const needSeedMoney = hacknetIncome && hashIncome < SEED_INCOME_PER_SEC;
     if (needSeedMoney) {
       if (work?.type !== "CRIME") ns.singularity.commitCrime(SEED_CRIME as CrimeName, false);
     } else if (!work || work.type === "CRIME") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
@@ -236,7 +241,7 @@ export async function main(ns: NS): Promise<void> {
       ns.print(`[Bootstrap] Target: ${target}.`);
     }
     const threads = target ? deploy(ns, hosts, target, workerRam, homeKeepGb) : 0;
-    const hacknet = hacknetIncome ? runHacknet(ns) : "";
+    const hacknet = hacknetIncome ? `${runHacknet(ns)} hashIncome=$${hashIncome.toFixed(0)}/s ${needSeedMoney ? "crime" : "study"}` : "";
 
     // One status line per tick (ns.print is free) - `tail system/bootstrap/bootstrap.js`.
     const rooted = hosts.filter((host) => ns.hasRootAccess(host)).length;
