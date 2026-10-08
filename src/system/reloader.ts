@@ -43,6 +43,10 @@ import { readBitNodeInfo } from "system/bitnode_info";
  * boot.js starts it with the first daemons.
  */
 const CHECK_INTERVAL_MS = 10_000;
+// While expected daemons can't start on home, boot.js is re-run this often:
+// it places what doesn't fit on other servers (system/remote_place.ts).
+const BOOT_RETRY_MS = 5 * 60_000;
+const BOOT_SCRIPT = "boot.js";
 const MAX_REVIVALS_PER_HOUR = 3;
 const CRASH_LOG_LINES = 5;
 // A queued command that can't start (no RAM) is retried this many checks.
@@ -141,6 +145,7 @@ export async function main(ns: NS): Promise<void> {
   const revivals = new Map<string, number[]>();
   // Daemons a revival couldn't start (no RAM) - reported once, not counted as crashes.
   const startFailed = new Set<string>();
+  let bootRetriedAt = Date.now();
   const givenUp = new Set<string>();
 
   while (true) {
@@ -235,6 +240,13 @@ export async function main(ns: NS): Promise<void> {
     }
     for (const p of running) {
       if (!p.args.includes("--once")) seen.set(daemonKey(p.filename, p.args), { filename: p.filename, threads: p.threads, args: p.args });
+    }
+
+    // Started elsewhere since (boot placed them on another server).
+    for (const key of [...startFailed]) if (runningKeys.has(key)) startFailed.delete(key);
+    if (startFailed.size > 0 && Date.now() - bootRetriedAt > BOOT_RETRY_MS && !ns.isRunning(BOOT_SCRIPT, "home")) {
+      bootRetriedAt = Date.now();
+      if (ns.run(BOOT_SCRIPT) !== 0) await log.info(`[Reloader] ${startFailed.size} daemon(s) still can't start on home; re-ran ${BOOT_SCRIPT} to place them.`);
     }
 
     await runQueuedCommands(ns, log);

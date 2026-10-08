@@ -259,5 +259,10 @@ export async function main(ns: NS): Promise<void> {
   }
   // For the reloader: revive these whenever they're missing, even after a
   // game restart it never saw them through (EXPECTED_DAEMONS_PATH).
-  ns.write(EXPECTED_DAEMONS_PATH, JSON.stringify({ daemons: started, writtenAt: Date.now() }), "w");
+  // Every daemon this boot should have running, including those held for
+  // room: the reloader keeps trying them, and re-runs boot to place them on
+  // other servers. Only what started used to be listed - after BN9's 23:28
+  // restart the hacknet daemon (its income) stayed down for 2.5 hours.
+  const expected = [...new Set([...started, ...ordered.filter(([, available]) => available).map(([script]) => script)])];
+  ns.write(EXPECTED_DAEMONS_PATH, JSON.stringify({ daemons: expected, writtenAt: Date.now() }), "w");
 }
