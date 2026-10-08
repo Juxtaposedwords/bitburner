@@ -65,6 +65,15 @@ function readSavedSignatures(ns: NS): Record<string, string> {
   }
 }
 
+/** `keys` in `priority`'s order (by each key's script); keys not in it keep their order, after. */
+export function revivalOrder(keys: string[], scriptOf: (key: string) => string, priority: string[]): string[] {
+  const rank = (key: string): number => {
+    const i = priority.indexOf(scriptOf(key).replace(/^\//, ""));
+    return i < 0 ? priority.length : i;
+  };
+  return [...keys].sort((a, b) => rank(a) - rank(b));
+}
+
 /** Managed daemons boot.js started (EXPECTED_DAEMONS_PATH); [] if it hasn't run or the file is unreadable. */
 function readExpectedDaemons(ns: NS): string[] {
   try {
@@ -210,9 +219,20 @@ export async function main(ns: NS): Promise<void> {
     const stillStopped = stopped.filter((f) => !running.some((p) => p.filename.replace(/^\//, "") === f));
     if (stillStopped.length !== stopped.length) ns.write(STOPPED_DAEMONS_PATH, JSON.stringify(stillStopped), "w");
     for (const key of [...seen.keys()]) if (stillStopped.includes(seen.get(key)?.filename.replace(/^\//, "") ?? "")) seen.delete(key);
-    const { revive, giveUp } = decideRevivals(seen, runningKeys, revivals, Date.now(), MAX_REVIVALS_PER_HOUR);
+    const { revive: unordered, giveUp } = decideRevivals(seen, runningKeys, revivals, Date.now(), MAX_REVIVALS_PER_HOUR);
+    // In boot's priority order (EXPECTED_DAEMONS_PATH), and like boot, once
+    // one can't start for room nothing after it does: a lower daemon would
+    // take the RAM it needs. Unordered, BN9's reloader kept refilling a
+    // full home with faction services while the hacknet daemon - the
+    // BitNode's only income - waited.
+    const revive = revivalOrder(unordered, (key) => seen.get(key)?.filename ?? "", readExpectedDaemons(ns));
+    let roomBlocked = false;
     for (const key of revive) {
       const d = seen.get(key) as SeenDaemon;
+      if (roomBlocked) {
+        startFailed.add(key);
+        continue;
+      }
       const dead = ns.getRecentScripts().find((r) => r.filename.replace(/^\//, "") === d.filename.replace(/^\//, ""));
       const tail = dead ? dead.logs.slice(-CRASH_LOG_LINES).map(String).join(" | ") : "no log kept";
       const pid = ns.run(d.filename, d.threads, ...d.args);
@@ -222,6 +242,7 @@ export async function main(ns: NS): Promise<void> {
         // an hour within 30 seconds of starting.
         if (!startFailed.has(key)) await log.warn(`[Reloader] ${d.filename} isn't running and can't start yet (RAM?); will keep trying.`);
         startFailed.add(key);
+        roomBlocked = true;
         continue;
       }
       revivals.set(key, [...(revivals.get(key) ?? []).filter((t) => Date.now() - t < 3600_000), Date.now()]);
