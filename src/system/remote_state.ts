@@ -108,6 +108,12 @@ export async function pullState(ns: NS, deadline: Deadline | number): Promise<Ma
   return pulled;
 }
 
+/** Writes one file on home now (StateService.PutMany) - for what must land before this script ends. */
+export async function putOnHome(ns: NS, path: string, content: string, deadline: Deadline | number): Promise<boolean> {
+  const res = await client(ns).PutMany({ documents: [{ path, content }] }, deadline);
+  return res.status === Codes.OK && (res.data?.written ?? 0) > 0;
+}
+
 /**
  * Sends home every state file here that's new or changed since pullState,
  * and this server's new log lines (appended to home's copy, then cleared

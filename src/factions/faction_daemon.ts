@@ -87,7 +87,7 @@ import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
 import { appendJsonLine } from "system/history";
-import { isRemote, pullState, pushState } from "system/remote_state";
+import { isRemote, pullState, pushState, putOnHome } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
 import { daedalusAugsCovered, daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
@@ -1515,6 +1515,11 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     ),
     "w"
   );
+  // Off home, the record would only reach home after this tick - and the
+  // install ends this script first (BN9's first install left no record).
+  if (isRemote(ns) && !(await putOnHome(ns, INSTALL_HISTORY_PATH, ns.read(INSTALL_HISTORY_PATH), deadline))) {
+    await log.warn("[Faction] Couldn't copy the install record to home before installing.");
+  }
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
   // The install ends every script, the purchase service included, before it can answer.
   await c.purchase.Install({ bootScript: config.bootScript }, deadline);
