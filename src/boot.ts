@@ -202,14 +202,14 @@ export async function main(ns: NS): Promise<void> {
   const ordered: [string, boolean][] = [
     [SCHEDULER_SCRIPT, true],
     [PROGRAM_SHOPPER_SCRIPT, singularity],
+    // Income, and small (12 GB): ahead of everything that only spends or
+    // plans. In BitNode 9 the hacknet is the income (scripts' hacking pays
+    // ~1/1000th) - its start was held behind a gang daemon that didn't fit,
+    // then behind faction services filling a 128 GB home.
+    [HACKNET_SCRIPT, true],
     // The services before the faction daemon, which only plans through them.
     ...FACTION_SERVICES.map((script): [string, boolean] => [script, singularity]),
     [FACTION_SCRIPT, singularity],
-    // Income, and small (12 GB): ahead of the gang daemon (32.5 GB), which
-    // waits on karma before it does anything. In BitNode 9 the hacknet is
-    // the income (scripts' hacking pays ~1/1000th) - its start was held
-    // behind a gang daemon that didn't fit.
-    [HACKNET_SCRIPT, true],
     [GANG_SCRIPT, gang],
     [SLEEVE_SCRIPT, sleeves],
     [STUDY_SCRIPT, singularity],

@@ -858,6 +858,14 @@
       "script": "boot.js",
       "args": [],
       "note": "boot held everything behind an unplaceable crime service after the 23:28 restart; hacked servers are rooted now"
+    },
+    {
+      "id": "2026-10-08-bn9-free-room-for-hacknet",
+      "script": "tools/kill.js",
+      "args": [
+        "factions/services/crime_service.js"
+      ],
+      "note": "home is full of faction services; the hacknet daemon (BN9's only income) needs the room"
     }
   ]
 }
