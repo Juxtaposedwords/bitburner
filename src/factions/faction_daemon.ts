@@ -86,6 +86,7 @@ import {
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
 import { canAffordTraining, GYM_CITY, trainingCostPerMin } from "factions/study_decisions";
+import { hashesAreIncome } from "economy/hacknet_decisions";
 import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState, putOnHome } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
@@ -292,6 +293,11 @@ export type FactionConfig = {
   // minutes after an install). An install goes ahead when the favor it
   // banks speeds up the rest by more than this (grindInstallPays).
   grindInstallOverheadMinutes: number;
+  // Added to it where hashes are the income (hashesAreIncome: BitNode 9):
+  // an install wipes the hacknet servers that are the economy, and their
+  // rebuild delays everything. BN9's first favor install, at 23:28, set
+  // income to zero for hours.
+  hacknetRebuildMinutes: number;
   // BitNode 10: save for the next Covenant sleeve once it's within this
   // many minutes of income (sleeveSavings). 0 = never save for sleeves.
   sleeveSaveMinutes: number;
@@ -327,6 +333,7 @@ export const DEFAULT_CONFIG: FactionConfig = {
   autoInstall: false,
   maxFocusWaitMinutes: 5,
   grindInstallOverheadMinutes: 10,
+  hacknetRebuildMinutes: 60,
   sleeveSaveMinutes: 480,
   pursueCompanyTargets: true,
   pursueRedPill: true,
@@ -889,7 +896,7 @@ function measureGrinds(
       repPerMin,
       (f) => ns.formulas.reputation.calculateFavorToRep(f),
       (r) => ns.formulas.reputation.calculateRepToFavor(r),
-      config.grindInstallOverheadMinutes
+      config.grindInstallOverheadMinutes + (hashesAreIncome(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.multipliers) ? config.hacknetRebuildMinutes : 0)
     );
     grinds.push({
       faction,
