@@ -181,7 +181,16 @@ export async function main(ns: NS): Promise<void> {
   // Idle sleeves to crime once, before workers take the RAM (system/bootstrap/bootstrap_sleeves.ts).
   if (ns.fileExists(SLEEVE_KICK, HOME)) ns.run(SLEEVE_KICK);
 
+  // The reloader doesn't run in bootstrap mode, so new code never applied
+  // until someone restarted this by hand (BN9, several times): when this
+  // file changes, hand over to boot.js, which starts the new version.
+  const ownCode = ns.read(ns.getScriptName());
   while (true) {
+    if (ns.read(ns.getScriptName()) !== ownCode) {
+      ns.tprint(`[Bootstrap] ${ns.getScriptName()} changed; restarting through ${BOOT}.`);
+      ns.spawn(BOOT, { spawnDelay: 500 });
+      return;
+    }
     const required = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, HOME)));
     const hosts = allServers(ns);
 

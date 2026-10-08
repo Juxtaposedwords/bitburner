@@ -168,7 +168,10 @@ export async function main(ns: NS): Promise<void> {
   const fits = fullSystemFits(homeRam, requiredRam, FACTION_STACK.map((script) => ns.getScriptRam(script, "home")), roomy);
   if (!fits && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
     say(ns, `[Boot] Home has ${homeRam} GB and ${roomy} hacked server(s) of ${SERVICE_HOST_MIN_RAM}+ GB; the full system (core ${requiredRam.toFixed(1)} GB plus the faction stack) doesn't fit yet. Starting ${BOOTSTRAP_SCRIPT} instead.`);
-    launchIfNotRunning(ns, BOOTSTRAP_SCRIPT);
+    // Spawned, not run: the game ends this script first, so the bootstrap
+    // (~27 GB) gets a fresh 32 GB home to itself rather than what's left
+    // beside boot (~20 GB).
+    if (!ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) ns.spawn(BOOTSTRAP_SCRIPT, { spawnDelay: 1000 });
     return;
   }
 
