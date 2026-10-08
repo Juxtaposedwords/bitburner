@@ -58,6 +58,21 @@ export type PhaseFile = { approach: Approach; reason: string; writtenAt: number 
  * past a point only the multiplier moves it - BN12 sat at 2.96 needing
  * ~4.4 for Daedalus's 2500.
  */
+/**
+ * The hacking level the finish needs: Daedalus's (the faction config's
+ * finishHackingLevel) or w0r1d_d43m0n's, whichever is higher - the server's
+ * own requirement once it's visible, else its base 3000 times the BitNode's
+ * WorldDaemonDifficulty. BitNode 9 doubles it to 6000; the fixed 2500 would
+ * have started DAEDALUS at well under half the multiplier the finish needs.
+ */
+export function finishHackingLevel(configLevel: number, visibleRequirement: number | undefined, worldDaemonDifficulty: number | undefined): number {
+  const worldDaemon = visibleRequirement ?? WORLD_DAEMON_BASE_LEVEL * (worldDaemonDifficulty ?? 1);
+  return Math.max(configLevel, worldDaemon);
+}
+
+// w0r1d_d43m0n's hacking requirement before WorldDaemonDifficulty.
+export const WORLD_DAEMON_BASE_LEVEL = 3000;
+
 export function requiredHackingMult(level: number, exp: number): number {
   return level / (32 * Math.log(exp + 534.6) - 200);
 }

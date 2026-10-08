@@ -91,7 +91,7 @@ import { appendJsonLine } from "system/history";
 import { isRemote, pullState, pushState, putOnHome } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
-import { daedalusAugsCovered, daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
+import { daedalusAugsCovered, daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, finishHackingLevel, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
 import {
   combineMultipliers,
   compareInstall,
@@ -1042,7 +1042,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const inGang = gangPossible && ns.gang.inGang();
   const gangFactionName = inGang ? ns.gang.getGangInformation().faction : undefined;
   const hackingMult = player.mults.hacking * (readBitNodeInfo(ns)?.multipliers?.HackingLevelMultiplier ?? 1);
-  const neededMult = requiredHackingMult(config.finishHackingLevel, config.finishExpBudget);
+  const finishLevel = finishHackingLevel(
+    config.finishHackingLevel,
+    ns.serverExists(WORLD_DAEMON) ? ns.getServerRequiredHackingLevel(WORLD_DAEMON) : undefined,
+    readBitNodeInfo(ns)?.multipliers?.WorldDaemonDifficulty
+  );
+  const neededMult = requiredHackingMult(finishLevel, config.finishExpBudget);
   // Unique installed augmentations (NeuroFlux once), as Daedalus's invite counts them.
   const installedAugs = view.installed.length;
   const phaseInputs: PhaseInputs = {

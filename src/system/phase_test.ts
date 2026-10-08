@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { daedalusAugsCovered, daedalusAugsShort, derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
+import { daedalusAugsCovered, finishHackingLevel, daedalusAugsShort, derivePhase, parseApproach, parseApproachOverride, PhaseInputs, phasePolicy, requiredHackingMult } from "system/phase";
 import { Approach } from "system/rpc/scheduler";
 
 describe("parseApproach", () => {
@@ -110,5 +110,13 @@ describe("daedalusAugsCovered", () => {
   it("counts installed plus distinct pending, NeuroFlux not at all", () => {
     expect(daedalusAugsCovered(24, ["A", "B", "C", "D", "E", "F", "NeuroFlux Governor"], 31)).toBe(false);
     expect(daedalusAugsCovered(24, ["A", "B", "C", "D", "E", "F", "G"], 31)).toBe(true);
+  });
+});
+
+describe("finishHackingLevel", () => {
+  it("is w0r1d_d43m0n's requirement when it's higher than Daedalus's", () => {
+    expect(finishHackingLevel(2500, undefined, 2)).toBe(6000);
+    expect(finishHackingLevel(2500, 3121, 1)).toBe(3121);
+    expect(finishHackingLevel(2500, undefined, undefined)).toBe(3000);
   });
 });
