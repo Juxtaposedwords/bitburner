@@ -1,6 +1,9 @@
 import { NS } from "@ns";
 import {
   CORE_SCRIPTS,
+  FACTION_STACK,
+  fullSystemFits,
+  SERVICE_HOST_MIN_RAM,
   HACKNET_SPEND_FRACTION,
   HacknetOption,
   pickHacknetPurchase,
@@ -54,6 +57,9 @@ const OPENERS: [string, (ns: NS, host: string) => void][] = [
 ];
 
 type UniversityName = Parameters<NS["singularity"]["universityCourse"]>[0];
+type CrimeName = Parameters<NS["singularity"]["commitCrime"]>[0];
+// Money for the first hacknet server (needSeedMoney).
+const SEED_CRIME = "Mug";
 type CourseName = Parameters<NS["singularity"]["universityCourse"]>[1];
 type ProgramName = Parameters<NS["singularity"]["purchaseProgram"]>[0];
 
@@ -177,7 +183,9 @@ export async function main(ns: NS): Promise<void> {
     const required = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, HOME)));
     const hosts = allServers(ns);
 
-    if (ns.getServerMaxRam(HOME) >= required) {
+    const roomy = hosts.filter((h) => h !== HOME && ns.hasRootAccess(h) && ns.getServerMaxRam(h) >= SERVICE_HOST_MIN_RAM).length;
+    const stackRams = FACTION_STACK.map((script) => ns.getScriptRam(script, HOME));
+    if (fullSystemFits(ns.getServerMaxRam(HOME), required, stackRams, roomy)) {
       ns.tprint(`[Bootstrap] Home has ${ns.getServerMaxRam(HOME)} GB (full system needs ${required.toFixed(1)}); handing over to ${BOOT}.`);
       stopWorkers(ns, hosts);
       ns.run(BOOT);
@@ -186,8 +194,15 @@ export async function main(ns: NS): Promise<void> {
 
     // Idle, or on a crime (an older bootstrap's Mug): to the course. Other
     // work - someone doing something by hand - is left alone.
+    // Money first where the hacknet is the income and there's none yet to
+    // earn with (an install wipes it): a crime until the first server is
+    // affordable - study earns nothing, hacking ~nothing there.
     const work = ns.singularity.getCurrentWork();
-    if (!work || work.type === "CRIME") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
+    const needSeedMoney =
+      hacknetIncome && ns.hacknet.numNodes() === 0 && ns.getServerMoneyAvailable(HOME) < ns.hacknet.getPurchaseNodeCost() / HACKNET_SPEND_FRACTION;
+    if (needSeedMoney) {
+      if (work?.type !== "CRIME") ns.singularity.commitCrime(SEED_CRIME as CrimeName, false);
+    } else if (!work || work.type === "CRIME") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
     rootAll(ns, hosts);
 
     if (readyToShop(ns)) {

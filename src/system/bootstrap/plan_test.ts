@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
+import { fullSystemFits, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
 
 describe("requiredHomeRam", () => {
   it("sums the core scripts' RAM plus the margin", () => {
@@ -92,5 +92,17 @@ describe("pickHacknetPurchase", () => {
 
   it("buys nothing it can't afford within the share (cash keeps building)", () => {
     expect(pickHacknetPurchase(options, 3e4, 0.5)).toBeUndefined();
+  });
+});
+
+describe("fullSystemFits", () => {
+  const stack = [29.7, 31.1, 16.6, 25.3, 6.75];
+  it("waits for room for the faction stack when no hacked server can take a service", () => {
+    expect(fullSystemFits(128, 56, stack, 0)).toBe(false);
+    expect(fullSystemFits(256, 56, stack, 0)).toBe(true);
+  });
+  it("needs only the core and the planner once services can go on hacked servers", () => {
+    expect(fullSystemFits(60, 56, stack, 4)).toBe(false);
+    expect(fullSystemFits(128, 56, stack, 4)).toBe(true);
   });
 });

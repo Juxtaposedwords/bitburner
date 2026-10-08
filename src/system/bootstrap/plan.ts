@@ -105,3 +105,33 @@ export function pickHacknetPurchase(options: HacknetOption[], cash: number, spen
 
 // Share of cash one hacknet purchase may use (pickHacknetPurchase).
 export const HACKNET_SPEND_FRACTION = 0.5;
+
+/**
+ * The faction daemon and its services (docs/faction_split.md): with the core
+ * on home they need either home's room too, or hacked servers of 32 GB or
+ * more to run on (system/remote_place.ts). Without either, the full system
+ * can't plan or act - BN9 after an install sat in it for hours with a 128 GB
+ * home, nothing rooted beyond 16 GB servers, and the faction stack held.
+ */
+export const FACTION_STACK = [
+  "factions/services/faction_info_service.js",
+  "factions/services/faction_work_service.js",
+  "factions/services/crime_service.js",
+  "factions/services/augment_purchase_service.js",
+  "factions/faction_daemon.js",
+];
+// Hacked servers this big take one faction service each.
+export const SERVICE_HOST_MIN_RAM = 32;
+
+/**
+ * Whether the full system can run: home holds the core (coreRequired), plus
+ * the faction stack unless there are enough rooted hacked servers for its
+ * services (one each; the faction daemon itself goes on home).
+ */
+export function fullSystemFits(homeRam: number, coreRequired: number, stackRams: number[], roomyHackedServers: number): boolean {
+  if (homeRam < coreRequired) return false;
+  const services = stackRams.slice(0, -1);
+  const planner = stackRams[stackRams.length - 1] ?? 0;
+  if (roomyHackedServers >= services.length) return homeRam >= coreRequired + planner;
+  return homeRam >= coreRequired + stackRams.reduce((a, b) => a + b, 0);
+}

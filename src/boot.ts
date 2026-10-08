@@ -1,6 +1,6 @@
 import { NS } from "@ns";
 import { EXPECTED_DAEMONS_PATH } from "system/reload_plan";
-import { CORE_SCRIPTS, requiredHomeRam } from "system/bootstrap/plan";
+import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam, SERVICE_HOST_MIN_RAM } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { placeDaemon, pruneDaemonHosts } from "system/remote_place";
 import { daemonHosts } from "system/remote_state";
@@ -66,6 +66,21 @@ const ONE_SHOT_TIMEOUT_MS = 60_000;
 
 /** Launches `script` unless it's already running; true if it's running afterwards. */
 const BOOTSTRAP_WORKER = "system/bootstrap/bootstrap_worker.js";
+
+/** Every server reachable from home. */
+function reachableHosts(ns: NS): string[] {
+  const seen = new Set(["home"]);
+  const queue = ["home"];
+  while (queue.length > 0) {
+    for (const next of ns.scan(queue.shift() as string)) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return [...seen];
+}
 
 /** Kills `script` on every server reachable from home; returns how many servers had it. */
 function killEverywhere(ns: NS, script: string): number {
@@ -147,8 +162,12 @@ export async function main(ns: NS): Promise<void> {
   }
   const requiredRam = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, "home")));
   const homeRam = ns.getServerMaxRam("home");
-  if (homeRam < requiredRam && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
-    say(ns, `[Boot] Home has ${homeRam} GB; the full system needs ${requiredRam.toFixed(1)}. Starting ${BOOTSTRAP_SCRIPT} instead.`);
+  // The core plus room for the faction stack (on home, or hacked servers big
+  // enough for its services) - the same test the bootstrap hands over on.
+  const roomy = reachableHosts(ns).filter((h) => h !== "home" && ns.hasRootAccess(h) && ns.getServerMaxRam(h) >= SERVICE_HOST_MIN_RAM).length;
+  const fits = fullSystemFits(homeRam, requiredRam, FACTION_STACK.map((script) => ns.getScriptRam(script, "home")), roomy);
+  if (!fits && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
+    say(ns, `[Boot] Home has ${homeRam} GB and ${roomy} hacked server(s) of ${SERVICE_HOST_MIN_RAM}+ GB; the full system (core ${requiredRam.toFixed(1)} GB plus the faction stack) doesn't fit yet. Starting ${BOOTSTRAP_SCRIPT} instead.`);
     launchIfNotRunning(ns, BOOTSTRAP_SCRIPT);
     return;
   }
