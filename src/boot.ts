@@ -232,8 +232,9 @@ export async function main(ns: NS): Promise<void> {
     // The services before the faction daemon, which only plans through them.
     ...FACTION_SERVICES.map((script): [string, boolean] => [script, singularity]),
     [FACTION_SCRIPT, singularity],
-    [GANG_SCRIPT, gang],
+    // Sleeves before the gang daemon: they earn the karma it waits on.
     [SLEEVE_SCRIPT, sleeves],
+    [GANG_SCRIPT, gang],
     [STUDY_SCRIPT, singularity],
     [BACKDOOR_SCRIPT, singularity],
     [STOCK_SCRIPT, true],

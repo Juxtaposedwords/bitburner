@@ -128,6 +128,7 @@ const WORLD_DAEMON = "w0r1d_d43m0n";
 const FINISH_TOOL = "tools/finish_bitnode.js";
 // Who normally uses a free work slot, and where the fallback studies without it.
 const STUDY_SCRIPT = "factions/study_daemon.js";
+const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
 const FALLBACK_UNIVERSITY = "Rothman University";
 // When finish_bitnode.js was last launched (it ends the BitNode and this
 // script with it); retried after FINISH_RETRY_MS - BN12's second run sat
@@ -1103,7 +1104,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const donationsOpen = workable.some((faction) => view.favorOf(faction) >= favorToDonate);
   const karmaCrime =
     policy.chaseGangKarma &&
-    playerChasesKarma(policy.playerKarma, sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles), donationsOpen) &&
+    // Sleeves only earn karma while their daemon runs (BN9: held for RAM, so
+    // nobody chased karma).
+    playerChasesKarma(
+      policy.playerKarma,
+      sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles) && ns.isRunning(SLEEVE_SCRIPT, "home"),
+      donationsOpen
+    ) &&
     gangAvailable &&
     !ns.gang.inGang() &&
     karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)
