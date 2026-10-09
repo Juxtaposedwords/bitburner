@@ -100,13 +100,23 @@ export type GrindStatus = {
  * favor it banks speeds up the rest by more than the install costs).
  * Only favor targets count - they accumulate across installs, while rep
  * toward an augmentation's requirement is wiped by one.
+ *
+ * And some grind must bank at least MIN_INSTALL_FAVOR_GAIN favor: over a
+ * long grind any sliver of favor "pays" by the estimate - BN9 installed
+ * for Sector-12 at 884 of 461,717 rep (an 87-hour grind at 88 rep/min),
+ * wiping the hacknet economy and the port programs for ~2% more rep/min.
  */
 export function grindInstallPays(grinds: GrindStatus[] | undefined): boolean {
   if (!grinds || grinds.length === 0) return false;
+  if (!grinds.some((g) => g.installFavor - g.favor >= MIN_INSTALL_FAVOR_GAIN)) return false;
   const lastNow = Math.max(...grinds.map((g) => g.etaMinutes));
   const lastAfter = Math.max(...grinds.map((g) => g.installEtaMinutes));
   return lastAfter < lastNow;
 }
+
+// Favor an install must bank for some grind (grindInstallPays). BN12's
+// worthwhile favor installs banked ~8 each.
+export const MIN_INSTALL_FAVOR_GAIN = 5;
 
 /**
  * AUGMENTS' buy-and-install loop, written by faction_daemon.ts every tick.

@@ -990,12 +990,18 @@ describe("grindAllowsInstall", () => {
   });
 
   it("decides on the last of several parallel grinds to finish", () => {
-    const g = (faction: string, eta: number, after: number) => ({ faction, gap: 1, repPerMin: 1, etaMinutes: eta, favor: 0, installFavor: 0, installEtaMinutes: after });
+    const g = (faction: string, eta: number, after: number, gain = 20) => ({ faction, gap: 1, repPerMin: 1, etaMinutes: eta, favor: 0, installFavor: gain, installEtaMinutes: after });
     // The player's grind gains a lot, a sleeve's barely loses: the last finishes sooner.
     expect(grindInstallPays([g("BitRunners", 360, 206), g("NiteSec", 100, 110)])).toBe(true);
     // A short grind that only gets the install's overhead added doesn't make it worth it.
     expect(grindInstallPays([g("BitRunners", 60, 70)])).toBe(false);
     expect(grindInstallPays([])).toBe(false);
+  });
+
+  it("needs some grind to bank real favor, however long the grind (BN9: +2% at 884 of 461,717 rep)", () => {
+    const g = { faction: "Sector-12", gap: 460833, repPerMin: 88, etaMinutes: 5246, favor: 1.5, installFavor: 3.2, installEtaMinutes: 5163 };
+    expect(grindInstallPays([g])).toBe(false);
+    expect(grindInstallPays([{ ...g, installFavor: 9 }])).toBe(true);
   });
 
   it("allows it once all are met, or with nothing to grind", () => {
