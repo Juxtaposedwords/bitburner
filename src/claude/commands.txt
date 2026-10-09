@@ -875,6 +875,15 @@
         "/var/claude_out/create_gang.txt"
       ],
       "note": "karma is met; the gang daemon can't be placed until relaySMTP is rebought"
+    },
+    {
+      "id": "2026-10-09-create-gang-2",
+      "script": "tools/create_gang.js",
+      "args": [
+        "--out",
+        "/var/claude_out/create_gang.txt"
+      ],
+      "note": "retry at 3.1 GB (5.1 didn't fit home's 3.3 GB free)"
     }
   ]
 }

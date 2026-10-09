@@ -13,7 +13,7 @@ import { gangFactionFor, GANG_FACTION_PRIORITY } from "gang/gang_decisions";
 export async function main(ns: NS): Promise<void> {
   const out = ns.args.indexOf("--out") >= 0 ? String(ns.args[ns.args.indexOf("--out") + 1]) : undefined;
   const say = (line: string): void => (out ? ns.write(out, `[${new Date().toISOString()}] ${line}\n`, "a") : ns.tprint(line));
-  if (ns.gang.inGang()) return say(`Already in a gang (${ns.gang.getGangInformation().faction}).`);
+  if (ns.gang.inGang()) return say("Already in a gang.");
   const faction = gangFactionFor(undefined, ns.getPlayer().factions, GANG_FACTION_PRIORITY);
   if (!faction) return say(`No gang faction joined yet (${GANG_FACTION_PRIORITY.join(", ")}).`);
   const created = ns.gang.createGang(faction as Parameters<NS["gang"]["createGang"]>[0]);
