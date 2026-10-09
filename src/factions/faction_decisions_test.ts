@@ -1,6 +1,6 @@
 import { PlayerRequirement } from "@ns";
 import { describe, expect, it } from "vitest";
-import { playerChasesKarma,
+import { focusTiers, hacknetInstallPays, tieredFocus, playerChasesKarma,
   AugmentationInfo,
   focusPriceLimit,
   focusStatsFor,
@@ -1144,5 +1144,26 @@ describe("playerChasesKarma", () => {
   it("joins in without sleeves, or once donations are open", () => {
     expect(playerChasesKarma(false, false, false)).toBe(true);
     expect(playerChasesKarma(false, true, true)).toBe(true);
+  });
+});
+
+describe("BitNode-weighted augmentation focus", () => {
+  const aug = (name: string, price: number, stats: Record<string, number>) => ({ name, faction: "Netburners", price, repReq: 0, prereqs: [], stats });
+  const catalog = [aug("BitWire", 1e8, { hacking: 1.05 }), aug("Hacknet Node CPU Architecture Neural-Upload", 1.1e7, { hacknet_node_money: 1.15 })];
+
+  it("leads with the Hacknet where hashes are the income, else the configured focus", () => {
+    expect(focusTiers(["hacking"], true)).toEqual([["hacknet_node_money"], ["hacking"]]);
+    expect(focusTiers(["hacking"], false)).toEqual([["hacking"]]);
+  });
+
+  it("buys the cheaper Hacknet augmentation before the dearer hacking one in BN9", () => {
+    expect(tieredFocus(catalog, {}, [], new Set(), focusTiers(["hacking"], true))?.name).toBe("Hacknet Node CPU Architecture Neural-Upload");
+    expect(tieredFocus(catalog, {}, [], new Set(), focusTiers(["hacking"], false))?.name).toBe("BitWire");
+  });
+
+  it("installs for the Hacknet once pending augmentations double its production", () => {
+    expect(hacknetInstallPays(true, 2.53)).toBe(true);
+    expect(hacknetInstallPays(true, 1.15)).toBe(false);
+    expect(hacknetInstallPays(false, 2.53)).toBe(false);
   });
 });

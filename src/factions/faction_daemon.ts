@@ -82,6 +82,10 @@ import {
   workableFactions,
   wantedInviteFactions,
   playerChasesKarma,
+  focusTiers,
+  HACKNET_STATS,
+  hacknetInstallPays,
+  tieredFocus,
 } from "factions/faction_decisions";
 import * as player_metadata_pb from "system/rpc/player_metadata";
 import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFactionFor, karmaBlocksGang } from "gang/gang_decisions";
@@ -1097,9 +1101,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // Combat (secondaryAugmentationStats) is useful only while a wanted
   // invite is blocked on combat stats (combatBlocksInvite).
   const combatNeeded = wantedInvitesNeedCombat(ns, view, config, gatherEligibilitySnapshot(player), joinedFactions, owned);
+  // Where hashes are the income (BitNode 9), the Hacknet's augmentations
+  // are worth the most (focusTiers) - elsewhere they're never useful.
+  const hashIncome = hashesAreIncome(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.multipliers);
   const usefulStats = augsForDaedalus
     ? [...new Set(catalog.flatMap((aug) => Object.keys(aug.stats ?? {})))]
-    : [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : [])];
+    : [...config.usefulAugmentationStats, ...(combatNeeded ? config.secondaryAugmentationStats : []), ...(hashIncome ? HACKNET_STATS : [])];
+  const tiers = (focus: string[]): string[][] => focusTiers(focus, hashIncome);
   const useful = usefulCatalog(catalog, usefulStats);
   const catalogs = catalogsFor(useful, owned);
 
@@ -1325,8 +1333,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // focus augmentation is left reachable (focusStatsFor).
   const focusStats = focusStatsFor(
     policy.focusAugmentations,
-    augmentsMode && priorityFocus(catalog, reps, owned, donatable, config.augmentationFocus) === undefined,
-    config.augmentationFocus,
+    augmentsMode && tieredFocus(catalog, reps, owned, donatable, tiers(config.augmentationFocus)) === undefined,
+    // Every tier counts toward what's bought (BN9: the Hacknet's too).
+    tiers(config.augmentationFocus).flat(),
     usefulStats
   );
   const inFocus = (list: AugmentationInfo[]): AugmentationInfo[] =>
@@ -1346,9 +1355,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // reachable one, so the loop always moves - one purchase starts the
   // install cycle.
   const candidateFocus = augmentsMode
-    ? (priorityFocus(catalog, reps, owned, donatable, focusStats ?? config.augmentationFocus, priceLimit) ??
+    ? (tieredFocus(catalog, reps, owned, donatable, tiers(focusStats ?? config.augmentationFocus), priceLimit) ??
       (pending.length === 0 && readInstallPending(ns) === undefined
-        ? priorityFocus(catalog, reps, owned, donatable, focusStats ?? config.augmentationFocus, Infinity, true)
+        ? tieredFocus(catalog, reps, owned, donatable, tiers(focusStats ?? config.augmentationFocus), Infinity, true)
         : undefined))
     : redPillFocus(catalog, reps, owned, donatable);
   const focusAug = installForDaedalus || (sleeveSave > 0 && candidateFocus?.name !== RED_PILL) ? undefined : candidateFocus;
@@ -1445,7 +1454,10 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // estimate says it pays) needs something pending: buy the cheapest
   // augmentation to make it possible (pickInstallEnabler).
   // In every mode: an install that banks favor is worth making possible.
-  const installWanted = planReady || grindInstallPays(grinds);
+  // Where hashes are the income, an install also pays once pending
+  // augmentations double the Hacknet's production (hacknetInstallPays).
+  const hacknetInstall = hacknetInstallPays(hashIncome, pendingBoost.multipliers.hacknet_node_money);
+  const installWanted = planReady || grindInstallPays(grinds) || hacknetInstall;
   // Savings don't block it: the enabler costs millions, and with something
   // pending the focus cap drops back to 5 minutes, which clears the hold.
   if (installWanted && config.autoInstall && config.autoPurchaseAugmentations && pending.length === 0 && purchaseDecision.kind === "none") {
@@ -1459,7 +1471,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const installReady = config.autoInstall && decideInstallReady(purchaseDecision, pending, config.reserveMoney + savingsAmount);
   const growStatsBlocks = installReady && growingStats && !(await growStatsInstallSaves(ns, log, config, player, pendingBoost));
   // FACTION_GRIND installs only once every favor target is met (grindAllowsInstall).
-  const grindBlocks = installReady && grindMode && !grindAllowsInstall(plan, grinds);
+  const grindBlocks = installReady && grindMode && !grindAllowsInstall(plan, grinds) && !hacknetInstall;
   // DAEDALUS installs only to bank favor (every target met) or to install
   // The Red Pill - any other install resets the hacking level being built.
   const daedalusBlocks = installReady && policy.redPillOnly && !(pending.includes(RED_PILL) || planReady);

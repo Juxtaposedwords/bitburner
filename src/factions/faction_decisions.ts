@@ -1244,3 +1244,52 @@ export function describeUnmetRequirements(requirements: PlayerRequirement[], sna
 export function playerChasesKarma(phaseSaysSo: boolean, sleeves: boolean, donationsOpen: boolean): boolean {
   return phaseSaysSo || !sleeves || donationsOpen;
 }
+
+/**
+ * Augmentation stats boosting the Hacknet. Useful only where hashes are the
+ * income (BitNode 9): Netburners' five together multiply hash production by
+ * 2.53 there, but BN10 spent rep and money on them for nothing.
+ */
+export const HACKNET_STATS = ["hacknet_node_money", "hacknet_node_purchase_cost", "hacknet_node_ram_cost", "hacknet_node_core_cost", "hacknet_node_level_cost"];
+
+/**
+ * What augmentations are worth, as tiers bought in order (tieredFocus): the
+ * BitNode's economy first. Where hashes are the income, Hacknet production
+ * leads - ahead of the hacking focus, which the finish still needs; elsewhere
+ * just the configured focus.
+ */
+export function focusTiers(focus: string[], hashIncome: boolean): string[][] {
+  return hashIncome ? [["hacknet_node_money"], focus] : [focus];
+}
+
+/** priorityFocus over `tiers` in order: the first tier with anything reachable decides. */
+export function tieredFocus(
+  catalog: AugmentationInfo[],
+  reps: Record<string, number>,
+  owned: string[],
+  donatable: Set<string>,
+  tiers: string[][],
+  maxPrice = Infinity,
+  cheapest = false
+): AugmentationInfo | undefined {
+  for (const tier of tiers) {
+    const pick = priorityFocus(catalog, reps, owned, donatable, tier, maxPrice, cheapest);
+    if (pick) return pick;
+  }
+  return undefined;
+}
+
+// Pending Hacknet production boost worth an install where hashes are the
+// income (hacknetInstallPays): an install wipes the Hacknet, which then
+// rebuilds at this many times the rate.
+export const HACKNET_INSTALL_MIN_BOOST = 2;
+
+/**
+ * Whether installing now pays for the Hacknet where hashes are the income:
+ * pending augmentations multiply its production by HACKNET_INSTALL_MIN_BOOST
+ * or more. The install wipes the servers, but the payback policy rebuilds
+ * them, at that multiple for the rest of the BitNode.
+ */
+export function hacknetInstallPays(hashIncome: boolean, pendingHacknetMult: number | undefined): boolean {
+  return hashIncome && (pendingHacknetMult ?? 1) >= HACKNET_INSTALL_MIN_BOOST;
+}
