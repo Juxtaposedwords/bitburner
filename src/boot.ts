@@ -35,7 +35,8 @@ const FACTION_SERVICES = FACTIONS_SERVICE_SCRIPTS;
 // The sleeve daemon too (64 GB): BN9 held it behind a full 128 GB home
 // while rooted 128 GB servers stood by.
 // And the gang daemon (32.5 GB), which creates the gang once karma allows.
-const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT, GANG_SCRIPT];
+// And the study daemon (25 GB), which BN9 held behind a full home.
+const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT, GANG_SCRIPT, STUDY_SCRIPT];
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would

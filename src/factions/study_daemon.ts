@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { remoteAwareLoop } from "system/remote_state";
 import { readFreshJson } from "system/fresh_file";
 import { WORK_SLOT_PATH, WorkSlotFile } from "factions/faction_decisions";
 import { bestCrimeBy } from "sleeves/sleeve_decisions";
@@ -225,10 +226,7 @@ async function tick(ns: NS, log: Logger, config: StudyConfig): Promise<void> {
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Study", LOG_LEVEL.DEBUG);
-  await log.info("=== Study manager online ===");
-
-  while (true) {
-    await tick(ns, log, loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG));
-    await ns.asleep(TICK_INTERVAL_MS);
-  }
+  await log.info(`=== Study manager online (${ns.getHostname()}) ===`);
+  // Runs anywhere boot finds room - BN9 held it (25 GB) on a full home.
+  await remoteAwareLoop(ns, TICK_INTERVAL_MS, () => tick(ns, log, loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG)));
 }

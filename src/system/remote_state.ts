@@ -113,6 +113,22 @@ export async function pullState(ns: NS, deadline: Deadline | number): Promise<Ma
   return pulled;
 }
 
+/**
+ * A daemon's main loop that works the same on home or any other server:
+ * off home, each pass runs on a fresh copy of home's state files (pullState)
+ * and sends its changes back (pushState). So any daemon written this way can
+ * be placed wherever boot finds room (system/remote_place.ts).
+ */
+export async function remoteAwareLoop(ns: NS, intervalMs: number, pass: () => Promise<void>): Promise<never> {
+  const remote = isRemote(ns);
+  while (true) {
+    const pulled = remote ? await pullState(ns, intervalMs) : undefined;
+    await pass();
+    if (pulled) await pushState(ns, pulled, intervalMs);
+    await ns.asleep(intervalMs);
+  }
+}
+
 /** Writes one file on home now (StateService.PutMany) - for what must land before this script ends. */
 export async function putOnHome(ns: NS, path: string, content: string, deadline: Deadline | number): Promise<boolean> {
   const res = await client(ns).PutMany({ documents: [{ path, content }] }, deadline);
