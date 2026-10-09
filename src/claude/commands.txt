@@ -898,6 +898,15 @@
       "script": "boot.js",
       "args": [],
       "note": "places the gang daemon on silver-helix"
+    },
+    {
+      "id": "2026-10-09-bootstrap-queue-test",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report_bootstrap.txt"
+      ],
+      "note": "test: the bootstrap runs the command queue"
     }
   ]
 }
