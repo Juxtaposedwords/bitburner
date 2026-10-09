@@ -866,6 +866,15 @@
         "factions/services/crime_service.js"
       ],
       "note": "home is full of faction services; the hacknet daemon (BN9's only income) needs the room"
+    },
+    {
+      "id": "2026-10-09-create-gang",
+      "script": "tools/create_gang.js",
+      "args": [
+        "--out",
+        "/var/claude_out/create_gang.txt"
+      ],
+      "note": "karma is met; the gang daemon can't be placed until relaySMTP is rebought"
     }
   ]
 }
