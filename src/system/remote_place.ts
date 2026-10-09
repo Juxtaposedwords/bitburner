@@ -61,7 +61,7 @@ export function pruneDaemonHosts(ns: NS): void {
  * other than DAEMON_HOST: purchased_server_daemon.ts deletes and upgrades
  * those.
  */
-export function placeDaemon(ns: NS, script: string, log: (line: string) => void): boolean {
+export function placeDaemon(ns: NS, script: string, log: (line: string) => void, buyHost = true): boolean {
   const recorded = readDaemonHosts(ns);
   if ([...recorded, DAEMON_HOST].some((host) => ns.serverExists(host) && ns.isRunning(script, host))) return true;
   const ram = ns.getScriptRam(script, "home");
@@ -87,7 +87,7 @@ export function placeDaemon(ns: NS, script: string, log: (line: string) => void)
     }
     log(`Couldn't start ${script} on ${pick.host}; trying ${DAEMON_HOST}.`);
   }
-  return placeOnDaemonHost(ns, script, log);
+  return buyHost ? placeOnDaemonHost(ns, script, log) : false;
 }
 
 /** RAM to buy for a daemon needing `ram`: the next power of two with some headroom. */

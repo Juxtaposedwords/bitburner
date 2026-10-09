@@ -287,10 +287,14 @@ export async function main(ns: NS): Promise<void> {
       started.push(script);
       continue;
     }
-    // --place-remote: as if home were full, to try placement on a big home.
-    const homeFull = ns.args.includes("--place-remote") || ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
-    if (REMOTE_OK.includes(script) && homeFull) {
-      if (placeDaemon(ns, script, (line) => say(ns, `[Boot] ${line}`))) {
+    // A daemon that can run anywhere goes on a hacked server first, so
+    // home's room is left for the daemons that can only run there (BN9: the
+    // faction services filled home, then monitoring had nowhere to go).
+    // Home is its fallback; a purchased server (daemons-0) only when home
+    // is full too.
+    if (REMOTE_OK.includes(script)) {
+      const homeFull = ns.args.includes("--place-remote") || ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
+      if (placeDaemon(ns, script, (line) => say(ns, `[Boot] ${line}`), homeFull)) {
         started.push(script);
         continue;
       }
