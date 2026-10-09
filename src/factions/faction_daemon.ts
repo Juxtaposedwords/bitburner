@@ -1273,7 +1273,12 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // own doc for the mutual-exclusivity short-circuit.
   // Also skipped during GROW_STATS: study_daemon.ts may need the player in
   // a different city (a university), and the two would travel back and forth.
-  const cityAction: EligibilityAction = config.pursueCityFactions && !growingStats
+  // And while the work slot needs the player somewhere (the gym, for an
+  // invite's combat stats or the karma crime's training): BN9's planner
+  // travelled to the gym's Sector-12 and to Aevum for a city faction on
+  // every tick, $200K a trip.
+  const slotNeedsCity = inviteAction.kind === "gymWorkout" || karmaAction?.kind === "gymWorkout";
+  const cityAction: EligibilityAction = config.pursueCityFactions && !growingStats && !slotNeedsCity
     ? pursueCityFactions(view, config, snapshot, joinedFactions)
     : { kind: "none" };
   await executeEligibilityAction(ns, c, view, log, cityAction, config.gymLocation, deadline);
