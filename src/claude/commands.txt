@@ -907,6 +907,12 @@
         "/var/claude_out/ram_report_bootstrap.txt"
       ],
       "note": "test: the bootstrap runs the command queue"
+    },
+    {
+      "id": "2026-10-09-end-bootstrap-test",
+      "script": "boot.js",
+      "args": [],
+      "note": "end the bootstrap test: boot starts the full system (it stops the bootstrap first)"
     }
   ]
 }
