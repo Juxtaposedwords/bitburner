@@ -129,6 +129,7 @@ const FINISH_TOOL = "tools/finish_bitnode.js";
 // Who normally uses a free work slot, and where the fallback studies without it.
 const STUDY_SCRIPT = "factions/study_daemon.js";
 const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
+const GANG_SCRIPT = "gang/gang_daemon.js";
 const FALLBACK_UNIVERSITY = "Rothman University";
 // When finish_bitnode.js was last launched (it ends the BitNode and this
 // script with it); retried after FINISH_RETRY_MS - BN12's second run sat
@@ -1061,6 +1062,18 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     installedAugs,
     daedalusAugs: readBitNodeInfo(ns)?.multipliers?.DaedalusAugsRequirement ?? DEFAULT_DAEDALUS_AUGS,
   };
+  // The gang daemon creates the gang, but it's 32.6 GB and can go unplaced
+  // for an hour (BN9 after an install: karma met, no server to run it on).
+  // Creating one is a 1 GB call: done here then, and the gang daemon
+  // manages members once it runs.
+  if (gangPossible && !inGang && !karmaBlocksGang(player.karma, readBitNodeInfo(ns)?.node)) {
+    const gangDaemonUp = ["home", ...daemonHosts(ns)].some((host) => ns.isRunning(GANG_SCRIPT, host));
+    const faction = gangFactionFor(undefined, joinedFactions, gangPriority(ns));
+    if (!gangDaemonUp && faction && ns.gang.createGang(faction as Parameters<NS["gang"]["createGang"]>[0])) {
+      await log.info(`[Faction] Karma allows a gang and the gang daemon isn't running: created one with ${faction}.`);
+      return;
+    }
+  }
   const phase = derivePhase(phaseInputs);
   // Short of Daedalus's augmentation count: any augmentation counts, so
   // spending isn't narrowed to useful stats until pending covers it - then
