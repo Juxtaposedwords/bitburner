@@ -47,7 +47,8 @@ export function decideMemberTask(
   wantedPenalty: number,
   policy: WantedPolicy,
   optionsIn: TaskOption[],
-  trainingTask?: string
+  trainingTask?: string,
+  objective: GangObjective = "money"
 ): string | undefined {
   // Never idle, and never Territory Warfare (assigned separately). A new,
   // weak member earns $0 at everything, and on that tie "Unassigned" (the
@@ -59,9 +60,23 @@ export function decideMemberTask(
     wantedPenalty < policy.minWantedPenalty ? Math.max(1, Math.round(totalMembers * policy.wantedReductionFraction)) : 0;
 
   if (memberIndex < reservedForWantedControl) return options.reduce((best, o) => (o.wantedLevelGain < best.wantedLevelGain ? o : best)).name;
-  const best = options.reduce((b, o) => (o.moneyGain > b.moneyGain ? o : b));
+  const gain = (o: TaskOption): number => (objective === "respect" ? o.respectGain : o.moneyGain);
+  const best = options.reduce((b, o) => (gain(o) > gain(b) ? o : b));
   // Nothing pays yet: train until the member's stats make crime pay.
-  return best.moneyGain > 0 || !trainingTask ? best.name : trainingTask;
+  return gain(best) > 0 || !trainingTask ? best.name : trainingTask;
+}
+
+/**
+ * What members work for: respect while the roster isn't full - respect is
+ * what unlocks each next recruit, and four times the members out-earn any
+ * money task three weak ones can run - then money. BN9's gang sat at 3
+ * members on money tasks paying next to nothing.
+ */
+export type GangObjective = "money" | "respect";
+export const MAX_GANG_MEMBERS = 12;
+
+export function gangObjective(memberCount: number): GangObjective {
+  return memberCount < MAX_GANG_MEMBERS ? "respect" : "money";
 }
 
 /** Tasks decideMemberTask never picks: idle, and Territory Warfare (assigned by decideTerritoryWarfareAssignment). */

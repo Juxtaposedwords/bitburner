@@ -12,6 +12,7 @@ import {
   averageMultiplier,
   decideEquipmentPurchase,
   decideMemberTask,
+  gangObjective,
   ascensionThreshold,
   decideAscension,
   decideStandDown,
@@ -209,6 +210,8 @@ function parsePosture(posture: GangConfig["posture"]): GangPosture {
 function assignTasks(ns: NS, gang: GangGenInfo, config: GangConfig, memberNames: string[]): void {
   const members = new Map(memberNames.map((name) => [name, ns.gang.getMemberInformation(name)]));
   const tasks = ns.gang.getTaskNames().map((name) => ns.gang.getTaskStats(name));
+  // Respect until the roster is full (it unlocks recruits), then money.
+  const objective = gangObjective(ns.gang.getMemberNames().length);
 
   memberNames.forEach((name, index) => {
     const member = members.get(name);
@@ -227,7 +230,8 @@ function assignTasks(ns: NS, gang: GangGenInfo, config: GangConfig, memberNames:
       gang.wantedPenalty,
       { minWantedPenalty: config.minWantedPenalty, wantedReductionFraction: config.wantedReductionFraction },
       options,
-      gang.isHacking ? "Train Hacking" : "Train Combat"
+      gang.isHacking ? "Train Hacking" : "Train Combat",
+      objective
     );
 
     if (chosen && chosen !== member.task) ns.gang.setMemberTask(name, chosen);

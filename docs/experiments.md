@@ -120,3 +120,19 @@ only) compared sleeve policies for a gang from sleeves alone:
   (32 GB with any SF1; we have SF9 level 1). That would remove the bootstrap stage from every later run.
 - **Run 4's predictions** (above) carry over to the first BN12 run after BN9. That run also changes the
   starting home, so judge its gains by milestone, not by total time.
+
+## 2026-10-09: BN9's economy - Hacknet augmentations first, gang respect first
+
+**Changes:**
+- Where hashes are the income, augmentation stats are weighted by the economy: Hacknet production leads
+  the purchase tiers (`focusTiers`/`tieredFocus`). Netburners' five multiply hash production by 2.53.
+- An install pays once pending augmentations double Hacknet production (`hacknetInstallPays`).
+- The gang works for respect until 12 members (`gangObjective`), then for money.
+
+**Baseline (03:28 UTC, bootstrap test running):**
+- Hash income about $33K/s from 4 Hacknet servers, hacking multiplier 0.77, 1 augmentation installed.
+- Gang: 3 members, respect 1, posture GROWING, on money tasks.
+
+**To measure:**
+- Hash income ($/s) before and after the Hacknet-augmentation install.
+- Gang members and income over the following hours.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gangFactionFor, skipRecentlyAscended,
+import { gangObjective, gangFactionFor, skipRecentlyAscended,
   AscensionCandidate,
   AscensionResult,
   decideAscension,
@@ -433,5 +433,21 @@ describe("gangFactionFor", () => {
     expect(gangFactionFor("Tetrads", ["Slum Snakes", "Tetrads"])).toBe("Tetrads");
     expect(gangFactionFor(undefined, ["Netburners", "Slum Snakes"])).toBe("Slum Snakes");
     expect(gangFactionFor(undefined, ["Netburners"])).toBeUndefined();
+  });
+});
+
+describe("gangObjective", () => {
+  it("works for respect until the roster is full, then money", () => {
+    expect(gangObjective(3)).toBe("respect");
+    expect(gangObjective(12)).toBe("money");
+  });
+
+  it("picks the most respect while recruiting", () => {
+    const options = [
+      { name: "Mug People", moneyGain: 5, wantedLevelGain: 0.1, respectGain: 1 },
+      { name: "Terrorism", moneyGain: 0, wantedLevelGain: 0.5, respectGain: 9 },
+    ];
+    expect(decideMemberTask(0, 3, 1, { minWantedPenalty: 0.9, wantedReductionFraction: 0.2 }, options, "Train Combat", "respect")).toBe("Terrorism");
+    expect(decideMemberTask(0, 3, 1, { minWantedPenalty: 0.9, wantedReductionFraction: 0.2 }, options, "Train Combat", "money")).toBe("Mug People");
   });
 });
