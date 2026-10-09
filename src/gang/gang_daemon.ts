@@ -3,6 +3,8 @@ import { readPhasePolicy } from "system/phase";
 import { isSpendDownActive, readInstallPending } from "system/install_handshake";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { loadJsonConfig } from "system/config";
+import { isRemote, pullState, pushState } from "system/remote_state";
+import { deadlineIn } from "system/deadline";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
 import { GangPosture } from "gang/gang";
 import {
@@ -546,10 +548,16 @@ export async function main(ns: NS): Promise<void> {
   const log = createLogger(ns, "Gang", LOG_LEVEL.DEBUG);
 
   await log.info("=== Gang manager online ===");
+  // Off home (boot.ts placed it on a hacked server while home was full -
+  // BN9 held it, the one that creates the gang, as karma closed in), each
+  // tick works on a copy of home's state files (system/remote_state.ts).
+  const remote = isRemote(ns);
+  if (remote) await log.info(`[Gang] Running on ${ns.getHostname()}; syncing state with home each tick.`);
 
   let loggedStartupSnapshot = false;
 
   while (true) {
+    const pulled = remote ? await pullState(ns, deadlineIn(TICK_INTERVAL_MS)) : undefined;
     const config = loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
 
     if (config.enabled) {
@@ -559,6 +567,7 @@ export async function main(ns: NS): Promise<void> {
       }
       await tick(ns, log, config);
     }
+    if (pulled) await pushState(ns, pulled, deadlineIn(TICK_INTERVAL_MS));
 
     await ns.asleep(TICK_INTERVAL_MS);
   }

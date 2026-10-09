@@ -88,7 +88,7 @@ import { GANG_CONFIG_PATH, GANG_FACTION_PRIORITY, GANG_KARMA_REQUIREMENT, gangFa
 import { canAffordTraining, freeClass, GYM_CITY, trainingCostPerMin, UNIVERSITY_CITY } from "factions/study_decisions";
 import { hashesAreIncome } from "economy/hacknet_decisions";
 import { appendJsonLine } from "system/history";
-import { isRemote, pullState, pushState, putOnHome } from "system/remote_state";
+import { daemonHosts, isRemote, pullState, pushState, putOnHome } from "system/remote_state";
 import { deadlineIn } from "system/deadline";
 import { Approach } from "system/rpc/scheduler";
 import { daedalusAugsCovered, daedalusAugsShort, DEFAULT_DAEDALUS_AUGS, finishHackingLevel, derivePhase, parseApproachOverride, PHASE_PATH, PhaseFile, PhaseInputs, phasePolicy, requiredHackingMult, SCHEDULER_CONFIG_PATH } from "system/phase";
@@ -1113,7 +1113,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     // nobody chased karma).
     playerChasesKarma(
       policy.playerKarma,
-      sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles) && ns.isRunning(SLEEVE_SCRIPT, "home"),
+      sleevesAvailable(readBitNodeInfo(ns)?.node, readBitNodeInfo(ns)?.sourceFiles) && ["home", ...daemonHosts(ns)].some((host) => ns.isRunning(SLEEVE_SCRIPT, host)),
       donationsOpen
     ) &&
     gangAvailable &&
