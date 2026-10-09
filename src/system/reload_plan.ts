@@ -12,6 +12,20 @@ import { NS } from "@ns";
  */
 
 /** Long-running daemons the reloader may restart (never workers, one-shot tools, bootstrap, or itself). */
+/**
+ * Daemons that run anywhere (written to sync their state with home when
+ * off it): boot's placement plan may put them on a hacked server, and the
+ * reloader leaves restarting them to boot instead of starting them on home.
+ */
+export const PLACEABLE_DAEMONS = [
+  ...FACTIONS_SERVICE_SCRIPTS,
+  "factions/faction_daemon.js",
+  "sleeves/sleeve_daemon.js",
+  "gang/gang_daemon.js",
+  "factions/study_daemon.js",
+  "economy/stock_daemon.js",
+];
+
 export const MANAGED_DAEMONS = [
   "system/supervisor.js",
   "system/log_rotator.js",

@@ -5,6 +5,7 @@ import {
   COMMANDS_PATH,
   daemonKey,
   EXPECTED_DAEMONS_PATH,
+  PLACEABLE_DAEMONS,
   readStoppedDaemons,
   RELOADER_STATE_PATH,
   STOPPED_DAEMONS_PATH,
@@ -229,7 +230,10 @@ export async function main(ns: NS): Promise<void> {
     let roomBlocked = false;
     for (const key of revive) {
       const d = seen.get(key) as SeenDaemon;
-      if (roomBlocked) {
+      // Placeable daemons are boot's to place (its plan, not home by
+      // default): started here they took home's room from the home-only
+      // ones (BN9). Marked missing, so the boot re-run below places them.
+      if (roomBlocked || PLACEABLE_DAEMONS.includes(d.filename.replace(/^\//, ""))) {
         startFailed.add(key);
         continue;
       }

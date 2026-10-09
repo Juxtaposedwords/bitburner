@@ -1,6 +1,7 @@
 import { NS } from "@ns";
 import { DAEMON_HOST, readDaemonHosts, writeDaemonHosts } from "system/remote_state";
 import { MANAGED_DAEMONS, scriptClosure } from "system/reload_plan";
+import { Bin } from "system/placement_plan";
 
 /**
  * Runs daemons that don't fit on a small home yet (a fresh BitNode starts
@@ -45,6 +46,52 @@ function allHosts(ns: NS): string[] {
 
 // Hacknet servers lose hash production to RAM used on them.
 const HACKNET = /^hacknet-(server|node)-\d+$/;
+
+/**
+ * The hacked servers boot's placement plan may use (system/placement_plan.ts):
+ * rooted, not home, not a purchased server other than DAEMON_HOST (the
+ * purchased-server daemon deletes and upgrades those), not a Hacknet server.
+ * Free RAM leaves out managed daemons already there; workers don't count -
+ * they're stopped when a daemon needs the room (startOn).
+ */
+export function placementBins(ns: NS): Bin[] {
+  const purchased = new Set(ns.cloud.getServerNames());
+  return allHosts(ns)
+    .filter((host) => host !== "home" && (host === DAEMON_HOST || !purchased.has(host)) && !HACKNET.test(host) && ns.hasRootAccess(host))
+    .map((host) => ({
+      host,
+      free:
+        ns.getServerMaxRam(host) -
+        ns
+          .ps(host)
+          .filter((p) => MANAGED_DAEMONS.includes(p.filename.replace(/^\//, "")))
+          .reduce((sum, p) => sum + ns.getScriptRam(p.filename, host) * p.threads, 0),
+    }))
+    .filter((b) => b.free > 0);
+}
+
+/**
+ * Starts `script` on `host` as boot's plan says: on a hacked server, records
+ * it as a daemon host (workers stay off it) and stops workers there if the
+ * daemon needs their room. True if it started.
+ */
+export function startOn(ns: NS, script: string, host: string, log: (line: string) => void): boolean {
+  const ram = ns.getScriptRam(script, "home");
+  if (host !== "home") {
+    writeDaemonHosts(ns, [...readDaemonHosts(ns), host]);
+    if (ns.getServerMaxRam(host) - ns.getServerUsedRam(host) < ram) {
+      for (const p of ns.ps(host)) if (!MANAGED_DAEMONS.includes(p.filename.replace(/^\//, ""))) ns.kill(p.pid);
+    }
+    if (!ns.scp(scriptClosure(ns, script), host, "home")) {
+      log(`Couldn't copy ${script} and its imports to ${host}.`);
+      return false;
+    }
+  }
+  const pid = host === "home" ? ns.run(script) : ns.exec(script, host);
+  if (pid === 0) log(`ERROR: failed to start ${script} (${ram.toFixed(1)} GB) on ${host}.`);
+  else log(host === "home" ? `Launched ${script} (pid ${pid}).` : `Started ${script} (${ram.toFixed(1)} GB) on ${host} (${ns.getServerMaxRam(host)} GB, pid ${pid}).`);
+  return pid !== 0;
+}
 
 /** Drops recorded daemon hosts that no longer run a managed daemon (an install ends them all). */
 export function pruneDaemonHosts(ns: NS): void {

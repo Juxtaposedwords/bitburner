@@ -1,8 +1,9 @@
 import { NS } from "@ns";
-import { EXPECTED_DAEMONS_PATH, readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
+import { EXPECTED_DAEMONS_PATH, PLACEABLE_DAEMONS, readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
 import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
-import { placeDaemon, pruneDaemonHosts } from "system/remote_place";
+import { placeDaemon, placementBins, pruneDaemonHosts, startOn } from "system/remote_place";
+import { planPlacement, Unit } from "system/placement_plan";
 import { FACTIONS_SERVICE_SCRIPTS } from "factions/services/deploy";
 import { daemonHosts } from "system/remote_state";
 import * as rpc from "system/rpc/rpc";
@@ -30,13 +31,6 @@ const SUPERVISOR_SCRIPT = "system/supervisor.js";
 // The faction daemon's game calls, as small services (generated from
 // faction_services.proto; docs/faction_split.md).
 const FACTION_SERVICES = FACTIONS_SERVICE_SCRIPTS;
-// Daemons boot may run off home while home is too small for them: on a
-// hacked server with room, else DAEMON_HOST (system/remote_place.ts).
-// The sleeve daemon too (64 GB): BN9 held it behind a full 128 GB home
-// while rooted 128 GB servers stood by.
-// And the gang daemon (32.5 GB), which creates the gang once karma allows.
-// And the study daemon (25 GB), which BN9 held behind a full home.
-const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT, GANG_SCRIPT, STUDY_SCRIPT, STOCK_SCRIPT];
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -269,41 +263,37 @@ export async function main(ns: NS): Promise<void> {
   // Stopped on purpose (tools/kill.js): left down, not restarted - and
   // not holding up the rest.
   const stoppedOnPurpose = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
-  for (const [script, available] of ordered) {
-    if (!available) continue;
+  // Plan first, then launch (system/placement_plan.ts): every daemon in
+  // priority order, packed over home and the hacked servers at once -
+  // home-only daemons claim home, movable ones go onto hacked servers - so
+  // an early daemon never takes the room a later, home-only one needs.
+  const wanted = ordered.filter(([script, available]) => {
+    if (!available) return false;
     if (stoppedOnPurpose.includes(script)) {
       say(ns, `[Boot] ${script} was stopped on purpose (tools/kill.js); leaving it.`);
-      continue;
+      return false;
     }
-    // Too big for home yet: on another server instead (system/remote_place.ts)
-    // - so the rest of the order still starts. BN12's third run had the
-    // ~100 GB faction daemon wait 38 minutes for a $7.9M server; split into
-    // services of 32 GB or less, it fits early hacked servers.
-    // Already running, here or there: never a second copy (two faction
-    // daemons would both act; two services would share one port).
-    const runningOn = REMOTE_OK.includes(script) ? ["home", ...daemonHosts(ns)].find((host) => ns.serverExists(host) && ns.isRunning(script, host)) : undefined;
-    if (runningOn) {
-      say(ns, `[Boot] ${script} already running on ${runningOn}, skipping.`);
-      started.push(script);
-      continue;
-    }
-    // A daemon that can run anywhere goes on a hacked server first, so
-    // home's room is left for the daemons that can only run there (BN9: the
-    // faction services filled home, then monitoring had nowhere to go).
-    // Home is its fallback; a purchased server (daemons-0) only when home
-    // is full too.
-    if (REMOTE_OK.includes(script)) {
-      const homeFull = ns.args.includes("--place-remote") || ns.getScriptRam(script, "home") > ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
-      if (placeDaemon(ns, script, (line) => say(ns, `[Boot] ${line}`), homeFull)) {
-        started.push(script);
-        continue;
-      }
-    }
-    if (!launchIfNotRunning(ns, script)) {
-      say(ns, `[Boot] Holding off on everything after ${script} until home has more RAM.`);
-      break;
-    }
-    started.push(script);
+    return true;
+  });
+  const units: Unit[] = wanted.map(([script]) => {
+    const placeable = PLACEABLE_DAEMONS.includes(script);
+    // Already running, here or there: kept (never a second copy - two faction
+    // daemons would both act, two services would share one port).
+    const runningOn = (placeable ? ["home", ...daemonHosts(ns)] : ["home"]).find((host) => ns.isRunning(script, host));
+    return { script, ram: ns.getScriptRam(script, "home"), homeOnly: !placeable, runningOn };
+  });
+  const homeFree = ns.args.includes("--place-remote") ? 0 : ns.getServerMaxRam("home") - ns.getServerUsedRam("home");
+  const plan = planPlacement(units, homeFree, placementBins(ns));
+  for (const p of plan.placed) {
+    if (p.alreadyRunning) say(ns, `[Boot] ${p.script} already running on ${p.host}, skipping.`);
+    else if (!startOn(ns, p.script, p.host, (line) => say(ns, `[Boot] ${line}`))) continue;
+    started.push(p.script);
+  }
+  if (plan.held) {
+    // A movable daemon with no room anywhere: a purchased server for it,
+    // where the BitNode allows them (system/remote_place.ts).
+    if (PLACEABLE_DAEMONS.includes(plan.held) && placeDaemon(ns, plan.held, (line) => say(ns, `[Boot] ${line}`))) started.push(plan.held);
+    else say(ns, `[Boot] Holding off on ${plan.held} and everything after it: the plan doesn't fit home and the hacked servers yet.`);
   }
   // For the reloader: revive these whenever they're missing, even after a
   // game restart it never saw them through (EXPECTED_DAEMONS_PATH).
