@@ -1,6 +1,7 @@
 import { NS } from "@ns";
 import { readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
 import { daemonHosts } from "system/remote_state";
+import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
 import { PHASE_PATH, PhaseFile, phasePolicy, readApproach } from "system/phase";
 import { readBitNodeInfo } from "system/bitnode_info";
 import { readInstallPending } from "system/install_handshake";
@@ -263,10 +264,7 @@ export async function main(ns: NS): Promise<void> {
     { script: "hacking/scheduler_daemon.js", core: true },
     { script: "hacking/program_shopper.js", core: true },
     // The faction daemon plans through these (docs/faction_split.md).
-    { script: "factions/services/faction_info_service.js", core: true },
-    { script: "factions/services/faction_work_service.js", core: true },
-    { script: "factions/services/crime_service.js", core: true },
-    { script: "factions/services/augment_purchase_service.js", core: true },
+    ...FACTION_SERVICES_SCRIPTS.map((script) => ({ script, core: true })),
     { script: "factions/faction_daemon.js", core: true },
     { script: "gang/gang_daemon.js", core: false, when: gangPossible },
     { script: "sleeves/sleeve_daemon.js", core: false, when: sleevesAvailable(info?.node, info?.sourceFiles) },

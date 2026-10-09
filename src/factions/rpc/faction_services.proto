@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package faction_services;
 
-// The faction daemon's game calls, split into four services so that each
-// piece fits a small server (see docs/faction_split.md). The faction daemon
-// itself plans: each tick it takes a snapshot from each service, decides,
-// then asks them to act. The services hold no state and make no decisions.
+// The faction daemon's game calls, as small services: each fits a 16 GB
+// server (most are 6-13 GB), so they bin-pack onto whatever servers have
+// room - early in a BitNode that's mostly 16 GB ones (docs/faction_split.md).
+// The faction daemon plans: each tick it reads snapshots from the services,
+// decides, then asks them to act. The services hold no state and make no
+// decisions; each one's main script is generated from its block here plus
+// its handlers module (services/<stem>_handlers.ts).
 //
 // Field names stay clear of the game's function names: the game charges RAM
 // for any identifier matching one (a field named `run` or `share` would be
@@ -19,25 +22,65 @@ message Done {
   string detail = 2;
 }
 
-// ---- FactionInfoService: augmentations, standing, favor --------------------
+message FactionsRequest {
+  repeated string factions = 1;
+}
+
+message NamesRequest {
+  repeated string names = 1;
+}
+
+// ---- AugCatalogService: what factions sell, at what price (11.6 GB) ---------
+
+message FactionOffer {
+  string faction = 1;
+  repeated string augmentations = 2;
+}
+
+message AugPrice {
+  string name = 1;
+  double price = 2;
+  double repReq = 3;
+}
+
+message CatalogRequest {
+  repeated string factions = 1;
+  // Also priced: augmentations no faction above sells (e.g. pending ones).
+  repeated string extraNames = 2;
+}
+
+message CatalogSnapshot {
+  repeated FactionOffer offers = 1;
+  // Every augmentation in `offers`, plus extraNames.
+  repeated AugPrice prices = 2;
+}
+
+service AugCatalogService {
+  rpc Snapshot (CatalogRequest) returns (CatalogSnapshot);
+}
+
+// ---- AugDetailService: prerequisites and multipliers (11.6 GB) ---------------
 
 message Stat {
   string key = 1;
   double value = 2;
 }
 
-message Augmentation {
+message AugDetail {
   string name = 1;
-  double price = 2;
-  double repReq = 3;
-  repeated string prereqs = 4;
-  repeated Stat stats = 5;
+  repeated string prereqs = 2;
+  repeated Stat stats = 3;
 }
 
-message FactionOffer {
-  string faction = 1;
-  repeated string augmentations = 2;
+message DetailSnapshot {
+  repeated AugDetail details = 1;
 }
+
+service AugDetailService {
+  rpc Snapshot (NamesRequest) returns (DetailSnapshot);
+}
+
+// ---- StandingService: owned augmentations, rep and favor (9.7 GB) ------------
 
 message Standing {
   string faction = 1;
@@ -50,33 +93,26 @@ message CompanyStanding {
   double rep = 2;
 }
 
-message InfoRequest {
-  // Rep and favor for these (the joined factions).
-  repeated string standingFactions = 1;
-  // What these sell (joined, plus factions whose invite is wanted).
-  repeated string offerFactions = 2;
-  // Company rep for these employers.
-  repeated string companies = 3;
+message StandingRequest {
+  repeated string factions = 1;
+  repeated string companies = 2;
 }
 
-message InfoSnapshot {
-  repeated FactionOffer offers = 1;
-  // Every augmentation in `offers`, plus every one owned but not installed.
-  repeated Augmentation augmentations = 2;
-  repeated Standing standings = 3;
+message StandingSnapshot {
+  repeated Standing standings = 1;
   // Owned including bought-but-not-installed (getOwnedAugmentations(true)).
-  repeated string ownedWithQueued = 4;
+  repeated string ownedWithQueued = 2;
   // Installed only (getOwnedAugmentations(false)).
-  repeated string installed = 5;
-  double favorToDonate = 6;
-  repeated CompanyStanding companyStandings = 7;
+  repeated string installed = 3;
+  double favorToDonate = 4;
+  repeated CompanyStanding companyStandings = 5;
 }
 
-service FactionInfoService {
-  rpc Snapshot (InfoRequest) returns (InfoSnapshot);
+service StandingService {
+  rpc Snapshot (StandingRequest) returns (StandingSnapshot);
 }
 
-// ---- FactionWorkService: invites, work, jobs, travel, gym ------------------
+// ---- InviteService: invitations, their requirements, joining (10.6 GB) -------
 
 message FactionRequirements {
   string faction = 1;
@@ -84,32 +120,63 @@ message FactionRequirements {
   string requirementsJson = 2;
 }
 
-message FactionWorkTypes {
-  string faction = 1;
-  repeated string types = 2;
-}
-
-message WorkRequest {
-  repeated string requirementFactions = 1;
-  repeated string workTypeFactions = 2;
-}
-
-message WorkSnapshot {
+message InviteSnapshot {
   repeated string invitations = 1;
   repeated FactionRequirements requirements = 2;
-  // getCurrentWork() as JSON ("null" when idle).
-  string currentWorkJson = 3;
-  repeated FactionWorkTypes workTypes = 4;
 }
 
 message FactionRequest {
   string faction = 1;
 }
 
+service InviteService {
+  rpc Snapshot (FactionsRequest) returns (InviteSnapshot);
+  rpc Join (FactionRequest) returns (Done);
+}
+
+// ---- WorkService: the work slot - faction work, travel, gym, study (13.1 GB) -
+
+message FactionWorkTypes {
+  string faction = 1;
+  repeated string types = 2;
+}
+
+message WorkSnapshot {
+  // getCurrentWork() as JSON ("null" when idle).
+  string currentWorkJson = 1;
+  repeated FactionWorkTypes workTypes = 2;
+}
+
 message FactionWorkRequest {
   string faction = 1;
   string workType = 2;
 }
+
+message TravelRequest {
+  string city = 1;
+}
+
+message GymRequest {
+  string location = 1;
+  // A GymType value ("str", "def", "dex", "agi").
+  string gymType = 2;
+}
+
+message StudyRequest {
+  string university = 1;
+  string course = 2;
+}
+
+service WorkService {
+  rpc Snapshot (FactionsRequest) returns (WorkSnapshot);
+  rpc WorkForFaction (FactionWorkRequest) returns (Done);
+  rpc Travel (TravelRequest) returns (Done);
+  rpc Gym (GymRequest) returns (Done);
+  rpc Study (StudyRequest) returns (Done);
+  rpc Stop (Empty) returns (Done);
+}
+
+// ---- JobService: company jobs (10.6 GB) --------------------------------------
 
 message CompanyRequest {
   string company = 1;
@@ -122,35 +189,13 @@ message JobReply {
   string job = 1;
 }
 
-message TravelRequest {
-  string city = 1;
-}
-
-message StudyRequest {
-  string university = 1;
-  string course = 2;
-}
-
-message GymRequest {
-  string location = 1;
-  // A GymType value ("str", "def", "dex", "agi").
-  string gymType = 2;
-}
-
-service FactionWorkService {
-  rpc Snapshot (WorkRequest) returns (WorkSnapshot);
-  rpc Join (FactionRequest) returns (Done);
-  rpc WorkForFaction (FactionWorkRequest) returns (Done);
+service JobService {
   rpc ApplyToCompany (CompanyRequest) returns (JobReply);
   rpc WorkForCompany (CompanyRequest) returns (Done);
   rpc QuitJob (CompanyRequest) returns (Done);
-  rpc Travel (TravelRequest) returns (Done);
-  rpc Gym (GymRequest) returns (Done);
-  rpc Stop (Empty) returns (Done);
-  rpc Study (StudyRequest) returns (Done);
 }
 
-// ---- CrimeService -----------------------------------------------------------
+// ---- CrimeInfoService / CrimeService: crimes (11.6 / 6.6 GB) -----------------
 
 message CrimeInfo {
   string crime = 1;
@@ -168,19 +213,15 @@ message CrimeRequest {
   string crime = 1;
 }
 
-service CrimeService {
+service CrimeInfoService {
   rpc Snapshot (Empty) returns (CrimeSnapshot);
+}
+
+service CrimeService {
   rpc Commit (CrimeRequest) returns (Done);
 }
 
-// ---- AugmentPurchaseService: buying, donating, installing ------------------
-
-message PurchaseSnapshot {
-  double homeRamCost = 1;
-  // Stock positions held (long or short shares in any symbol); an install
-  // deletes them with no refund. 0 without TIX API access.
-  double positionsHeld = 2;
-}
+// ---- AugBuyService: buying augmentations and rep (11.6 GB) -------------------
 
 message PurchaseRequest {
   string faction = 1;
@@ -192,21 +233,37 @@ message DonateRequest {
   double amount = 2;
 }
 
-message HomeRamReply {
-  // Upgrades bought this call, with what each cost and the RAM after it.
-  repeated double costs = 1;
-  double ramAfter = 2;
+service AugBuyService {
+  rpc Purchase (PurchaseRequest) returns (Done);
+  rpc Donate (DonateRequest) returns (Done);
+}
+
+// ---- InstallService: the install, and what it would lose (10.7 GB) ----------
+
+message InstallSnapshot {
+  // Stock positions held (long or short shares in any symbol); an install
+  // deletes them with no refund. 0 without TIX API access.
+  double positionsHeld = 1;
 }
 
 message InstallRequest {
   string bootScript = 1;
 }
 
-service AugmentPurchaseService {
-  rpc Snapshot (Empty) returns (PurchaseSnapshot);
-  rpc Purchase (PurchaseRequest) returns (Done);
-  rpc Donate (DonateRequest) returns (Done);
+service InstallService {
+  rpc Snapshot (Empty) returns (InstallSnapshot);
+  rpc Install (InstallRequest) returns (Done);
+}
+
+// ---- HomeRamService: home RAM upgrades (6.2 GB) -------------------------------
+
+message HomeRamReply {
+  // Upgrades bought this call, with what each cost and the RAM after it.
+  repeated double costs = 1;
+  double ramAfter = 2;
+}
+
+service HomeRamService {
   // Buys home RAM upgrades while cash covers them (at most 50).
   rpc UpgradeHomeRam (Empty) returns (HomeRamReply);
-  rpc Install (InstallRequest) returns (Done);
 }

@@ -5,7 +5,6 @@ import {
   hashIncomePerSec,
   SEED_INCOME_PER_SEC,
   fullSystemFits,
-  SERVICE_HOST_MIN_RAM,
   HACKNET_SPEND_FRACTION,
   HacknetOption,
   playerActivity,
@@ -215,10 +214,10 @@ export async function main(ns: NS): Promise<void> {
     const required = requiredHomeRam(CORE_SCRIPTS.map((script) => ns.getScriptRam(script, HOME)));
     const hosts = allServers(ns);
 
-    const roomy = hosts.filter((h) => h !== HOME && ns.hasRootAccess(h) && ns.getServerMaxRam(h) >= SERVICE_HOST_MIN_RAM).length;
+    const hackedRams = hosts.filter((h) => h !== HOME && ns.hasRootAccess(h)).map((h) => ns.getServerMaxRam(h));
     const stackRams = FACTION_STACK.map((script) => ns.getScriptRam(script, HOME));
-    if (!hold && fullSystemFits(ns.getServerMaxRam(HOME), required, stackRams, roomy)) {
-      ns.tprint(`[Bootstrap] Home has ${ns.getServerMaxRam(HOME)} GB and ${roomy} hacked server(s) for the faction services; handing over to ${BOOT}.`);
+    if (!hold && fullSystemFits(ns.getServerMaxRam(HOME), required, stackRams, hackedRams)) {
+      ns.tprint(`[Bootstrap] Home has ${ns.getServerMaxRam(HOME)} GB, and the faction services pack onto it and ${hackedRams.length} hacked server(s); handing over to ${BOOT}.`);
       stopWorkers(ns, hosts);
       ns.spawn(BOOT, { spawnDelay: 500 });
       return;

@@ -1,8 +1,9 @@
 import { NS } from "@ns";
 import { EXPECTED_DAEMONS_PATH, readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
-import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam, SERVICE_HOST_MIN_RAM } from "system/bootstrap/plan";
+import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { placeDaemon, pruneDaemonHosts } from "system/remote_place";
+import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
 import { daemonHosts } from "system/remote_state";
 import * as rpc from "system/rpc/rpc";
 import { sleevesAvailable } from "sleeves/sleeve_decisions";
@@ -26,12 +27,9 @@ const SLEEVE_KICK_SCRIPT = "system/bootstrap/bootstrap_sleeves.js";
 const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
 const SUPERVISOR_SCRIPT = "system/supervisor.js";
 // The faction daemon's game calls, as services (docs/faction_split.md).
-const FACTION_SERVICES = [
-  "factions/services/faction_info_service.js",
-  "factions/services/faction_work_service.js",
-  "factions/services/crime_service.js",
-  "factions/services/augment_purchase_service.js",
-];
+// The faction daemon's game calls, as small services (generated from
+// faction_services.proto; docs/faction_split.md).
+const FACTION_SERVICES = FACTION_SERVICES_SCRIPTS;
 // Daemons boot may run off home while home is too small for them: on a
 // hacked server with room, else DAEMON_HOST (system/remote_place.ts).
 // The sleeve daemon too (64 GB): BN9 held it behind a full 128 GB home
@@ -168,10 +166,13 @@ export async function main(ns: NS): Promise<void> {
   const homeRam = ns.getServerMaxRam("home");
   // The core plus room for the faction stack (on home, or hacked servers big
   // enough for its services) - the same test the bootstrap hands over on.
-  const roomy = reachableHosts(ns).filter((h) => h !== "home" && ns.hasRootAccess(h) && ns.getServerMaxRam(h) >= SERVICE_HOST_MIN_RAM).length;
-  const fits = fullSystemFits(homeRam, requiredRam, FACTION_STACK.map((script) => ns.getScriptRam(script, "home")), roomy);
+  // Not hacknet servers: RAM used there costs hashes.
+  const hackedRams = reachableHosts(ns)
+    .filter((h) => h !== "home" && !/^hacknet-(server|node)-\d+$/.test(h) && ns.hasRootAccess(h))
+    .map((h) => ns.getServerMaxRam(h));
+  const fits = fullSystemFits(homeRam, requiredRam, FACTION_STACK.map((script) => ns.getScriptRam(script, "home")), hackedRams);
   if (!fits && !ns.scriptRunning(SUPERVISOR_SCRIPT, "home")) {
-    say(ns, `[Boot] Home has ${homeRam} GB and ${roomy} hacked server(s) of ${SERVICE_HOST_MIN_RAM}+ GB; the full system (core ${requiredRam.toFixed(1)} GB plus the faction stack) doesn't fit yet. Starting ${BOOTSTRAP_SCRIPT} instead.`);
+    say(ns, `[Boot] Home has ${homeRam} GB and ${hackedRams.length} rooted hacked server(s); the full system (core ${requiredRam.toFixed(1)} GB plus the faction stack) doesn't pack onto them yet. Starting ${BOOTSTRAP_SCRIPT} instead.`);
     // Spawned, not run: the game ends this script first, so the bootstrap
     // (~27 GB) gets a fresh 32 GB home to itself rather than what's left
     // beside boot (~20 GB).

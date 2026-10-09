@@ -1,3 +1,4 @@
+import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
 /**
  * Pure logic for the low-RAM startup (system/bootstrap/bootstrap.ts), shared with boot.ts's
  * decision to use it - no `ns` calls, so importing it adds no RAM cost.
@@ -113,27 +114,35 @@ export const HACKNET_SPEND_FRACTION = 0.5;
  * can't plan or act - BN9 after an install sat in it for hours with a 128 GB
  * home, nothing rooted beyond 16 GB servers, and the faction stack held.
  */
-export const FACTION_STACK = [
-  "factions/services/faction_info_service.js",
-  "factions/services/faction_work_service.js",
-  "factions/services/crime_service.js",
-  "factions/services/augment_purchase_service.js",
-  "factions/faction_daemon.js",
-];
-// Hacked servers this big take one faction service each.
-export const SERVICE_HOST_MIN_RAM = 32;
+export const FACTION_STACK = [...FACTION_SERVICES_SCRIPTS, "factions/faction_daemon.js"];
+/**
+ * Whether every unit in `units` (RAM each) fits into `bins` (free RAM each),
+ * first-fit decreasing - the same packing boot's placement does, biggest
+ * units first onto the first host with room.
+ */
+export function packs(units: number[], bins: number[]): boolean {
+  const free = [...bins];
+  for (const unit of [...units].sort((a, b) => b - a)) {
+    const i = free.findIndex((room) => room >= unit);
+    if (i < 0) return false;
+    free[i] -= unit;
+  }
+  return true;
+}
 
 /**
- * Whether the full system can run: home holds the core (coreRequired), plus
- * the faction stack unless there are enough rooted hacked servers for its
- * services (one each; the faction daemon itself goes on home).
+ * Whether the full system can run: home holds the core (coreRequired) and
+ * the faction daemon, and the faction stack's services pack into whatever
+ * room is left on home plus the rooted hacked servers (`hackedRams`, max
+ * RAM each - boot stops the bootstrap's workers there). Small services
+ * (6-13 GB) pack onto 16 GB servers.
  */
-export function fullSystemFits(homeRam: number, coreRequired: number, stackRams: number[], roomyHackedServers: number): boolean {
-  if (homeRam < coreRequired) return false;
+export function fullSystemFits(homeRam: number, coreRequired: number, stackRams: number[], hackedRams: number[]): boolean {
   const services = stackRams.slice(0, -1);
   const planner = stackRams[stackRams.length - 1] ?? 0;
-  if (roomyHackedServers >= services.length) return homeRam >= coreRequired + planner;
-  return homeRam >= coreRequired + stackRams.reduce((a, b) => a + b, 0);
+  const homeLeft = homeRam - coreRequired - planner;
+  if (homeLeft < 0) return false;
+  return packs(services, [homeLeft, ...hackedRams]);
 }
 
 /**

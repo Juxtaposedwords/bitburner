@@ -2,10 +2,17 @@ import { NS } from "@ns";
 import { afterEach, describe, expect, it } from "vitest";
 import * as rpc from "system/rpc/rpc";
 import * as fs_pb from "factions/rpc/faction_services";
-import { createInfoHandlers } from "factions/services/info_handlers";
+import { createAugCatalogHandlers } from "factions/services/aug_catalog_handlers";
+import { createAugDetailHandlers } from "factions/services/aug_detail_handlers";
+import { createStandingHandlers } from "factions/services/standing_handlers";
+import { createInviteHandlers } from "factions/services/invite_handlers";
 import { createWorkHandlers } from "factions/services/work_handlers";
+import { createJobHandlers } from "factions/services/job_handlers";
+import { createCrimeInfoHandlers } from "factions/services/crime_info_handlers";
 import { createCrimeHandlers } from "factions/services/crime_handlers";
-import { createPurchaseHandlers } from "factions/services/purchase_handlers";
+import { createAugBuyHandlers } from "factions/services/aug_buy_handlers";
+import { createInstallHandlers } from "factions/services/install_handlers";
+import { createHomeRamHandlers } from "factions/services/home_ram_handlers";
 import { factionClients, FactionClients, fetchView, fetchWork, isFailure, succeeded } from "factions/faction_gateway";
 import { FactionView } from "factions/faction_view";
 import { deadlineIn } from "system/deadline";
@@ -76,10 +83,17 @@ function startServices(): void {
     server.Serve().catch(() => undefined);
   };
   const svc = fakeNs(game, 1);
-  serve(fs_pb.FactionInfoServicePort, (s) => fs_pb.RegisterFactionInfoService(s, createInfoHandlers(svc)));
-  serve(fs_pb.FactionWorkServicePort, (s) => fs_pb.RegisterFactionWorkService(s, createWorkHandlers(svc)));
+  serve(fs_pb.AugCatalogServicePort, (s) => fs_pb.RegisterAugCatalogService(s, createAugCatalogHandlers(svc)));
+  serve(fs_pb.AugDetailServicePort, (s) => fs_pb.RegisterAugDetailService(s, createAugDetailHandlers(svc)));
+  serve(fs_pb.StandingServicePort, (s) => fs_pb.RegisterStandingService(s, createStandingHandlers(svc)));
+  serve(fs_pb.InviteServicePort, (s) => fs_pb.RegisterInviteService(s, createInviteHandlers(svc)));
+  serve(fs_pb.WorkServicePort, (s) => fs_pb.RegisterWorkService(s, createWorkHandlers(svc)));
+  serve(fs_pb.JobServicePort, (s) => fs_pb.RegisterJobService(s, createJobHandlers(svc)));
+  serve(fs_pb.CrimeInfoServicePort, (s) => fs_pb.RegisterCrimeInfoService(s, createCrimeInfoHandlers(svc)));
   serve(fs_pb.CrimeServicePort, (s) => fs_pb.RegisterCrimeService(s, createCrimeHandlers(svc)));
-  serve(fs_pb.AugmentPurchaseServicePort, (s) => fs_pb.RegisterAugmentPurchaseService(s, createPurchaseHandlers(svc)));
+  serve(fs_pb.AugBuyServicePort, (s) => fs_pb.RegisterAugBuyService(s, createAugBuyHandlers(svc)));
+  serve(fs_pb.InstallServicePort, (s) => fs_pb.RegisterInstallService(s, createInstallHandlers(svc)));
+  serve(fs_pb.HomeRamServicePort, (s) => fs_pb.RegisterHomeRamService(s, createHomeRamHandlers(svc)));
 }
 
 afterEach(() => {
@@ -89,13 +103,13 @@ afterEach(() => {
 const request = { joined: ["Netburners"], requirementFactions: ["Daedalus"], offerFactions: ["Daedalus"], companies: ["ECorp"] };
 
 describe("the faction daemon and its services, over ports", () => {
-  it("builds the tick's view from the four services", async () => {
+  it("builds the tick's view from the services", async () => {
     startServices();
     const c = factionClients(fakeNs(game, 42));
     const deadline = deadlineIn(2000);
     const work = await fetchWork(c, request, deadline);
     if (isFailure(work)) throw new Error(work.call);
-    expect(work.invitations).toEqual(["CyberSec"]);
+    expect(work.invites.invitations).toEqual(["CyberSec"]);
 
     const view = await fetchView(c, request, work, deadline);
     if (isFailure(view)) throw new Error(view.call);
@@ -118,11 +132,11 @@ describe("the faction daemon and its services, over ports", () => {
     startServices();
     const c = factionClients(fakeNs(game, 43));
     const deadline = deadlineIn(2000);
-    expect(succeeded(await c.work.Join({ faction: "CyberSec" }, deadline))).toBe(true);
+    expect(succeeded(await c.invite.Join({ faction: "CyberSec" }, deadline))).toBe(true);
     expect(succeeded(await c.work.WorkForFaction({ faction: "Netburners", workType: "hacking" }, deadline))).toBe(true);
     await c.crime.Commit({ crime: "Homicide" }, deadline);
-    expect(succeeded(await c.purchase.Purchase({ faction: "Netburners", augmentation: "BitWire" }, deadline))).toBe(true);
-    expect(succeeded(await c.purchase.Donate({ faction: "Netburners", amount: 5e9 }, deadline))).toBe(true);
+    expect(succeeded(await c.buy.Purchase({ faction: "Netburners", augmentation: "BitWire" }, deadline))).toBe(true);
+    expect(succeeded(await c.buy.Donate({ faction: "Netburners", amount: 5e9 }, deadline))).toBe(true);
     expect(game.calls).toEqual([
       "joinFaction(CyberSec)",
       "workForFaction(Netburners,hacking)",
@@ -142,7 +156,7 @@ describe("the faction daemon and its services, over ports", () => {
 
 describe("FactionView", () => {
   it("defaults what wasn't asked about", () => {
-    const view = new FactionView({}, { currentWorkJson: "null" });
+    const view = new FactionView({ standing: {}, catalog: {}, details: {}, invites: {}, work: { currentWorkJson: "null" } });
     expect(view.offered("Nobody")).toEqual([]);
     expect(view.repOf("Nobody")).toBe(0);
     expect(view.requirementsOf("Nobody")).toEqual([]);
@@ -153,10 +167,17 @@ describe("FactionView", () => {
 
 describe("in-process clients (no ports, no game)", () => {
   const localClients = (ns: NS): FactionClients => ({
-    info: fs_pb.NewFactionInfoServiceLocalClient(createInfoHandlers(ns)),
-    work: fs_pb.NewFactionWorkServiceLocalClient(createWorkHandlers(ns)),
+    catalog: fs_pb.NewAugCatalogServiceLocalClient(createAugCatalogHandlers(ns)),
+    detail: fs_pb.NewAugDetailServiceLocalClient(createAugDetailHandlers(ns)),
+    standing: fs_pb.NewStandingServiceLocalClient(createStandingHandlers(ns)),
+    invite: fs_pb.NewInviteServiceLocalClient(createInviteHandlers(ns)),
+    work: fs_pb.NewWorkServiceLocalClient(createWorkHandlers(ns)),
+    job: fs_pb.NewJobServiceLocalClient(createJobHandlers(ns)),
+    crimeInfo: fs_pb.NewCrimeInfoServiceLocalClient(createCrimeInfoHandlers(ns)),
     crime: fs_pb.NewCrimeServiceLocalClient(createCrimeHandlers(ns)),
-    purchase: fs_pb.NewAugmentPurchaseServiceLocalClient(createPurchaseHandlers(ns)),
+    buy: fs_pb.NewAugBuyServiceLocalClient(createAugBuyHandlers(ns)),
+    install: fs_pb.NewInstallServiceLocalClient(createInstallHandlers(ns)),
+    homeRam: fs_pb.NewHomeRamServiceLocalClient(createHomeRamHandlers(ns)),
   });
 
   it("give the gateway the same view as the port clients", async () => {
@@ -172,12 +193,27 @@ describe("in-process clients (no ports, no game)", () => {
   });
 
   it("answer a passed deadline and a throwing handler like the real service", async () => {
-    const info = fs_pb.NewFactionInfoServiceLocalClient({
+    const info = fs_pb.NewStandingServiceLocalClient({
       Snapshot: () => {
         throw new rpc.RpcError(5, "nothing here");
       },
     });
     expect((await info.Snapshot({}, { at: 0 })).status).toBe(4);
     expect(await info.Snapshot({}, 1000)).toMatchObject({ status: 5, error: "nothing here" });
+  });
+});
+
+describe("pending augmentations no listed faction sells", () => {
+  it("are still priced and described (the catalog's second, extraNames round)", async () => {
+    startServices();
+    const c = factionClients(fakeNs(game, 8));
+    // BitWire is pending but only Netburners sells it; ask about Daedalus alone.
+    const only = { ...request, joined: ["Daedalus"] };
+    const work = await fetchWork(c, only, deadlineIn(2000));
+    if (isFailure(work)) throw new Error(work.call);
+    const view = await fetchView(c, only, work, deadlineIn(2000));
+    if (isFailure(view)) throw new Error(view.call);
+    expect(view.pending()).toEqual(["BitWire"]);
+    expect(view.statsOf("BitWire")).toEqual({ hacking: 1.05 });
   });
 });

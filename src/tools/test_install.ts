@@ -26,20 +26,24 @@ export async function main(ns: NS): Promise<void> {
   };
   const c = factionClients(ns);
   const player = ns.getPlayer();
-  const info = await c.info.Snapshot({ standingFactions: player.factions, offerFactions: player.factions, companies: [] }, deadlineIn(5000));
-  if (info.status !== Codes.OK || !info.data) return report(`FAIL: FactionInfoService.Snapshot status ${info.status}: ${info.error}`);
-  const nfg = info.data.augmentations?.find((a) => a.name === NFG);
-  const offering = new Set((info.data.offers ?? []).filter((o) => (o.augmentations ?? []).includes(NFG)).map((o) => o.faction));
-  const faction = (info.data.standings ?? []).find((s) => offering.has(s.faction) && (s.favor ?? 0) >= (info.data?.favorToDonate ?? Infinity));
+  const [standing, catalog] = await Promise.all([
+    c.standing.Snapshot({ factions: player.factions, companies: [] }, deadlineIn(5000)),
+    c.catalog.Snapshot({ factions: player.factions }, deadlineIn(5000)),
+  ]);
+  if (standing.status !== Codes.OK || !standing.data) return report(`FAIL: StandingService.Snapshot status ${standing.status}: ${standing.error}`);
+  if (catalog.status !== Codes.OK || !catalog.data) return report(`FAIL: AugCatalogService.Snapshot status ${catalog.status}: ${catalog.error}`);
+  const nfg = catalog.data.prices?.find((a) => a.name === NFG);
+  const offering = new Set((catalog.data.offers ?? []).filter((o) => (o.augmentations ?? []).includes(NFG)).map((o) => o.faction));
+  const faction = (standing.data.standings ?? []).find((s) => offering.has(s.faction) && (s.favor ?? 0) >= (standing.data?.favorToDonate ?? Infinity));
   if (!nfg || !faction?.faction) return report("FAIL: no faction taking donations sells NeuroFlux.");
 
   const gap = (nfg.repReq ?? 0) - (faction.rep ?? 0);
   if (gap > 0) {
     const amount = Math.ceil(ns.formulas.reputation.donationForRep(gap, player) * 1.01);
-    const donated = await c.purchase.Donate({ faction: faction.faction, amount }, deadlineIn(5000));
+    const donated = await c.buy.Donate({ faction: faction.faction, amount }, deadlineIn(5000));
     report(`${succeeded(donated) ? "ok  " : "FAIL"} donated $${(amount / 1e9).toFixed(1)}B to ${faction.faction} for ${gap.toFixed(0)} rep`);
   }
-  const bought = await c.purchase.Purchase({ faction: faction.faction, augmentation: NFG }, deadlineIn(5000));
+  const bought = await c.buy.Purchase({ faction: faction.faction, augmentation: NFG }, deadlineIn(5000));
   report(`${succeeded(bought) ? "ok  " : "FAIL"} bought ${NFG} from ${faction.faction} ($${((nfg.price ?? 0) / 1e9).toFixed(1)}B)`);
   if (!succeeded(bought)) return;
 
@@ -53,6 +57,6 @@ export async function main(ns: NS): Promise<void> {
   }
   report(`ok   sold ${sold} stock position(s)`);
   report(`installing through AugmentPurchaseService at ${new Date().toISOString()} - boot.js runs next`);
-  await c.purchase.Install({ bootScript: "boot.js" }, deadlineIn(5000));
+  await c.install.Install({ bootScript: "boot.js" }, deadlineIn(5000));
   report("FAIL: still running after Install - the install didn't happen.");
 }

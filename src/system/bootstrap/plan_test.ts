@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullSystemFits, playerActivity, hashIncomePerSec, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
+import { fullSystemFits, packs, playerActivity, hashIncomePerSec, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
 
 describe("requiredHomeRam", () => {
   it("sums the core scripts' RAM plus the margin", () => {
@@ -96,14 +96,20 @@ describe("pickHacknetPurchase", () => {
 });
 
 describe("fullSystemFits", () => {
-  const stack = [29.7, 31.1, 16.6, 25.3, 6.75];
-  it("waits for room for the faction stack when no hacked server can take a service", () => {
-    expect(fullSystemFits(128, 56, stack, 0)).toBe(false);
-    expect(fullSystemFits(256, 56, stack, 0)).toBe(true);
+  // Core 56 GB; eleven small services and the 7.75 GB planner.
+  const stack = [11.6, 11.6, 9.7, 10.6, 13.1, 10.6, 11.6, 6.6, 11.6, 10.7, 6.2, 7.75];
+  it("packs the services onto what's left of home and the rooted hacked servers", () => {
+    expect(fullSystemFits(128, 56, stack, [])).toBe(false);
+    expect(fullSystemFits(128, 56, stack, [16, 16, 16, 16, 16, 16])).toBe(true);
+    expect(fullSystemFits(64, 56, stack, [16, 16])).toBe(false);
   });
-  it("needs only the core and the planner once services can go on hacked servers", () => {
-    expect(fullSystemFits(60, 56, stack, 4)).toBe(false);
-    expect(fullSystemFits(128, 56, stack, 4)).toBe(true);
+});
+
+describe("packs", () => {
+  it("fits units first-fit decreasing", () => {
+    expect(packs([13, 6, 2], [16, 8])).toBe(true);
+    expect(packs([13, 6, 6], [16, 8])).toBe(false);
+    expect(packs([13, 13], [16, 8])).toBe(false);
   });
 });
 

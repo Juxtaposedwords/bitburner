@@ -5,26 +5,62 @@ import { Deadline, expired, toDeadline } from "system/deadline";
 import { Codes } from "system/rpc/status";
 
 /** Port this service listens on, assigned by the generator's port registry. */
-export const FactionInfoServicePort = 14;
+export const AugCatalogServicePort = 18;
 
 /** Port this service listens on, assigned by the generator's port registry. */
-export const FactionWorkServicePort = 15;
+export const AugDetailServicePort = 19;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const StandingServicePort = 20;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const InviteServicePort = 21;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const WorkServicePort = 22;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const JobServicePort = 23;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const CrimeInfoServicePort = 24;
 
 /** Port this service listens on, assigned by the generator's port registry. */
 export const CrimeServicePort = 16;
 
 /** Port this service listens on, assigned by the generator's port registry. */
-export const AugmentPurchaseServicePort = 17;
+export const AugBuyServicePort = 25;
 
-export interface InfoRequest {
-    standingFactions?: string[];
-    offerFactions?: string[];
+/** Port this service listens on, assigned by the generator's port registry. */
+export const InstallServicePort = 26;
+
+/** Port this service listens on, assigned by the generator's port registry. */
+export const HomeRamServicePort = 27;
+
+export interface CatalogRequest {
+    factions?: string[];
+    extraNames?: string[];
+}
+
+export interface CatalogSnapshot {
+    offers?: FactionOffer[];
+    prices?: AugPrice[];
+}
+
+export interface NamesRequest {
+    names?: string[];
+}
+
+export interface DetailSnapshot {
+    details?: AugDetail[];
+}
+
+export interface StandingRequest {
+    factions?: string[];
     companies?: string[];
 }
 
-export interface InfoSnapshot {
-    offers?: FactionOffer[];
-    augmentations?: Augmentation[];
+export interface StandingSnapshot {
     standings?: Standing[];
     ownedWithQueued?: string[];
     installed?: string[];
@@ -32,16 +68,13 @@ export interface InfoSnapshot {
     companyStandings?: CompanyStanding[];
 }
 
-export interface WorkRequest {
-    requirementFactions?: string[];
-    workTypeFactions?: string[];
+export interface FactionsRequest {
+    factions?: string[];
 }
 
-export interface WorkSnapshot {
+export interface InviteSnapshot {
     invitations?: string[];
     requirements?: FactionRequirements[];
-    currentWorkJson?: string;
-    workTypes?: FactionWorkTypes[];
 }
 
 export interface FactionRequest {
@@ -53,18 +86,14 @@ export interface Done {
     detail?: string;
 }
 
+export interface WorkSnapshot {
+    currentWorkJson?: string;
+    workTypes?: FactionWorkTypes[];
+}
+
 export interface FactionWorkRequest {
     faction?: string;
     workType?: string;
-}
-
-export interface CompanyRequest {
-    company?: string;
-    field?: string;
-}
-
-export interface JobReply {
-    job?: string;
 }
 
 export interface TravelRequest {
@@ -76,12 +105,21 @@ export interface GymRequest {
     gymType?: string;
 }
 
-export interface Empty {
-}
-
 export interface StudyRequest {
     university?: string;
     course?: string;
+}
+
+export interface Empty {
+}
+
+export interface CompanyRequest {
+    company?: string;
+    field?: string;
+}
+
+export interface JobReply {
+    job?: string;
 }
 
 export interface CrimeSnapshot {
@@ -90,11 +128,6 @@ export interface CrimeSnapshot {
 
 export interface CrimeRequest {
     crime?: string;
-}
-
-export interface PurchaseSnapshot {
-    homeRamCost?: number;
-    positionsHeld?: number;
 }
 
 export interface PurchaseRequest {
@@ -107,13 +140,17 @@ export interface DonateRequest {
     amount?: number;
 }
 
-export interface HomeRamReply {
-    costs?: number[];
-    ramAfter?: number;
+export interface InstallSnapshot {
+    positionsHeld?: number;
 }
 
 export interface InstallRequest {
     bootScript?: string;
+}
+
+export interface HomeRamReply {
+    costs?: number[];
+    ramAfter?: number;
 }
 
 export interface FactionOffer {
@@ -121,10 +158,14 @@ export interface FactionOffer {
     augmentations?: string[];
 }
 
-export interface Augmentation {
+export interface AugPrice {
     name?: string;
     price?: number;
     repReq?: number;
+}
+
+export interface AugDetail {
+    name?: string;
     prereqs?: string[];
     stats?: Stat[];
 }
@@ -163,52 +204,52 @@ export interface Stat {
     value?: number;
 }
 
-export interface FactionInfoServiceHandlers {
-    Snapshot: (req: InfoRequest, ctx?: rpc.CallContext) => Promise<InfoSnapshot> | InfoSnapshot;
+export interface AugCatalogServiceHandlers {
+    Snapshot: (req: CatalogRequest, ctx?: rpc.CallContext) => Promise<CatalogSnapshot> | CatalogSnapshot;
 }
 
-export function NewFactionInfoServiceClient(ns: NS, targetPort = FactionInfoServicePort) {
+export function NewAugCatalogServiceClient(ns: NS, targetPort = AugCatalogServicePort) {
     return {
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
-        Snapshot: async (req: InfoRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<InfoSnapshot>> => {
+        Snapshot: async (req: CatalogRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<CatalogSnapshot>> => {
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<InfoRequest> = { service: "FactionInfoService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<CatalogRequest> = { service: "AugCatalogService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionInfoService.Snapshot could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugCatalogService.Snapshot could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionInfoService.Snapshot timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugCatalogService.Snapshot timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<InfoSnapshot>;
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<CatalogSnapshot>;
         },
     };
 }
 
-export function RegisterFactionInfoService(server: rpc.RpcServer, handlers: FactionInfoServiceHandlers) {
-    server.registerService("FactionInfoService", handlers as unknown as Record<string, Function>);
+export function RegisterAugCatalogService(server: rpc.RpcServer, handlers: AugCatalogServiceHandlers) {
+    server.registerService("AugCatalogService", handlers as unknown as Record<string, Function>);
 }
 
-export type FactionInfoServiceClient = ReturnType<typeof NewFactionInfoServiceClient>;
+export type AugCatalogServiceClient = ReturnType<typeof NewAugCatalogServiceClient>;
 
 /**
  * The same client, calling `handlers` in-process instead of over a port -
- * for tests of anything that uses FactionInfoService: no ports or game needed, same
+ * for tests of anything that uses AugCatalogService: no ports or game needed, same
  * RpcResponse results, deadlines and error statuses as the real thing.
  */
-export function NewFactionInfoServiceLocalClient(handlers: FactionInfoServiceHandlers): FactionInfoServiceClient {
+export function NewAugCatalogServiceLocalClient(handlers: AugCatalogServiceHandlers): AugCatalogServiceClient {
     const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
         const callDeadline = toDeadline(deadline);
-        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionInfoService.${method} arrived after its deadline.` };
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugCatalogService.${method} arrived after its deadline.` };
         try {
             return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
         } catch (err: any) {
@@ -216,46 +257,152 @@ export function NewFactionInfoServiceLocalClient(handlers: FactionInfoServiceHan
         }
     };
     return {
-        Snapshot: (req: InfoRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
+        Snapshot: (req: CatalogRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
     };
 }
 
-export interface FactionWorkServiceHandlers {
-    Snapshot: (req: WorkRequest, ctx?: rpc.CallContext) => Promise<WorkSnapshot> | WorkSnapshot;
-    Join: (req: FactionRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    WorkForFaction: (req: FactionWorkRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    ApplyToCompany: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<JobReply> | JobReply;
-    WorkForCompany: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    QuitJob: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    Travel: (req: TravelRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    Gym: (req: GymRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    Stop: (req: Empty, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    Study: (req: StudyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+export interface AugDetailServiceHandlers {
+    Snapshot: (req: NamesRequest, ctx?: rpc.CallContext) => Promise<DetailSnapshot> | DetailSnapshot;
 }
 
-export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServicePort) {
+export function NewAugDetailServiceClient(ns: NS, targetPort = AugDetailServicePort) {
     return {
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
-        Snapshot: async (req: WorkRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<WorkSnapshot>> => {
+        Snapshot: async (req: NamesRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<DetailSnapshot>> => {
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<WorkRequest> = { service: "FactionWorkService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<NamesRequest> = { service: "AugDetailService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Snapshot could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugDetailService.Snapshot could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Snapshot timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugDetailService.Snapshot timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<WorkSnapshot>;
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<DetailSnapshot>;
+        },
+    };
+}
+
+export function RegisterAugDetailService(server: rpc.RpcServer, handlers: AugDetailServiceHandlers) {
+    server.registerService("AugDetailService", handlers as unknown as Record<string, Function>);
+}
+
+export type AugDetailServiceClient = ReturnType<typeof NewAugDetailServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses AugDetailService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewAugDetailServiceLocalClient(handlers: AugDetailServiceHandlers): AugDetailServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugDetailService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        Snapshot: (req: NamesRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
+    };
+}
+
+export interface StandingServiceHandlers {
+    Snapshot: (req: StandingRequest, ctx?: rpc.CallContext) => Promise<StandingSnapshot> | StandingSnapshot;
+}
+
+export function NewStandingServiceClient(ns: NS, targetPort = StandingServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Snapshot: async (req: StandingRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<StandingSnapshot>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<StandingRequest> = { service: "StandingService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to StandingService.Snapshot could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to StandingService.Snapshot timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<StandingSnapshot>;
+        },
+    };
+}
+
+export function RegisterStandingService(server: rpc.RpcServer, handlers: StandingServiceHandlers) {
+    server.registerService("StandingService", handlers as unknown as Record<string, Function>);
+}
+
+export type StandingServiceClient = ReturnType<typeof NewStandingServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses StandingService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewStandingServiceLocalClient(handlers: StandingServiceHandlers): StandingServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to StandingService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        Snapshot: (req: StandingRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
+    };
+}
+
+export interface InviteServiceHandlers {
+    Snapshot: (req: FactionsRequest, ctx?: rpc.CallContext) => Promise<InviteSnapshot> | InviteSnapshot;
+    Join: (req: FactionRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+}
+
+export function NewInviteServiceClient(ns: NS, targetPort = InviteServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Snapshot: async (req: FactionsRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<InviteSnapshot>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<FactionsRequest> = { service: "InviteService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InviteService.Snapshot could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InviteService.Snapshot timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<InviteSnapshot>;
         },
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
@@ -263,21 +410,84 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<FactionRequest> = { service: "FactionWorkService", method: "Join", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<FactionRequest> = { service: "InviteService", method: "Join", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Join could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InviteService.Join could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Join timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InviteService.Join timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
             return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
+    };
+}
+
+export function RegisterInviteService(server: rpc.RpcServer, handlers: InviteServiceHandlers) {
+    server.registerService("InviteService", handlers as unknown as Record<string, Function>);
+}
+
+export type InviteServiceClient = ReturnType<typeof NewInviteServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses InviteService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewInviteServiceLocalClient(handlers: InviteServiceHandlers): InviteServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InviteService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        Snapshot: (req: FactionsRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
+        Join: (req: FactionRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Join", handlers.Join, req, deadline),
+    };
+}
+
+export interface WorkServiceHandlers {
+    Snapshot: (req: FactionsRequest, ctx?: rpc.CallContext) => Promise<WorkSnapshot> | WorkSnapshot;
+    WorkForFaction: (req: FactionWorkRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    Travel: (req: TravelRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    Gym: (req: GymRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    Study: (req: StudyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    Stop: (req: Empty, ctx?: rpc.CallContext) => Promise<Done> | Done;
+}
+
+export function NewWorkServiceClient(ns: NS, targetPort = WorkServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Snapshot: async (req: FactionsRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<WorkSnapshot>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<FactionsRequest> = { service: "WorkService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Snapshot could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Snapshot timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<WorkSnapshot>;
         },
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
@@ -285,83 +495,17 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<FactionWorkRequest> = { service: "FactionWorkService", method: "WorkForFaction", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<FactionWorkRequest> = { service: "WorkService", method: "WorkForFaction", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.WorkForFaction could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.WorkForFaction could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.WorkForFaction timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        ApplyToCompany: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<JobReply>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "FactionWorkService", method: "ApplyToCompany", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.ApplyToCompany could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.ApplyToCompany timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<JobReply>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        WorkForCompany: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "FactionWorkService", method: "WorkForCompany", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.WorkForCompany could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.WorkForCompany timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        QuitJob: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "FactionWorkService", method: "QuitJob", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.QuitJob could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.QuitJob timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.WorkForFaction timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -373,17 +517,17 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<TravelRequest> = { service: "FactionWorkService", method: "Travel", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<TravelRequest> = { service: "WorkService", method: "Travel", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Travel could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Travel could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Travel timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Travel timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -395,39 +539,17 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<GymRequest> = { service: "FactionWorkService", method: "Gym", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<GymRequest> = { service: "WorkService", method: "Gym", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Gym could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Gym could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Gym timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        Stop: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<Empty> = { service: "FactionWorkService", method: "Stop", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Stop could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Stop timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Gym timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -439,17 +561,39 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<StudyRequest> = { service: "FactionWorkService", method: "Study", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<StudyRequest> = { service: "WorkService", method: "Study", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Study could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Study could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.Study timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Study timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Stop: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<Empty> = { service: "WorkService", method: "Stop", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Stop could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.Stop timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -458,21 +602,21 @@ export function NewFactionWorkServiceClient(ns: NS, targetPort = FactionWorkServ
     };
 }
 
-export function RegisterFactionWorkService(server: rpc.RpcServer, handlers: FactionWorkServiceHandlers) {
-    server.registerService("FactionWorkService", handlers as unknown as Record<string, Function>);
+export function RegisterWorkService(server: rpc.RpcServer, handlers: WorkServiceHandlers) {
+    server.registerService("WorkService", handlers as unknown as Record<string, Function>);
 }
 
-export type FactionWorkServiceClient = ReturnType<typeof NewFactionWorkServiceClient>;
+export type WorkServiceClient = ReturnType<typeof NewWorkServiceClient>;
 
 /**
  * The same client, calling `handlers` in-process instead of over a port -
- * for tests of anything that uses FactionWorkService: no ports or game needed, same
+ * for tests of anything that uses WorkService: no ports or game needed, same
  * RpcResponse results, deadlines and error statuses as the real thing.
  */
-export function NewFactionWorkServiceLocalClient(handlers: FactionWorkServiceHandlers): FactionWorkServiceClient {
+export function NewWorkServiceLocalClient(handlers: WorkServiceHandlers): WorkServiceClient {
     const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
         const callDeadline = toDeadline(deadline);
-        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to FactionWorkService.${method} arrived after its deadline.` };
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to WorkService.${method} arrived after its deadline.` };
         try {
             return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
         } catch (err: any) {
@@ -480,25 +624,125 @@ export function NewFactionWorkServiceLocalClient(handlers: FactionWorkServiceHan
         }
     };
     return {
-        Snapshot: (req: WorkRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
-        Join: (req: FactionRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Join", handlers.Join, req, deadline),
+        Snapshot: (req: FactionsRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
         WorkForFaction: (req: FactionWorkRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("WorkForFaction", handlers.WorkForFaction, req, deadline),
-        ApplyToCompany: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("ApplyToCompany", handlers.ApplyToCompany, req, deadline),
-        WorkForCompany: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("WorkForCompany", handlers.WorkForCompany, req, deadline),
-        QuitJob: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("QuitJob", handlers.QuitJob, req, deadline),
         Travel: (req: TravelRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Travel", handlers.Travel, req, deadline),
         Gym: (req: GymRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Gym", handlers.Gym, req, deadline),
-        Stop: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Stop", handlers.Stop, req, deadline),
         Study: (req: StudyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Study", handlers.Study, req, deadline),
+        Stop: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Stop", handlers.Stop, req, deadline),
     };
 }
 
-export interface CrimeServiceHandlers {
-    Snapshot: (req: Empty, ctx?: rpc.CallContext) => Promise<CrimeSnapshot> | CrimeSnapshot;
-    Commit: (req: CrimeRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+export interface JobServiceHandlers {
+    ApplyToCompany: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<JobReply> | JobReply;
+    WorkForCompany: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+    QuitJob: (req: CompanyRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
 }
 
-export function NewCrimeServiceClient(ns: NS, targetPort = CrimeServicePort) {
+export function NewJobServiceClient(ns: NS, targetPort = JobServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        ApplyToCompany: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<JobReply>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "JobService", method: "ApplyToCompany", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.ApplyToCompany could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.ApplyToCompany timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<JobReply>;
+        },
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        WorkForCompany: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "JobService", method: "WorkForCompany", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.WorkForCompany could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.WorkForCompany timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        QuitJob: async (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<CompanyRequest> = { service: "JobService", method: "QuitJob", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.QuitJob could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.QuitJob timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
+    };
+}
+
+export function RegisterJobService(server: rpc.RpcServer, handlers: JobServiceHandlers) {
+    server.registerService("JobService", handlers as unknown as Record<string, Function>);
+}
+
+export type JobServiceClient = ReturnType<typeof NewJobServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses JobService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewJobServiceLocalClient(handlers: JobServiceHandlers): JobServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to JobService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        ApplyToCompany: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("ApplyToCompany", handlers.ApplyToCompany, req, deadline),
+        WorkForCompany: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("WorkForCompany", handlers.WorkForCompany, req, deadline),
+        QuitJob: (req: CompanyRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("QuitJob", handlers.QuitJob, req, deadline),
+    };
+}
+
+export interface CrimeInfoServiceHandlers {
+    Snapshot: (req: Empty, ctx?: rpc.CallContext) => Promise<CrimeSnapshot> | CrimeSnapshot;
+}
+
+export function NewCrimeInfoServiceClient(ns: NS, targetPort = CrimeInfoServicePort) {
     return {
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
@@ -506,22 +750,57 @@ export function NewCrimeServiceClient(ns: NS, targetPort = CrimeServicePort) {
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<Empty> = { service: "CrimeService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<Empty> = { service: "CrimeInfoService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to CrimeService.Snapshot could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to CrimeInfoService.Snapshot could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to CrimeService.Snapshot timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to CrimeInfoService.Snapshot timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
             return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<CrimeSnapshot>;
         },
+    };
+}
+
+export function RegisterCrimeInfoService(server: rpc.RpcServer, handlers: CrimeInfoServiceHandlers) {
+    server.registerService("CrimeInfoService", handlers as unknown as Record<string, Function>);
+}
+
+export type CrimeInfoServiceClient = ReturnType<typeof NewCrimeInfoServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses CrimeInfoService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewCrimeInfoServiceLocalClient(handlers: CrimeInfoServiceHandlers): CrimeInfoServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to CrimeInfoService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        Snapshot: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
+    };
+}
+
+export interface CrimeServiceHandlers {
+    Commit: (req: CrimeRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+}
+
+export function NewCrimeServiceClient(ns: NS, targetPort = CrimeServicePort) {
+    return {
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
         Commit: async (req: CrimeRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
@@ -569,60 +848,34 @@ export function NewCrimeServiceLocalClient(handlers: CrimeServiceHandlers): Crim
         }
     };
     return {
-        Snapshot: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
         Commit: (req: CrimeRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Commit", handlers.Commit, req, deadline),
     };
 }
 
-export interface AugmentPurchaseServiceHandlers {
-    Snapshot: (req: Empty, ctx?: rpc.CallContext) => Promise<PurchaseSnapshot> | PurchaseSnapshot;
+export interface AugBuyServiceHandlers {
     Purchase: (req: PurchaseRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
     Donate: (req: DonateRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
-    UpgradeHomeRam: (req: Empty, ctx?: rpc.CallContext) => Promise<HomeRamReply> | HomeRamReply;
-    Install: (req: InstallRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
 }
 
-export function NewAugmentPurchaseServiceClient(ns: NS, targetPort = AugmentPurchaseServicePort) {
+export function NewAugBuyServiceClient(ns: NS, targetPort = AugBuyServicePort) {
     return {
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        Snapshot: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<PurchaseSnapshot>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<Empty> = { service: "AugmentPurchaseService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Snapshot could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Snapshot timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<PurchaseSnapshot>;
-        },
         // `deadline`: when the caller needs the answer by (system/deadline.ts) -
         // a Deadline passed down from its own caller, or milliseconds from now.
         Purchase: async (req: PurchaseRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<PurchaseRequest> = { service: "AugmentPurchaseService", method: "Purchase", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<PurchaseRequest> = { service: "AugBuyService", method: "Purchase", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Purchase could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugBuyService.Purchase could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Purchase timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugBuyService.Purchase timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -634,61 +887,17 @@ export function NewAugmentPurchaseServiceClient(ns: NS, targetPort = AugmentPurc
             const replyPort = rpc.nextReplyPort(ns);
             ns.clearPort(replyPort);
             const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<DonateRequest> = { service: "AugmentPurchaseService", method: "Donate", replyPort, payload: req, deadline: callDeadline.at };
+            const envelope: rpc.RpcEnvelope<DonateRequest> = { service: "AugBuyService", method: "Donate", replyPort, payload: req, deadline: callDeadline.at };
 
             // Ports hold a bounded number of entries; writePort silently evicts on overflow.
             const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
             if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Donate could not be queued.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugBuyService.Donate could not be queued.` };
             }
 
             const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
             if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Donate timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        UpgradeHomeRam: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<HomeRamReply>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<Empty> = { service: "AugmentPurchaseService", method: "UpgradeHomeRam", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.UpgradeHomeRam could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.UpgradeHomeRam timed out.` };
-            }
-
-            // The server replies with JSON.stringify(response); parse it back.
-            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<HomeRamReply>;
-        },
-        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
-        // a Deadline passed down from its own caller, or milliseconds from now.
-        Install: async (req: InstallRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
-            const replyPort = rpc.nextReplyPort(ns);
-            ns.clearPort(replyPort);
-            const callDeadline = toDeadline(deadline);
-            const envelope: rpc.RpcEnvelope<InstallRequest> = { service: "AugmentPurchaseService", method: "Install", replyPort, payload: req, deadline: callDeadline.at };
-
-            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
-            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
-            if (!queued) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Install could not be queued.` };
-            }
-
-            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
-            if (!replied) {
-                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.Install timed out.` };
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugBuyService.Donate timed out.` };
             }
 
             // The server replies with JSON.stringify(response); parse it back.
@@ -697,21 +906,102 @@ export function NewAugmentPurchaseServiceClient(ns: NS, targetPort = AugmentPurc
     };
 }
 
-export function RegisterAugmentPurchaseService(server: rpc.RpcServer, handlers: AugmentPurchaseServiceHandlers) {
-    server.registerService("AugmentPurchaseService", handlers as unknown as Record<string, Function>);
+export function RegisterAugBuyService(server: rpc.RpcServer, handlers: AugBuyServiceHandlers) {
+    server.registerService("AugBuyService", handlers as unknown as Record<string, Function>);
 }
 
-export type AugmentPurchaseServiceClient = ReturnType<typeof NewAugmentPurchaseServiceClient>;
+export type AugBuyServiceClient = ReturnType<typeof NewAugBuyServiceClient>;
 
 /**
  * The same client, calling `handlers` in-process instead of over a port -
- * for tests of anything that uses AugmentPurchaseService: no ports or game needed, same
+ * for tests of anything that uses AugBuyService: no ports or game needed, same
  * RpcResponse results, deadlines and error statuses as the real thing.
  */
-export function NewAugmentPurchaseServiceLocalClient(handlers: AugmentPurchaseServiceHandlers): AugmentPurchaseServiceClient {
+export function NewAugBuyServiceLocalClient(handlers: AugBuyServiceHandlers): AugBuyServiceClient {
     const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
         const callDeadline = toDeadline(deadline);
-        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugmentPurchaseService.${method} arrived after its deadline.` };
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to AugBuyService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        Purchase: (req: PurchaseRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Purchase", handlers.Purchase, req, deadline),
+        Donate: (req: DonateRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Donate", handlers.Donate, req, deadline),
+    };
+}
+
+export interface InstallServiceHandlers {
+    Snapshot: (req: Empty, ctx?: rpc.CallContext) => Promise<InstallSnapshot> | InstallSnapshot;
+    Install: (req: InstallRequest, ctx?: rpc.CallContext) => Promise<Done> | Done;
+}
+
+export function NewInstallServiceClient(ns: NS, targetPort = InstallServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Snapshot: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<InstallSnapshot>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<Empty> = { service: "InstallService", method: "Snapshot", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InstallService.Snapshot could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InstallService.Snapshot timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<InstallSnapshot>;
+        },
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        Install: async (req: InstallRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<Done>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<InstallRequest> = { service: "InstallService", method: "Install", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InstallService.Install could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InstallService.Install timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<Done>;
+        },
+    };
+}
+
+export function RegisterInstallService(server: rpc.RpcServer, handlers: InstallServiceHandlers) {
+    server.registerService("InstallService", handlers as unknown as Record<string, Function>);
+}
+
+export type InstallServiceClient = ReturnType<typeof NewInstallServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses InstallService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewInstallServiceLocalClient(handlers: InstallServiceHandlers): InstallServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to InstallService.${method} arrived after its deadline.` };
         try {
             return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
         } catch (err: any) {
@@ -720,10 +1010,64 @@ export function NewAugmentPurchaseServiceLocalClient(handlers: AugmentPurchaseSe
     };
     return {
         Snapshot: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Snapshot", handlers.Snapshot, req, deadline),
-        Purchase: (req: PurchaseRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Purchase", handlers.Purchase, req, deadline),
-        Donate: (req: DonateRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Donate", handlers.Donate, req, deadline),
-        UpgradeHomeRam: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("UpgradeHomeRam", handlers.UpgradeHomeRam, req, deadline),
         Install: (req: InstallRequest, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("Install", handlers.Install, req, deadline),
+    };
+}
+
+export interface HomeRamServiceHandlers {
+    UpgradeHomeRam: (req: Empty, ctx?: rpc.CallContext) => Promise<HomeRamReply> | HomeRamReply;
+}
+
+export function NewHomeRamServiceClient(ns: NS, targetPort = HomeRamServicePort) {
+    return {
+        // `deadline`: when the caller needs the answer by (system/deadline.ts) -
+        // a Deadline passed down from its own caller, or milliseconds from now.
+        UpgradeHomeRam: async (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS): Promise<rpc.RpcResponse<HomeRamReply>> => {
+            const replyPort = rpc.nextReplyPort(ns);
+            ns.clearPort(replyPort);
+            const callDeadline = toDeadline(deadline);
+            const envelope: rpc.RpcEnvelope<Empty> = { service: "HomeRamService", method: "UpgradeHomeRam", replyPort, payload: req, deadline: callDeadline.at };
+
+            // Ports hold a bounded number of entries; writePort silently evicts on overflow.
+            const queued = await rpc.pollWithBackoff(ns, () => ns.tryWritePort(targetPort, JSON.stringify(envelope)), callDeadline.at);
+            if (!queued) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to HomeRamService.UpgradeHomeRam could not be queued.` };
+            }
+
+            const replied = await rpc.pollWithBackoff(ns, () => ns.peek(replyPort) !== "NULL PORT DATA", callDeadline.at);
+            if (!replied) {
+                return { status: Codes.DEADLINE_EXCEEDED, error: `Call to HomeRamService.UpgradeHomeRam timed out.` };
+            }
+
+            // The server replies with JSON.stringify(response); parse it back.
+            return JSON.parse(ns.readPort(replyPort) as string) as rpc.RpcResponse<HomeRamReply>;
+        },
+    };
+}
+
+export function RegisterHomeRamService(server: rpc.RpcServer, handlers: HomeRamServiceHandlers) {
+    server.registerService("HomeRamService", handlers as unknown as Record<string, Function>);
+}
+
+export type HomeRamServiceClient = ReturnType<typeof NewHomeRamServiceClient>;
+
+/**
+ * The same client, calling `handlers` in-process instead of over a port -
+ * for tests of anything that uses HomeRamService: no ports or game needed, same
+ * RpcResponse results, deadlines and error statuses as the real thing.
+ */
+export function NewHomeRamServiceLocalClient(handlers: HomeRamServiceHandlers): HomeRamServiceClient {
+    const call = async <Req, Res>(method: string, fn: (req: Req, ctx?: rpc.CallContext) => Promise<Res> | Res, req: Req, deadline: Deadline | number): Promise<rpc.RpcResponse<Res>> => {
+        const callDeadline = toDeadline(deadline);
+        if (expired(callDeadline)) return { status: Codes.DEADLINE_EXCEEDED, error: `Call to HomeRamService.${method} arrived after its deadline.` };
+        try {
+            return { status: Codes.OK, data: await fn(req, { deadline: callDeadline }) };
+        } catch (err: any) {
+            return { status: err instanceof rpc.RpcError ? err.status : Codes.INTERNAL, error: err?.message || String(err) };
+        }
+    };
+    return {
+        UpgradeHomeRam: (req: Empty, deadline: Deadline | number = rpc.DEFAULT_TIMEOUT_MS) => call("UpgradeHomeRam", handlers.UpgradeHomeRam, req, deadline),
     };
 }
 

@@ -6,5 +6,15 @@
   "faction_services.FactionInfoService": 14,
   "faction_services.FactionWorkService": 15,
   "faction_services.CrimeService": 16,
-  "faction_services.AugmentPurchaseService": 17
+  "faction_services.AugmentPurchaseService": 17,
+  "faction_services.AugCatalogService": 18,
+  "faction_services.AugDetailService": 19,
+  "faction_services.StandingService": 20,
+  "faction_services.InviteService": 21,
+  "faction_services.WorkService": 22,
+  "faction_services.JobService": 23,
+  "faction_services.CrimeInfoService": 24,
+  "faction_services.AugBuyService": 25,
+  "faction_services.InstallService": 26,
+  "faction_services.HomeRamService": 27
 }

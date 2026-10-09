@@ -20,9 +20,22 @@ export type CurrentWork = {
   crimeType?: string;
 } | null;
 
+/** One tick's snapshots, from the faction services (faction_services.proto). */
+export type FactionSnapshots = {
+  standing: fs_pb.StandingSnapshot;
+  catalog: fs_pb.CatalogSnapshot;
+  details: fs_pb.DetailSnapshot;
+  invites: fs_pb.InviteSnapshot;
+  work: fs_pb.WorkSnapshot;
+  // Absent without the crime info service: crime decisions wait then.
+  crimes?: fs_pb.CrimeSnapshot;
+};
+
+type AugEntry = { price: number; repReq: number; prereqs: string[]; stats: fs_pb.Stat[] };
+
 export class FactionView {
   private readonly offers = new Map<string, string[]>();
-  private readonly augs = new Map<string, fs_pb.Augmentation>();
+  private readonly augs = new Map<string, AugEntry>();
   private readonly standing = new Map<string, fs_pb.Standing>();
   private readonly companies = new Map<string, number>();
   private readonly requirements = new Map<string, PlayerRequirement[]>();
@@ -34,18 +47,23 @@ export class FactionView {
   readonly invitations: string[];
   readonly currentWork: CurrentWork;
 
-  constructor(info: fs_pb.InfoSnapshot, work: fs_pb.WorkSnapshot, crimes?: fs_pb.CrimeSnapshot) {
-    for (const o of info.offers ?? []) this.offers.set(o.faction ?? "", o.augmentations ?? []);
-    for (const a of info.augmentations ?? []) this.augs.set(a.name ?? "", a);
-    for (const s of info.standings ?? []) this.standing.set(s.faction ?? "", s);
-    for (const c of info.companyStandings ?? []) this.companies.set(c.company ?? "", c.rep ?? 0);
-    for (const r of work.requirements ?? []) this.requirements.set(r.faction ?? "", JSON.parse(r.requirementsJson || "[]") as PlayerRequirement[]);
+  constructor(snaps: FactionSnapshots) {
+    const { standing, catalog, details, invites, work, crimes } = snaps;
+    for (const o of catalog.offers ?? []) this.offers.set(o.faction ?? "", o.augmentations ?? []);
+    const detailOf = new Map((details.details ?? []).map((d) => [d.name ?? "", d]));
+    for (const p of catalog.prices ?? []) {
+      const d = detailOf.get(p.name ?? "");
+      this.augs.set(p.name ?? "", { price: p.price ?? Infinity, repReq: p.repReq ?? Infinity, prereqs: d?.prereqs ?? [], stats: d?.stats ?? [] });
+    }
+    for (const s of standing.standings ?? []) this.standing.set(s.faction ?? "", s);
+    for (const c of standing.companyStandings ?? []) this.companies.set(c.company ?? "", c.rep ?? 0);
+    for (const r of invites.requirements ?? []) this.requirements.set(r.faction ?? "", JSON.parse(r.requirementsJson || "[]") as PlayerRequirement[]);
     for (const t of work.workTypes ?? []) this.types.set(t.faction ?? "", t.types ?? []);
     for (const c of crimes?.crimes ?? []) this.crimeInfo.set(c.crime ?? "", c);
-    this.ownedWithQueued = info.ownedWithQueued ?? [];
-    this.installed = info.installed ?? [];
-    this.favorToDonate = info.favorToDonate ?? Infinity;
-    this.invitations = work.invitations ?? [];
+    this.ownedWithQueued = standing.ownedWithQueued ?? [];
+    this.installed = standing.installed ?? [];
+    this.favorToDonate = standing.favorToDonate ?? Infinity;
+    this.invitations = invites.invitations ?? [];
     this.currentWork = JSON.parse(work.currentWorkJson || "null") as CurrentWork;
   }
 
@@ -66,7 +84,7 @@ export class FactionView {
       for (const name of this.offered(faction)) {
         const aug = this.augs.get(name);
         if (!aug) continue;
-        catalog.push({ name, faction, price: aug.price ?? Infinity, repReq: aug.repReq ?? Infinity, prereqs: aug.prereqs ?? [], stats: this.statsOf(name) });
+        catalog.push({ name, faction, price: aug.price, repReq: aug.repReq, prereqs: aug.prereqs, stats: this.statsOf(name) });
       }
     }
     return catalog;

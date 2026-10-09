@@ -702,19 +702,19 @@ async function executeEligibilityAction(
       return false;
 
     case "quitJob":
-      await c.work.QuitJob({ company: action.company }, deadline);
+      await c.job.QuitJob({ company: action.company }, deadline);
       await log.info(`[Faction] Quit job at ${action.company} to clear a criminal-faction requirement.`);
       return false;
 
     case "applyToCompany": {
-      const job = (await c.work.ApplyToCompany({ company: action.company, field: action.field }, deadline)).data?.job;
+      const job = (await c.job.ApplyToCompany({ company: action.company, field: action.field }, deadline)).data?.job;
       if (job) await log.info(`[Faction] Applied to ${action.company}, hired as ${job}.`);
       return false;
     }
 
     case "workForCompany":
       if (!(current?.type === "COMPANY" && current.companyName === action.company)) {
-        if (succeeded(await c.work.WorkForCompany({ company: action.company }, deadline))) {
+        if (succeeded(await c.job.WorkForCompany({ company: action.company }, deadline))) {
           await log.info(`[Faction] Working for ${action.company} to build reputation toward its faction invite.`);
         }
       }
@@ -843,7 +843,7 @@ async function gatherCompanyTargets(
     const need = companyRepRequirement(view.requirementsOf(faction));
     if (!need) continue;
     const before = jobs[need.company];
-    const job = (await c.work.ApplyToCompany({ company: need.company, field: config.companyJobField }, deadline)).data?.job;
+    const job = (await c.job.ApplyToCompany({ company: need.company, field: config.companyJobField }, deadline)).data?.job;
     if (job && job !== before) await log.info(`[Faction] ${before ? "Promoted" : "Hired"} at ${need.company}: ${job} (toward the ${faction} invite).`);
     candidates.push({ faction, company: need.company, rep: view.companyRepOf(need.company), needed: need.reputation });
   }
@@ -1005,9 +1005,9 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   const request = viewRequest(config, ns.getPlayer().factions);
   const workSnapshot = await fetchWork(c, request, deadline);
   if (isFailure(workSnapshot)) return reportFailure(log, workSnapshot);
-  const toJoin = decideFactionsToJoin(workSnapshot.invitations ?? [], request.joined, config.joinAllowlist);
+  const toJoin = decideFactionsToJoin(workSnapshot.invites.invitations ?? [], request.joined, config.joinAllowlist);
   for (const faction of toJoin) {
-    if (succeeded(await c.work.Join({ faction }, deadline))) await log.info(`[Faction] Joined ${faction}.`);
+    if (succeeded(await c.invite.Join({ faction }, deadline))) await log.info(`[Faction] Joined ${faction}.`);
   }
 
   // Re-read rather than reuse the pre-join snapshot - joinFaction takes
@@ -1421,7 +1421,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   };
 
   if (purchaseDecision.kind === "buy") {
-    if (succeeded(await c.purchase.Purchase({ faction: purchaseDecision.faction, augmentation: purchaseDecision.augmentation }, deadline))) {
+    if (succeeded(await c.buy.Purchase({ faction: purchaseDecision.faction, augmentation: purchaseDecision.augmentation }, deadline))) {
       await log.info(`[Faction] Purchased ${purchaseDecision.augmentation} from ${purchaseDecision.faction}.`);
     }
     if (config.autoInstall) refreshWindDown();
@@ -1462,7 +1462,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   // pending the focus cap drops back to 5 minutes, which clears the hold.
   if (installWanted && config.autoInstall && config.autoPurchaseAugmentations && pending.length === 0 && purchaseDecision.kind === "none") {
     const enabler = pickInstallEnabler(catalog, reps, owned, money);
-    if (enabler && succeeded(await c.purchase.Purchase({ faction: enabler.faction, augmentation: enabler.name }, deadline))) {
+    if (enabler && succeeded(await c.buy.Purchase({ faction: enabler.faction, augmentation: enabler.name }, deadline))) {
       await log.info(`[Faction] Bought ${enabler.name} from ${enabler.faction} so the install banking favor can happen (nothing else was pending).`);
       return;
     }
@@ -1504,13 +1504,13 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     }
   }
   // Unknown stock positions mustn't read as none: an install deletes them with no refund.
-  const purchaseSnapshot = (await c.purchase.Snapshot({}, deadline)).data;
+  const purchaseSnapshot = (await c.install.Snapshot({}, deadline)).data;
   if (!purchaseSnapshot) return;
   const heldPositions = purchaseSnapshot.positionsHeld ?? 0;
   const action = decidePreInstall(finalPurchase, heldPositions);
 
   if (action.kind === "buy") {
-    if (succeeded(await c.purchase.Purchase({ faction: action.faction, augmentation: action.augmentation }, deadline))) {
+    if (succeeded(await c.buy.Purchase({ faction: action.faction, augmentation: action.augmentation }, deadline))) {
       await log.info(`[Faction] Pre-install: purchased ${action.augmentation} from ${action.faction} with the remaining cash.`);
     }
     refreshWindDown();
@@ -1542,7 +1542,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   if (starting) {
     await log.info("[Faction] Augmentations done; spending the rest on gang equipment and home RAM before installing.");
   }
-  const upgrades = (await c.purchase.UpgradeHomeRam({}, deadline)).data;
+  const upgrades = (await c.homeRam.UpgradeHomeRam({}, deadline)).data;
   if (upgrades && (upgrades.costs ?? []).length > 0) {
     const spent = (upgrades.costs ?? []).reduce((a, b) => a + b, 0);
     await log.info(`[Faction] Pre-install: upgraded home RAM ${(upgrades.costs ?? []).length} time(s) to ${upgrades.ramAfter} GB ($${spent.toFixed(0)}).`);
@@ -1583,7 +1583,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
   }
   await log.info(`[Faction] Installing ${pending.length} augmentation(s) and rebooting into ${config.bootScript}...`);
   // The install ends every script, the purchase service included, before it can answer.
-  await c.purchase.Install({ bootScript: config.bootScript }, deadline);
+  await c.install.Install({ bootScript: config.bootScript }, deadline);
 }
 
 /**
@@ -1597,7 +1597,7 @@ function donatableFactions(view: FactionView, joinedFactions: string[], gangFact
 
 async function executeDonation(c: FactionClients, deadline: Deadline, log: Logger, donation: { faction: string; augmentation: string; amount: number }): Promise<void> {
   const amount = `$${(donation.amount / 1e9).toFixed(2)}B`;
-  if (succeeded(await c.purchase.Donate({ faction: donation.faction, amount: donation.amount }, deadline))) {
+  if (succeeded(await c.buy.Donate({ faction: donation.faction, amount: donation.amount }, deadline))) {
     await log.info(`[Faction] Donated ${amount} to ${donation.faction} to cover the reputation for ${donation.augmentation}.`);
   } else {
     await log.warn(`[Faction] Donation of ${amount} to ${donation.faction} (for ${donation.augmentation}) was refused.`);
