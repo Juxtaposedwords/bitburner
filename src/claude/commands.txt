@@ -913,6 +913,15 @@
       "script": "boot.js",
       "args": [],
       "note": "end the bootstrap test: boot starts the full system (it stops the bootstrap first)"
+    },
+    {
+      "id": "2026-10-09-ram-report-home-full",
+      "script": "tools/ram_report.js",
+      "args": [
+        "--out",
+        "/var/claude_out/ram_report.txt"
+      ],
+      "note": "what fills home (backdoor 6 GB didn't fit)"
     }
   ]
 }
