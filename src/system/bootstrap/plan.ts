@@ -149,3 +149,16 @@ export function hashIncomePerSec(hashesPerSec: number, sellCost: number): number
 // One level-1 server makes ~0.001 hashes/s ($250/s) - BN9's restart sat on
 // one for minutes, studying, with cash flat at $38,626.
 export const SEED_INCOME_PER_SEC = 1000;
+
+export type PlayerActivity = "crime" | "study" | "leave";
+
+/**
+ * What the bootstrap has the player do: a crime for money while the hacknet
+ * is the income (BitNode 9) and earns less than the crime would
+ * (SEED_INCOME_PER_SEC); otherwise the free course. Work someone started by
+ * hand is left alone - only idle time or the bootstrap's own crime changes.
+ */
+export function playerActivity(hacknetIncome: boolean, hashIncome: number, currentWork: string | undefined): PlayerActivity {
+  if (hacknetIncome && hashIncome < SEED_INCOME_PER_SEC) return currentWork === "CRIME" ? "leave" : "crime";
+  return !currentWork || currentWork === "CRIME" ? "study" : "leave";
+}

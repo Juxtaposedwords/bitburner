@@ -8,36 +8,37 @@ import {
   SERVICE_HOST_MIN_RAM,
   HACKNET_SPEND_FRACTION,
   HacknetOption,
+  playerActivity,
   pickHacknetPurchase,
   pickBootstrapTarget,
   requiredHomeRam,
   shouldHandOffToShopper,
   workerThreads,
 } from "system/bootstrap/plan";
+import { COMMANDS_DONE_PATH, COMMANDS_PATH, pendingCommands } from "system/reload_plan";
 
 /**
  * Low-RAM startup: a self-contained stand-in for the full system while home
- * is too small to hold its core (see bootstrap_plan.ts). boot.ts runs this
- * instead of everything else when home RAM is below requiredHomeRam.
+ * can't run it yet (fullSystemFits: the core plus room for the faction
+ * stack). boot.ts spawns this instead of everything else then.
  *
  * No supervisor, RPC, generated code, or config - direct calls only, so it
- * fits a fresh BitNode's home with room for workers. Every tick it:
- * 1. studies Computer Science at Rothman University while the player is
- *    idle - free, and hacking level is what the workers' income and the
- *    targets they can reach grow with. (It used to be Mug, for money - but
- *    every stat is 1 after a BitNode reset, so Mug succeeds ~2% of the time:
- *    ~$180/s. Study is also 3 GB cheaper here than commitCrime.)
- * 2. roots every server the owned port openers allow,
- * 3. runs system/bootstrap/bootstrap_worker.js on every rooted server and spare home RAM
- *    against the best early target (pickBootstrapTarget),
- * 4. once cash covers something worth buying (TOR, a port opener, the next
- *    home RAM upgrade - shouldHandOffToShopper), stops its workers, runs
- *    the program shopper for one pass (`--once`: it buys everything it
- *    can, then runs boot.js), and exits. The purchase calls live only in
- *    the shopper, saving 7 GB here for workers; boot.js then picks
- *    bootstrap again, or the full system once home is big enough.
- * 5. once home fits the full system, stops its workers, runs boot.js, and
- *    exits.
+ * fits a fresh BitNode's 32 GB home. Every tick it:
+ * 1. keeps the player busy (playerActivity): the free Computer Science
+ *    course - or, in BitNode 9 while the hacknet earns little, a crime for
+ *    the money hacking can't make there;
+ * 2. in BitNode 9, sells every hash and buys the cheapest hacknet upgrades
+ *    (runHacknet) - hashes are that BitNode's income;
+ * 3. roots every server the owned port openers allow, and runs
+ *    bootstrap_worker.js on them against one early target
+ *    (pickBootstrapTarget);
+ * 4. once cash covers something worth buying (shouldHandOffToShopper),
+ *    spawns the program shopper for one pass (`--once`: it buys, then runs
+ *    boot.js) - spawned, so it gets this script's RAM;
+ * 5. once the full system fits, spawns boot.js (unless `--hold`, which
+ *    keeps it here for testing on a big home);
+ * 6. runs the Claude command queue (the reloader isn't running), and
+ *    restarts through boot.js when its own code changes.
  */
 const WORKER = "system/bootstrap/bootstrap_worker.js";
 const SHOPPER = "hacking/program_shopper.js";
@@ -47,7 +48,6 @@ const HOME = "home";
 const UNIVERSITY = "Rothman University";
 const COURSE = "Computer Science";
 const TICK_MS = 10_000;
-const SLEEVE_KICK = "system/bootstrap/bootstrap_sleeves.js";
 const STATUS_FILE = "/var/bootstrap_status.txt";
 
 const OPENERS: [string, (ns: NS, host: string) => void][] = [
@@ -170,6 +170,27 @@ function runHacknet(ns: NS): string {
   return ` hacknet=${ns.hacknet.numNodes()} sold=${sold} bought=${bought}`;
 }
 
+// Tries at starting one queued command before giving up on it.
+const MAX_COMMAND_TRIES = 6;
+const commandTries = new Map<string, number>();
+
+/**
+ * The Claude command queue, as the reloader runs it (it doesn't run in
+ * bootstrap mode, so queued tools waited until the full system started).
+ */
+function runCommandQueue(ns: NS): void {
+  const done = new Set<string>((ns.read(COMMANDS_DONE_PATH) || "").split("\n").filter(Boolean));
+  for (const { command, allowed } of pendingCommands(ns.read(COMMANDS_PATH), done)) {
+    const tries = (commandTries.get(command.id) ?? 0) + 1;
+    commandTries.set(command.id, tries);
+    const ran = allowed && ns.run(command.script, 1, ...(command.args ?? [])) !== 0;
+    if (ran || tries >= MAX_COMMAND_TRIES) {
+      done.add(command.id);
+      ns.write(COMMANDS_DONE_PATH, [...done].join("\n"), "w");
+    }
+  }
+}
+
 export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   // BitNode 9 earns through hacknet servers (runHacknet), not hacking.
@@ -178,8 +199,8 @@ export async function main(ns: NS): Promise<void> {
   // Leave room on home to run boot.js at handoff.
   const homeKeepGb = ns.getScriptRam(BOOT, HOME);
   let target: string | undefined;
-  // Idle sleeves to crime once, before workers take the RAM (system/bootstrap/bootstrap_sleeves.ts).
-  if (ns.fileExists(SLEEVE_KICK, HOME)) ns.run(SLEEVE_KICK);
+  // Testing on a big home: stay in bootstrap mode even once the full system fits.
+  const hold = ns.args.includes("--hold");
 
   // The reloader doesn't run in bootstrap mode, so new code never applied
   // until someone restarted this by hand (BN9, several times): when this
@@ -196,10 +217,10 @@ export async function main(ns: NS): Promise<void> {
 
     const roomy = hosts.filter((h) => h !== HOME && ns.hasRootAccess(h) && ns.getServerMaxRam(h) >= SERVICE_HOST_MIN_RAM).length;
     const stackRams = FACTION_STACK.map((script) => ns.getScriptRam(script, HOME));
-    if (fullSystemFits(ns.getServerMaxRam(HOME), required, stackRams, roomy)) {
-      ns.tprint(`[Bootstrap] Home has ${ns.getServerMaxRam(HOME)} GB (full system needs ${required.toFixed(1)}); handing over to ${BOOT}.`);
+    if (!hold && fullSystemFits(ns.getServerMaxRam(HOME), required, stackRams, roomy)) {
+      ns.tprint(`[Bootstrap] Home has ${ns.getServerMaxRam(HOME)} GB and ${roomy} hacked server(s) for the faction services; handing over to ${BOOT}.`);
       stopWorkers(ns, hosts);
-      ns.run(BOOT);
+      ns.spawn(BOOT, { spawnDelay: 500 });
       return;
     }
 
@@ -213,25 +234,22 @@ export async function main(ns: NS): Promise<void> {
     // servers make a few hundred $/s, while study makes nothing.
     const hashRate = Array.from({ length: ns.hacknet.numNodes() }, (_, i) => ns.hacknet.getNodeStats(i).production).reduce((a, b) => a + b, 0);
     const hashIncome = hashIncomePerSec(hashRate, ns.hacknet.hashCost(SELL_FOR_MONEY));
+    const activity = playerActivity(hacknetIncome, hashIncome, work?.type);
+    if (activity === "crime") ns.singularity.commitCrime(SEED_CRIME as CrimeName, false);
+    else if (activity === "study") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
     const needSeedMoney = hacknetIncome && hashIncome < SEED_INCOME_PER_SEC;
-    if (needSeedMoney) {
-      if (work?.type !== "CRIME") ns.singularity.commitCrime(SEED_CRIME as CrimeName, false);
-    } else if (!work || work.type === "CRIME") ns.singularity.universityCourse(UNIVERSITY as UniversityName, COURSE as CourseName, false);
     rootAll(ns, hosts);
 
     if (readyToShop(ns)) {
-      // The course keeps going on its own; the shopper runs boot.js when done.
-      // Only hand off once it has actually started: on a fresh 32 GB home it
-      // can fail for RAM, and exiting anyway left nothing running at all
-      // (BN12's second start sat dead from its first TOR purchase).
+      // Spawned, so the shopper gets this script's RAM: run beside it (26.55
+      // + 12.15 GB) it never fit a fresh 32 GB home, and nothing was bought.
+      // The course or crime keeps going on its own; the shopper runs boot.js.
       stopWorkers(ns, hosts);
-      if (ns.run(SHOPPER, 1, "--once") !== 0) {
-        ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} handed off to ${SHOPPER} --once (it runs boot.js when done)\n`, "w");
-        return;
-      }
-      ns.print(`[Bootstrap] ${SHOPPER} didn't start (RAM?); bootstrapping on.`);
-      ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} ${SHOPPER} didn't start (needs ${ns.getScriptRam(SHOPPER, HOME)} GB, ${(ns.getServerMaxRam(HOME) - ns.getServerUsedRam(HOME)).toFixed(1)} GB free); bootstrapping on\n`, "w");
+      ns.write(STATUS_FILE, `[Bootstrap] ${new Date().toLocaleTimeString()} handing off to ${SHOPPER} --once (it runs boot.js when done)\n`, "w");
+      ns.spawn(SHOPPER, { spawnDelay: 500 }, "--once");
+      return;
     }
+    runCommandQueue(ns);
 
     const next = pickBootstrapTarget(
       hosts.map((host) => ({

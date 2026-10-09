@@ -22,6 +22,7 @@ const MONITORING_SCRIPT = "system/monitoring/monitoring_daemon.js";
 const SHARE_SCRIPT = "hacking/share_daemon.js";
 const GO_SCRIPT = "go/go_daemon.js";
 const BOOTSTRAP_SCRIPT = "system/bootstrap/bootstrap.js";
+const SLEEVE_KICK_SCRIPT = "system/bootstrap/bootstrap_sleeves.js";
 const SLEEVE_SCRIPT = "sleeves/sleeve_daemon.js";
 const SUPERVISOR_SCRIPT = "system/supervisor.js";
 // The faction daemon's game calls, as services (docs/faction_split.md).
@@ -174,7 +175,12 @@ export async function main(ns: NS): Promise<void> {
     // Spawned, not run: the game ends this script first, so the bootstrap
     // (~27 GB) gets a fresh 32 GB home to itself rather than what's left
     // beside boot (~20 GB).
-    if (!ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) ns.spawn(BOOTSTRAP_SCRIPT, { spawnDelay: 1000 });
+    if (!ns.scriptRunning(BOOTSTRAP_SCRIPT, "home")) {
+      // Idle sleeves to a crime first - the bootstrap has no room to run
+      // this one-shot beside itself on a 32 GB home.
+      if (ns.fileExists(SLEEVE_KICK_SCRIPT, "home")) await launchAndWait(ns, SLEEVE_KICK_SCRIPT, ONE_SHOT_TIMEOUT_MS);
+      ns.spawn(BOOTSTRAP_SCRIPT, { spawnDelay: 1000 });
+    }
     return;
   }
 

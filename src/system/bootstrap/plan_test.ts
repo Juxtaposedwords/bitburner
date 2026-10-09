@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fullSystemFits, hashIncomePerSec, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
+import { fullSystemFits, playerActivity, hashIncomePerSec, pickBootstrapTarget, pickHacknetPurchase, requiredHomeRam, shouldHandOffToShopper, TOR_COST, workerThreads } from "system/bootstrap/plan";
 
 describe("requiredHomeRam", () => {
   it("sums the core scripts' RAM plus the margin", () => {
@@ -112,5 +112,18 @@ describe("hashIncomePerSec", () => {
     expect(hashIncomePerSec(0.001, 4)).toBe(250);
     expect(hashIncomePerSec(1, 4)).toBe(250_000);
     expect(hashIncomePerSec(1, 0)).toBe(0);
+  });
+});
+
+describe("playerActivity", () => {
+  it("commits a crime for money while the hacknet earns less than that (BN9)", () => {
+    expect(playerActivity(true, 250, undefined)).toBe("crime");
+    expect(playerActivity(true, 250, "CRIME")).toBe("leave");
+    expect(playerActivity(true, 250, "CLASS")).toBe("crime");
+  });
+  it("otherwise studies in idle time or after its own crime, never over other work", () => {
+    expect(playerActivity(true, 5000, "CRIME")).toBe("study");
+    expect(playerActivity(false, 0, undefined)).toBe("study");
+    expect(playerActivity(false, 0, "FACTION")).toBe("leave");
   });
 });
