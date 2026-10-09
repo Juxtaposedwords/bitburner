@@ -36,7 +36,7 @@ const FACTION_SERVICES = FACTIONS_SERVICE_SCRIPTS;
 // while rooted 128 GB servers stood by.
 // And the gang daemon (32.5 GB), which creates the gang once karma allows.
 // And the study daemon (25 GB), which BN9 held behind a full home.
-const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT, GANG_SCRIPT, STUDY_SCRIPT];
+const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT, GANG_SCRIPT, STUDY_SCRIPT, STOCK_SCRIPT];
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
@@ -247,11 +247,14 @@ export async function main(ns: NS): Promise<void> {
     [SLEEVE_SCRIPT, sleeves],
     [GANG_SCRIPT, gang],
     [STUDY_SCRIPT, singularity],
+    // The gauges and run milestones every evaluation reads - ahead of the
+    // optional economy daemons.
+    [MONITORING_SCRIPT, true],
     [BACKDOOR_SCRIPT, singularity],
     [STOCK_SCRIPT, true],
     [STOCK_TARGET_SCRIPT, true],
-    [PURCHASED_SERVER_SCRIPT, true],
-    [MONITORING_SCRIPT, true],
+    // Nothing to do where the BitNode allows no purchased servers (BN9).
+    [PURCHASED_SERVER_SCRIPT, (bitNode?.multipliers?.CloudServerLimit ?? 1) > 0],
     [SHARE_SCRIPT, true],
     [GO_SCRIPT, true],
   ];

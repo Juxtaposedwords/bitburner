@@ -1,4 +1,5 @@
 import { NS } from "@ns";
+import { remoteAwareLoop } from "system/remote_state";
 import { loadJsonConfig } from "system/config";
 import { isInstallPendingActive, readInstallPending } from "system/install_handshake";
 import { effectiveReserve, readSavings, shouldLiquidateForSavings } from "system/savings";
@@ -250,15 +251,10 @@ export async function main(ns: NS): Promise<void> {
   // hung process from the logs alone.
   const log = createLogger(ns, "Stock", LOG_LEVEL.DEBUG);
 
-  await log.info("=== Stock market manager online ===");
-
-  while (true) {
+  await log.info(`=== Stock market manager online (${ns.getHostname()}) ===`);
+  // Runs anywhere boot finds room (remoteAwareLoop).
+  await remoteAwareLoop(ns, TICK_INTERVAL_MS, async () => {
     const config = loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
-
-    if (config.enabled) {
-      await tick(ns, log, config);
-    }
-
-    await ns.asleep(TICK_INTERVAL_MS);
-  }
+    if (config.enabled) await tick(ns, log, config);
+  });
 }
