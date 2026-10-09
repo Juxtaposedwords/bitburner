@@ -40,9 +40,14 @@ export function writeDaemonHosts(ns: NS, hosts: string[]): void {
   ns.write(DAEMON_HOSTS_PATH, JSON.stringify({ hosts: [...new Set(hosts)], writtenAt: Date.now() } satisfies DaemonHostsFile), "w");
 }
 
-/** Every server other than home that may run daemons: the purchased fallback and the recorded hacked ones. */
+/**
+ * Every existing server other than home that may run daemons: the purchased
+ * fallback and the recorded hacked ones. Only ones that exist - ns calls
+ * throw on an unknown hostname, and BitNode 9 has no purchased servers
+ * (the faction daemon crashed on "daemons-0" there).
+ */
 export function daemonHosts(ns: NS): string[] {
-  return [DAEMON_HOST, ...readDaemonHosts(ns).filter((h) => h !== DAEMON_HOST)];
+  return [DAEMON_HOST, ...readDaemonHosts(ns).filter((h) => h !== DAEMON_HOST)].filter((h) => ns.serverExists(h));
 }
 
 // What's synced: configs and status files - not logs, the supervisor's own
