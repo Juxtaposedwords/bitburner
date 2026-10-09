@@ -3,6 +3,8 @@ import { effectiveReserve, readSavings } from "system/savings";
 import { readPhasePolicy } from "system/phase";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { loadJsonConfig } from "system/config";
+import { isRemote, pullState, pushState } from "system/remote_state";
+import { deadlineIn } from "system/deadline";
 import { createLogger, Logger, LOG_LEVEL } from "system/logs";
 import { CombatStat, FACTION_REPS_PATH, FactionRepsFile, gangTrainingStat, SLEEVE_SAVINGS_REASON } from "factions/faction_decisions";
 import { effectiveSkillMult, skillMultiplier } from "factions/skill_progress";
@@ -342,7 +344,7 @@ async function tick(ns: NS, log: Logger, config: SleeveConfig): Promise<void> {
 
   // Buying (sleeves, memory, augmentations) is a separate one-shot - its
   // API calls cost ~30 GB, too much to keep resident (sleeve_shop.ts).
-  if (Date.now() - lastShopRun >= SHOP_INTERVAL_MS && !ns.isRunning(SHOP_SCRIPT, "home") && ns.run(SHOP_SCRIPT) !== 0) lastShopRun = Date.now();
+  if (Date.now() - lastShopRun >= SHOP_INTERVAL_MS && !ns.isRunning(SHOP_SCRIPT, "home") && ns.exec(SHOP_SCRIPT, "home") !== 0) lastShopRun = Date.now();
   const shopFile = readShopFile(ns);
   const shop = shopFile ? { nextSleeveCost: shopFile.nextSleeveCost ?? Infinity, lastMessage: shopFile.lastMessage } : undefined;
   const status: SleevesFile = {
@@ -358,6 +360,12 @@ export async function main(ns: NS): Promise<void> {
   ns.disableLog("ALL");
   const log = createLogger(ns, "Sleeve", LOG_LEVEL.DEBUG);
 
+  // Off home (boot.ts placed it on a hacked server while home was small -
+  // BN9 held it behind a full 128 GB home), each tick works on a copy of
+  // home's state files: pulled before, changes pushed back after
+  // (system/remote_state.ts).
+  const remote = isRemote(ns);
+  if (remote) await pullState(ns, deadlineIn(TICK_INTERVAL_MS));
   const info = readBitNodeInfo(ns);
   if (!sleevesAvailable(info?.node, info?.sourceFiles)) {
     await log.info("[Sleeve] No sleeves in this BitNode (needs BitNode 10 or Source-File 10); exiting.");
@@ -365,9 +373,12 @@ export async function main(ns: NS): Promise<void> {
   }
   await log.info(`=== Sleeve manager online (${ns.sleeve.getNumSleeves()} sleeve(s)) ===`);
 
+  if (remote) await log.info(`[Sleeve] Running on ${ns.getHostname()}; syncing state with home each tick.`);
   while (true) {
+    const pulled = remote ? await pullState(ns, deadlineIn(TICK_INTERVAL_MS)) : undefined;
     const config = loadJsonConfig(ns, CONFIG_PATH, DEFAULT_CONFIG);
     if (config.enabled) await tick(ns, log, config);
+    if (pulled) await pushState(ns, pulled, deadlineIn(TICK_INTERVAL_MS));
     await ns.asleep(TICK_INTERVAL_MS);
   }
 }

@@ -33,7 +33,9 @@ const FACTION_SERVICES = [
 ];
 // Daemons boot may run off home while home is too small for them: on a
 // hacked server with room, else DAEMON_HOST (system/remote_place.ts).
-const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT];
+// The sleeve daemon too (64 GB): BN9 held it behind a full 128 GB home
+// while rooted 128 GB servers stood by.
+const REMOTE_OK = [...FACTION_SERVICES, FACTION_SCRIPT, SLEEVE_SCRIPT];
 
 // Long-running daemons. Idempotent launch matters here specifically for
 // supervisor.js: it owns a single RPC port, so a duplicate instance would
