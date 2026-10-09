@@ -55,6 +55,10 @@ type HacknetConfig = {
   // wipes the Hacknet, so this is roughly "how long until the next
   // install". 0 = no limit.
   maxPaybackHours: number;
+  // The payback limit where hashes are the income (hashesAreIncome, BitNode
+  // 9): the Hacknet is the economy and the BitNode lasts a day or more, so
+  // upgrades paying back within half a day still pay several times over.
+  hashIncomePaybackHours: number;
   // Sell for Money only past this fraction of hash capacity, while saving
   // for an upgrade that costs more than the hashes on hand.
   hashDrainAboveFraction: number;
@@ -74,6 +78,7 @@ const DEFAULT_CONFIG: HacknetConfig = {
   reserveMoney: 0,
   maxSpendFraction: 0.5,
   maxPaybackHours: 4,
+  hashIncomePaybackHours: 12,
   hashDrainAboveFraction: 0.9,
   incomeBudgetMinutes: 10,
   incomeShare: 0.05,
@@ -167,6 +172,12 @@ function executeInvestment(ns: NS, decision: PurchaseDecision): string | undefin
 }
 
 
+/** The payback limit in hours: longer where hashes are the income. */
+function paybackHours(ns: NS, config: HacknetConfig): number {
+  const info = readBitNodeInfo(ns);
+  return hashesAreIncome(info?.node, info?.multipliers) ? config.hashIncomePaybackHours : config.maxPaybackHours;
+}
+
 /**
  * decideNodeInvestment's payback limit. A hash is valued at what "Sell for
  * Money" pays for it - a floor, since the priority upgrades are bought
@@ -174,8 +185,9 @@ function executeInvestment(ns: NS, decision: PurchaseDecision): string | undefin
  * directly. undefined (no limit) when maxPaybackHours is 0.
  */
 function paybackLimit(ns: NS, config: HacknetConfig, isServerContext: boolean, validNames: Set<string>): MaxPayback | undefined {
-  if (!(config.maxPaybackHours > 0)) return undefined;
-  const seconds = config.maxPaybackHours * 3600;
+  const hours = paybackHours(ns, config);
+  if (!(hours > 0)) return undefined;
+  const seconds = hours * 3600;
   if (!isServerContext) return { seconds, valuePerUnit: 1 };
   if (!validNames.has(SELL_FOR_MONEY)) return undefined;
   return { seconds, valuePerUnit: SELL_FOR_MONEY_PAYOUT / ns.hacknet.hashCost(SELL_FOR_MONEY as HashUpgradeName) };
@@ -266,7 +278,7 @@ async function tick(ns: NS, log: Logger, configIn: HacknetConfig): Promise<void>
     if (i === 0) {
       await log.debug(
         `[Hacknet] node tick: money=$${money.toFixed(0)} budget=$${budget.toFixed(0)} candidates=${candidateCount} mode=${gainRate ? "ROI" : "cheapest-first"} ` +
-          `capacityBound=${capacityBound} policy=${policy.kind === "income" ? `income (max $${policy.maxItemCost.toExponential(2)} each)` : policy.kind === "none" ? "none (install loop)" : `payback ${config.maxPaybackHours}h`} ` +
+          `capacityBound=${capacityBound} policy=${policy.kind === "income" ? `income (max $${policy.maxItemCost.toExponential(2)} each)` : policy.kind === "none" ? "none (install loop)" : `payback ${paybackHours(ns, config)}h`} ` +
           `best=${bestCandidate ? `$${bestCandidate.cost.toFixed(0)} (${JSON.stringify(bestCandidate.decision)})` : "n/a"} -> ${decision.kind}`
       );
     }
