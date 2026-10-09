@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package home_ram;
+
+// HomeRamService: Home RAM upgrades (6.2 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message UpgradeHomeRamRequest {}
+
+message UpgradeHomeRamResponse {
+  // Upgrades bought this call, with what each cost and the RAM after it.
+  repeated double costs = 1;
+  double ramAfter = 2;
+}
+
+service HomeRamService {
+  // Buys upgrades while cash covers them (at most 50).
+  rpc UpgradeHomeRam (UpgradeHomeRamRequest) returns (UpgradeHomeRamResponse);
+}

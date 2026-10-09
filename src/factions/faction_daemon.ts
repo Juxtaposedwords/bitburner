@@ -746,7 +746,7 @@ async function executeEligibilityAction(
 
     case "commitCrime":
       if (!(current?.type === "CRIME" && current.crimeType === action.crime)) {
-        await c.crime.Commit({ crime: action.crime }, deadline);
+        await c.crime.CommitCrime({ crime: action.crime }, deadline);
         await log.info(`[Faction] Committing ${action.crime}.`);
         return true;
       }
@@ -1504,7 +1504,7 @@ async function tick(ns: NS, log: Logger, config: FactionConfig): Promise<void> {
     }
   }
   // Unknown stock positions mustn't read as none: an install deletes them with no refund.
-  const purchaseSnapshot = (await c.install.Snapshot({}, deadline)).data;
+  const purchaseSnapshot = (await c.install.GetInstallState({}, deadline)).data;
   if (!purchaseSnapshot) return;
   const heldPositions = purchaseSnapshot.positionsHeld ?? 0;
   const action = decidePreInstall(finalPurchase, heldPositions);

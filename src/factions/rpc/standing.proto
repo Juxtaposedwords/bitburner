@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package standing;
+
+import "faction_types.proto";
+
+// StandingService: Owned augmentations, faction rep and favor, company rep (9.7 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetStandingRequest {
+  repeated string factions = 1;
+  repeated string companies = 2;
+}
+
+message GetStandingResponse {
+  repeated faction_types.Standing standings = 1;
+  // Owned including bought-but-not-installed (getOwnedAugmentations(true)).
+  repeated string ownedWithQueued = 2;
+  // Installed only (getOwnedAugmentations(false)).
+  repeated string installed = 3;
+  double favorToDonate = 4;
+  repeated faction_types.CompanyStanding companyStandings = 5;
+}
+
+service StandingService {
+  rpc GetStanding (GetStandingRequest) returns (GetStandingResponse);
+}

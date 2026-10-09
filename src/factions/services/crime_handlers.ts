@@ -1,14 +1,14 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/crime";
 
 type CrimeTypeType = Parameters<NS["singularity"]["commitCrime"]>[0];
 
 /** CrimeService: committing a crime (it repeats on its own). */
-export function createCrimeHandlers(ns: NS): fs_pb.CrimeServiceHandlers {
+export function createCrimeHandlers(ns: NS): pb.CrimeServiceHandlers {
   return {
-    Commit: (req) => {
+    CommitCrime: (req) => {
       ns.singularity.commitCrime(req.crime as CrimeTypeType);
-      return { ok: true, detail: "" };
+      return { ok: true };
     },
   };
 }

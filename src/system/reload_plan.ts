@@ -1,4 +1,4 @@
-import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
+import { FACTIONS_SERVICE_SCRIPTS } from "factions/services/deploy";
 import { NS } from "@ns";
 /**
  * Pure logic for reloader.ts - no `ns`.
@@ -19,7 +19,7 @@ export const MANAGED_DAEMONS = [
   "hacking/network_daemon.js",
   "hacking/scheduler_daemon.js",
   "hacking/program_shopper.js",
-  ...FACTION_SERVICES_SCRIPTS,
+  ...FACTIONS_SERVICE_SCRIPTS,
   "factions/faction_daemon.js",
   "gang/gang_daemon.js",
   "sleeves/sleeve_daemon.js",

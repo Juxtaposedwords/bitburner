@@ -1,11 +1,11 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/home_ram";
 
 // Home RAM upgrades one UpgradeHomeRam call buys at most.
 const MAX_HOME_RAM_UPGRADES = 50;
 
 /** HomeRamService: buying home RAM while cash covers it. */
-export function createHomeRamHandlers(ns: NS): fs_pb.HomeRamServiceHandlers {
+export function createHomeRamHandlers(ns: NS): pb.HomeRamServiceHandlers {
   return {
     UpgradeHomeRam: () => {
       const costs: number[] = [];

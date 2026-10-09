@@ -35,15 +35,15 @@ export async function main(ns: NS): Promise<void> {
   const player = ns.getPlayer();
   const joined = player.factions;
 
-  const standing = await check("StandingService.Snapshot", () => c.standing.Snapshot({ factions: joined, companies: Object.keys(player.jobs) }, deadlineIn(5000)), undefined, (r) =>
+  const standing = await check("StandingService.GetStanding", () => c.standing.GetStanding({ factions: joined, companies: Object.keys(player.jobs) }, deadlineIn(5000)), undefined, (r) =>
     `${r.data?.installed?.length ?? 0} installed, ${r.data?.ownedWithQueued?.length ?? 0} owned, favor to donate ${r.data?.favorToDonate}`
   );
-  const catalog = await check("AugCatalogService.Snapshot", () => c.catalog.Snapshot({ factions: joined }, deadlineIn(5000)), undefined, (r) => `${r.data?.prices?.length ?? 0} augmentations priced`);
-  await check("AugDetailService.Snapshot", () => c.detail.Snapshot({ names: (catalog.data?.prices ?? []).map((p) => p.name ?? "") }, deadlineIn(5000)), undefined, (r) => `${r.data?.details?.length ?? 0} described`);
-  await check("InviteService.Snapshot", () => c.invite.Snapshot({ factions: ["Illuminati"] }, deadlineIn(5000)), undefined, (r) => `${r.data?.invitations?.length ?? 0} invitations`);
-  const work = await check("WorkService.Snapshot", () => c.work.Snapshot({ factions: joined }, deadlineIn(5000)), undefined, (r) => `current work ${r.data?.currentWorkJson?.slice(0, 60)}`);
-  await check("CrimeInfoService.Snapshot", () => c.crimeInfo.Snapshot({}, deadlineIn(5000)), (r) => r.status === Codes.OK && (r.data?.crimes?.length ?? 0) > 0, (r) => `${r.data?.crimes?.length} crimes`);
-  await check("InstallService.Snapshot", () => c.install.Snapshot({}, deadlineIn(5000)), undefined, (r) => `positions ${r.data?.positionsHeld}`);
+  const catalog = await check("AugCatalogService.GetCatalog", () => c.catalog.GetCatalog({ factions: joined }, deadlineIn(5000)), undefined, (r) => `${r.data?.prices?.length ?? 0} augmentations priced`);
+  await check("AugDetailService.GetDetails", () => c.detail.GetDetails({ names: (catalog.data?.prices ?? []).map((p) => p.name ?? "") }, deadlineIn(5000)), undefined, (r) => `${r.data?.details?.length ?? 0} described`);
+  await check("InviteService.GetInvites", () => c.invite.GetInvites({ factions: ["Illuminati"] }, deadlineIn(5000)), undefined, (r) => `${r.data?.invitations?.length ?? 0} invitations`);
+  const work = await check("WorkService.GetWork", () => c.work.GetWork({ factions: joined }, deadlineIn(5000)), undefined, (r) => `current work ${r.data?.currentWorkJson?.slice(0, 60)}`);
+  await check("CrimeInfoService.GetCrimes", () => c.crimeInfo.GetCrimes({}, deadlineIn(5000)), (r) => r.status === Codes.OK && (r.data?.crimes?.length ?? 0) > 0, (r) => `${r.data?.crimes?.length} crimes`);
+  await check("InstallService.GetInstallState", () => c.install.GetInstallState({}, deadlineIn(5000)), undefined, (r) => `positions ${r.data?.positionsHeld}`);
 
   // Work actions, each undone by Stop at the end.
   const hackingFaction = (work.data?.workTypes ?? []).find((t) => (t.types ?? []).includes("hacking"))?.faction;
@@ -52,7 +52,7 @@ export async function main(ns: NS): Promise<void> {
   const gymCity = GYM_CITY[GYM];
   if (gymCity) await check(`Travel(${gymCity})`, () => c.work.Travel({ city: gymCity }, deadlineIn(5000)), succeeded);
   await check(`Gym(${GYM}, str)`, () => c.work.Gym({ location: GYM, gymType: "str" }, deadlineIn(5000)), succeeded);
-  await check("Crime.Commit(Mug)", () => c.crime.Commit({ crime: "Mug" }, deadlineIn(5000)), succeeded);
+  await check("Crime.CommitCrime(Mug)", () => c.crime.CommitCrime({ crime: "Mug" }, deadlineIn(5000)), succeeded);
   const job = Object.keys(player.jobs)[0];
   if (job) await check(`WorkForCompany(${job})`, () => c.job.WorkForCompany({ company: job }, deadlineIn(5000)), succeeded);
   await check("Stop", () => c.work.Stop({}, deadlineIn(5000)), (r) => r.status === Codes.OK);

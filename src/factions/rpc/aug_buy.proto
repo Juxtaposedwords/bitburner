@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package aug_buy;
+
+// AugBuyService: Buying augmentations, and rep with donations (11.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message PurchaseRequest {
+  string faction = 1;
+  string augmentation = 2;
+}
+
+message PurchaseResponse {
+  bool ok = 1;
+}
+
+message DonateRequest {
+  string faction = 1;
+  double amount = 2;
+}
+
+message DonateResponse {
+  bool ok = 1;
+}
+
+service AugBuyService {
+  rpc Purchase (PurchaseRequest) returns (PurchaseResponse);
+  rpc Donate (DonateRequest) returns (DonateResponse);
+}

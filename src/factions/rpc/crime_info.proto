@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package crime_info;
+
+import "faction_types.proto";
+
+// CrimeInfoService: Every crime's karma, time, kills and current chance (11.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetCrimesRequest {}
+
+message GetCrimesResponse {
+  repeated faction_types.CrimeInfo crimes = 1;
+}
+
+service CrimeInfoService {
+  rpc GetCrimes (GetCrimesRequest) returns (GetCrimesResponse);
+}

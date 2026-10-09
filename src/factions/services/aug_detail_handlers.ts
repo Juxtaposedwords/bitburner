@@ -1,10 +1,10 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/aug_detail";
 
 /** AugDetailService: each named augmentation's prerequisites and multipliers. */
-export function createAugDetailHandlers(ns: NS): fs_pb.AugDetailServiceHandlers {
+export function createAugDetailHandlers(ns: NS): pb.AugDetailServiceHandlers {
   return {
-    Snapshot: (req) => ({
+    GetDetails: (req) => ({
       details: (req.names ?? []).map((name) => {
         const stats = ns.singularity.getAugmentationStats(name) as unknown as Record<string, number>;
         return {

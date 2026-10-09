@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package aug_catalog;
+
+import "faction_types.proto";
+
+// AugCatalogService: What factions sell, at what price (11.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetCatalogRequest {
+  repeated string factions = 1;
+  // Also priced: augmentations no faction above sells (e.g. pending ones).
+  repeated string extraNames = 2;
+}
+
+message GetCatalogResponse {
+  repeated faction_types.FactionOffer offers = 1;
+  // Every augmentation in `offers`, plus extraNames.
+  repeated faction_types.AugPrice prices = 2;
+}
+
+service AugCatalogService {
+  rpc GetCatalog (GetCatalogRequest) returns (GetCatalogResponse);
+}

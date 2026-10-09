@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package job;
+
+// JobService: Company jobs (10.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message ApplyToCompanyRequest {
+  string company = 1;
+  string field = 2;
+}
+
+message ApplyToCompanyResponse {
+  // The position hired or promoted to; empty if not.
+  string job = 1;
+}
+
+message WorkForCompanyRequest {
+  string company = 1;
+}
+
+message WorkForCompanyResponse {
+  bool ok = 1;
+}
+
+message QuitJobRequest {
+  string company = 1;
+}
+
+message QuitJobResponse {
+  bool ok = 1;
+}
+
+service JobService {
+  // Applying again is also how promotions happen.
+  rpc ApplyToCompany (ApplyToCompanyRequest) returns (ApplyToCompanyResponse);
+  rpc WorkForCompany (WorkForCompanyRequest) returns (WorkForCompanyResponse);
+  rpc QuitJob (QuitJobRequest) returns (QuitJobResponse);
+}

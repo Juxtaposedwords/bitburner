@@ -16,5 +16,16 @@
   "faction_services.CrimeInfoService": 24,
   "faction_services.AugBuyService": 25,
   "faction_services.InstallService": 26,
-  "faction_services.HomeRamService": 27
+  "faction_services.HomeRamService": 27,
+  "aug_buy.AugBuyService": 28,
+  "aug_catalog.AugCatalogService": 29,
+  "aug_detail.AugDetailService": 30,
+  "crime.CrimeService": 31,
+  "crime_info.CrimeInfoService": 32,
+  "home_ram.HomeRamService": 33,
+  "install.InstallService": 34,
+  "invite.InviteService": 35,
+  "job.JobService": 36,
+  "standing.StandingService": 37,
+  "work.WorkService": 38
 }

@@ -70,3 +70,20 @@ a service the way to spread work across servers. Lessons from splitting the fact
   - A main script pays for all its own top-level functions; imported modules only for what's reached.
 - **Measure before shipping.** `node build/ram_estimate.mjs [--root dist] --detail <script.js>` sizes a
   script the way the game does, offline, using the price list from `tools/ram_costs.js`.
+
+## Conventions: one service per proto, a request and response per method
+
+- **One service per `.proto`** (`factions/rpc/standing.proto` holds `StandingService`), in its own
+  `package` (port registry keys are `package.Service`). The generated module is named after the file.
+- **Every method has its own request and response** (`GetStandingRequest` / `GetStandingResponse`),
+  even when they're empty, so each method's API can change on its own. Name methods for what they do
+  (`GetStanding`, not `Snapshot`).
+- **Shared building blocks go in a types file** (`factions/rpc/faction_types.proto`: enums and messages
+  responses embed), imported with `import "faction_types.proto";` and referred to by package
+  (`faction_types.Standing`). The generator emits TypeScript imports for them instead of copies.
+- **A service is its proto plus its handlers:** `services/<stem>_handlers.ts` exporting
+  `create<Name>Handlers(ns)`. The generator then emits the main script (`services/<stem>_service.ts`)
+  and the folder's deploy list (`services/deploy.ts`, `<DOMAIN>_SERVICE_SCRIPTS`), which boot, the
+  reloader, status and the bootstrap use.
+- **Keep each service small enough to bin-pack** onto the servers a BitNode starts with (16 GB is common):
+  `node build/ram_estimate.mjs --root dist --detail factions/services/<stem>_service.js`.

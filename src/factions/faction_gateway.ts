@@ -1,7 +1,17 @@
 import { NS } from "@ns";
 import { Codes } from "system/rpc/status";
 import { Deadline } from "system/deadline";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as catalog_pb from "factions/rpc/aug_catalog";
+import * as detail_pb from "factions/rpc/aug_detail";
+import * as standing_pb from "factions/rpc/standing";
+import * as invite_pb from "factions/rpc/invite";
+import * as work_pb from "factions/rpc/work";
+import * as job_pb from "factions/rpc/job";
+import * as crime_info_pb from "factions/rpc/crime_info";
+import * as crime_pb from "factions/rpc/crime";
+import * as buy_pb from "factions/rpc/aug_buy";
+import * as install_pb from "factions/rpc/install";
+import * as home_ram_pb from "factions/rpc/home_ram";
 import { FactionView } from "factions/faction_view";
 
 /**
@@ -13,32 +23,32 @@ import { FactionView } from "factions/faction_view";
  * crime decisions wait.
  */
 export type FactionClients = {
-  catalog: fs_pb.AugCatalogServiceClient;
-  detail: fs_pb.AugDetailServiceClient;
-  standing: fs_pb.StandingServiceClient;
-  invite: fs_pb.InviteServiceClient;
-  work: fs_pb.WorkServiceClient;
-  job: fs_pb.JobServiceClient;
-  crimeInfo: fs_pb.CrimeInfoServiceClient;
-  crime: fs_pb.CrimeServiceClient;
-  buy: fs_pb.AugBuyServiceClient;
-  install: fs_pb.InstallServiceClient;
-  homeRam: fs_pb.HomeRamServiceClient;
+  catalog: catalog_pb.AugCatalogServiceClient;
+  detail: detail_pb.AugDetailServiceClient;
+  standing: standing_pb.StandingServiceClient;
+  invite: invite_pb.InviteServiceClient;
+  work: work_pb.WorkServiceClient;
+  job: job_pb.JobServiceClient;
+  crimeInfo: crime_info_pb.CrimeInfoServiceClient;
+  crime: crime_pb.CrimeServiceClient;
+  buy: buy_pb.AugBuyServiceClient;
+  install: install_pb.InstallServiceClient;
+  homeRam: home_ram_pb.HomeRamServiceClient;
 };
 
 export function factionClients(ns: NS): FactionClients {
   return {
-    catalog: fs_pb.NewAugCatalogServiceClient(ns),
-    detail: fs_pb.NewAugDetailServiceClient(ns),
-    standing: fs_pb.NewStandingServiceClient(ns),
-    invite: fs_pb.NewInviteServiceClient(ns),
-    work: fs_pb.NewWorkServiceClient(ns),
-    job: fs_pb.NewJobServiceClient(ns),
-    crimeInfo: fs_pb.NewCrimeInfoServiceClient(ns),
-    crime: fs_pb.NewCrimeServiceClient(ns),
-    buy: fs_pb.NewAugBuyServiceClient(ns),
-    install: fs_pb.NewInstallServiceClient(ns),
-    homeRam: fs_pb.NewHomeRamServiceClient(ns),
+    catalog: catalog_pb.NewAugCatalogServiceClient(ns),
+    detail: detail_pb.NewAugDetailServiceClient(ns),
+    standing: standing_pb.NewStandingServiceClient(ns),
+    invite: invite_pb.NewInviteServiceClient(ns),
+    work: work_pb.NewWorkServiceClient(ns),
+    job: job_pb.NewJobServiceClient(ns),
+    crimeInfo: crime_info_pb.NewCrimeInfoServiceClient(ns),
+    crime: crime_pb.NewCrimeServiceClient(ns),
+    buy: buy_pb.NewAugBuyServiceClient(ns),
+    install: install_pb.NewInstallServiceClient(ns),
+    homeRam: home_ram_pb.NewHomeRamServiceClient(ns),
   };
 }
 
@@ -62,16 +72,16 @@ function failure<T>(call: string, res: Res<T>): CallFailure | undefined {
 }
 
 /** The first round: invitations and requirements, and the work slot - what to join is decided from these. */
-export type WorkRound = { invites: fs_pb.InviteSnapshot; work: fs_pb.WorkSnapshot };
+export type WorkRound = { invites: invite_pb.GetInvitesResponse; work: work_pb.GetWorkResponse };
 
 export async function fetchWork(c: FactionClients, req: ViewRequest, deadline: Deadline): Promise<WorkRound | CallFailure> {
   const [invites, work] = await Promise.all([
-    c.invite.Snapshot({ factions: req.requirementFactions }, deadline),
-    c.work.Snapshot({ factions: req.joined }, deadline),
+    c.invite.GetInvites({ factions: req.requirementFactions }, deadline),
+    c.work.GetWork({ factions: req.joined }, deadline),
   ]);
-  const failed = failure("InviteService.Snapshot", invites) ?? failure("WorkService.Snapshot", work);
+  const failed = failure("InviteService.GetInvites", invites) ?? failure("WorkService.GetWork", work);
   if (failed) return failed;
-  return { invites: invites.data as fs_pb.InviteSnapshot, work: work.data as fs_pb.WorkSnapshot };
+  return { invites: invites.data as invite_pb.GetInvitesResponse, work: work.data as work_pb.GetWorkResponse };
 }
 
 /**
@@ -80,31 +90,31 @@ export async function fetchWork(c: FactionClients, req: ViewRequest, deadline: D
  */
 export async function fetchView(c: FactionClients, req: ViewRequest, first: WorkRound, deadline: Deadline): Promise<FactionView | CallFailure> {
   const [standing, catalogFirst] = await Promise.all([
-    c.standing.Snapshot({ factions: req.joined, companies: req.companies }, deadline),
-    c.catalog.Snapshot({ factions: [...new Set([...req.joined, ...req.offerFactions])] }, deadline),
+    c.standing.GetStanding({ factions: req.joined, companies: req.companies }, deadline),
+    c.catalog.GetCatalog({ factions: [...new Set([...req.joined, ...req.offerFactions])] }, deadline),
   ]);
-  const failedFirst = failure("StandingService.Snapshot", standing) ?? failure("AugCatalogService.Snapshot", catalogFirst);
+  const failedFirst = failure("StandingService.GetStanding", standing) ?? failure("AugCatalogService.GetCatalog", catalogFirst);
   if (failedFirst) return failedFirst;
-  const standingData = standing.data as fs_pb.StandingSnapshot;
-  let catalog = catalogFirst.data as fs_pb.CatalogSnapshot;
+  const standingData = standing.data as standing_pb.GetStandingResponse;
+  let catalog = catalogFirst.data as catalog_pb.GetCatalogResponse;
   // Pending augmentations no listed faction sells still need their stats and price.
   const listed = new Set((catalog.prices ?? []).map((p) => p.name));
   const installed = new Set(standingData.installed ?? []);
   const extra = (standingData.ownedWithQueued ?? []).filter((n) => !installed.has(n) && !listed.has(n));
   if (extra.length > 0) {
-    const more = await c.catalog.Snapshot({ factions: [], extraNames: extra }, deadline);
-    const failedMore = failure("AugCatalogService.Snapshot", more);
+    const more = await c.catalog.GetCatalog({ factions: [], extraNames: extra }, deadline);
+    const failedMore = failure("AugCatalogService.GetCatalog", more);
     if (failedMore) return failedMore;
-    catalog = { offers: catalog.offers, prices: [...(catalog.prices ?? []), ...((more.data as fs_pb.CatalogSnapshot).prices ?? [])] };
+    catalog = { offers: catalog.offers, prices: [...(catalog.prices ?? []), ...((more.data as catalog_pb.GetCatalogResponse).prices ?? [])] };
   }
   const names = (catalog.prices ?? []).map((p) => p.name ?? "");
-  const [details, crimes] = await Promise.all([c.detail.Snapshot({ names }, deadline), c.crimeInfo.Snapshot({}, deadline)]);
-  const failedDetails = failure("AugDetailService.Snapshot", details);
+  const [details, crimes] = await Promise.all([c.detail.GetDetails({ names }, deadline), c.crimeInfo.GetCrimes({}, deadline)]);
+  const failedDetails = failure("AugDetailService.GetDetails", details);
   if (failedDetails) return failedDetails;
   return new FactionView({
     standing: standingData,
     catalog,
-    details: details.data as fs_pb.DetailSnapshot,
+    details: details.data as detail_pb.GetDetailsResponse,
     invites: first.invites,
     work: first.work,
     crimes: crimes.status === Codes.OK ? crimes.data : undefined,

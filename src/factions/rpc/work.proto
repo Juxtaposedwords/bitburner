@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package work;
+
+import "faction_types.proto";
+
+// WorkService: The player's work slot: faction work, travel, gym, study (13.1 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetWorkRequest {
+  // Factions whose work types are wanted.
+  repeated string factions = 1;
+}
+
+message GetWorkResponse {
+  // getCurrentWork() as JSON ("null" when idle).
+  string currentWorkJson = 1;
+  repeated faction_types.FactionWorkTypes workTypes = 2;
+}
+
+message WorkForFactionRequest {
+  string faction = 1;
+  string workType = 2;
+}
+
+message WorkForFactionResponse {
+  bool ok = 1;
+}
+
+message TravelRequest {
+  string city = 1;
+}
+
+message TravelResponse {
+  bool ok = 1;
+}
+
+message GymRequest {
+  string location = 1;
+  // A GymType value ("str", "def", "dex", "agi").
+  string gymType = 2;
+}
+
+message GymResponse {
+  bool ok = 1;
+}
+
+message StudyRequest {
+  string university = 1;
+  string course = 2;
+}
+
+message StudyResponse {
+  bool ok = 1;
+}
+
+message StopRequest {}
+
+message StopResponse {
+  bool ok = 1;
+}
+
+service WorkService {
+  rpc GetWork (GetWorkRequest) returns (GetWorkResponse);
+  rpc WorkForFaction (WorkForFactionRequest) returns (WorkForFactionResponse);
+  rpc Travel (TravelRequest) returns (TravelResponse);
+  rpc Gym (GymRequest) returns (GymResponse);
+  rpc Study (StudyRequest) returns (StudyResponse);
+  rpc Stop (StopRequest) returns (StopResponse);
+}

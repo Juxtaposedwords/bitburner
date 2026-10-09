@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package crime;
+
+// CrimeService: Committing a crime - it repeats on its own (6.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message CommitCrimeRequest {
+  string crime = 1;
+}
+
+message CommitCrimeResponse {
+  bool ok = 1;
+}
+
+service CrimeService {
+  rpc CommitCrime (CommitCrimeRequest) returns (CommitCrimeResponse);
+}

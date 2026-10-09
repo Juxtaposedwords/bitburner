@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/install";
 
 /** Stock positions held, long or short; 0 without TIX API access (the other ns.stock calls need it). */
 function positionsHeld(ns: NS): number {
@@ -11,12 +11,12 @@ function positionsHeld(ns: NS): number {
 }
 
 /** InstallService: what an install would lose (stock positions), and the install itself. */
-export function createInstallHandlers(ns: NS): fs_pb.InstallServiceHandlers {
+export function createInstallHandlers(ns: NS): pb.InstallServiceHandlers {
   return {
-    Snapshot: () => ({ positionsHeld: positionsHeld(ns) }),
+    GetInstallState: () => ({ positionsHeld: positionsHeld(ns) }),
     Install: (req) => {
       ns.singularity.installAugmentations(req.bootScript ?? "boot.js");
-      return { ok: true, detail: "" };
+      return { ok: true };
     },
   };
 }

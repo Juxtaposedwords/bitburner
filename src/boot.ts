@@ -3,7 +3,7 @@ import { EXPECTED_DAEMONS_PATH, readStoppedDaemons, STOPPED_DAEMONS_PATH } from 
 import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { placeDaemon, pruneDaemonHosts } from "system/remote_place";
-import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
+import { FACTIONS_SERVICE_SCRIPTS } from "factions/services/deploy";
 import { daemonHosts } from "system/remote_state";
 import * as rpc from "system/rpc/rpc";
 import { sleevesAvailable } from "sleeves/sleeve_decisions";
@@ -29,7 +29,7 @@ const SUPERVISOR_SCRIPT = "system/supervisor.js";
 // The faction daemon's game calls, as services (docs/faction_split.md).
 // The faction daemon's game calls, as small services (generated from
 // faction_services.proto; docs/faction_split.md).
-const FACTION_SERVICES = FACTION_SERVICES_SCRIPTS;
+const FACTION_SERVICES = FACTIONS_SERVICE_SCRIPTS;
 // Daemons boot may run off home while home is too small for them: on a
 // hacked server with room, else DAEMON_HOST (system/remote_place.ts).
 // The sleeve daemon too (64 GB): BN9 held it behind a full 128 GB home

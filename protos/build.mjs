@@ -62,10 +62,14 @@ function getProtoFiles(dir, fileList = []) {
 // so callers doing closure-based discovery pick it up too; enum-typed
 // fields are recorded into `enums` directly, since the template renders all
 // enums up front regardless of which message references them.
-function resolveFields(type, enums, visitedEnums, queue) {
+function resolveFields(type, enums, visitedEnums, queue, local) {
     return type.fieldsArray.map(field => {
         let tsType;
-        if (field.resolvedType instanceof protobuf.Enum) {
+        if (field.resolvedType && local && !local.owns(field.resolvedType)) {
+            // Defined in another .proto: imported, not re-emitted here.
+            tsType = field.resolvedType.name;
+            local.importType(field.resolvedType);
+        } else if (field.resolvedType instanceof protobuf.Enum) {
             tsType = field.resolvedType.name;
             if (!visitedEnums.has(tsType)) {
                 visitedEnums.add(tsType);
@@ -105,7 +109,23 @@ async function processFile(filePath) {
     const packageName = packageMatch ? packageMatch[1].trim() : 'unknown_package';
 
     const outputDir = path.dirname(filePath);
-    const outputFile = path.join(outputDir, `${packageName}.ts`);
+    // Named after the .proto file, so one package's services can each have
+    // their own file (one service per proto); same as the package for the
+    // older single-file protos.
+    const outputFile = path.join(outputDir, `${path.basename(filePath, '.proto')}.ts`);
+
+    // Types defined in other .proto files (`import "x.proto";`) come in as
+    // TypeScript imports from their generated module instead of copies.
+    const absFile = path.resolve(filePath);
+    const imports = new Map();
+    const local = {
+        owns: (node) => path.resolve(node.filename ?? absFile) === absFile,
+        importType: (node) => {
+            const module = path.relative(SRC_DIR, path.join(path.dirname(node.filename), path.basename(node.filename, '.proto'))).split(path.sep).join('/');
+            if (!imports.has(module)) imports.set(module, new Set());
+            imports.get(module).add(node.name);
+        },
+    };
 
     /** @type {protobuf.Service[]} */
     const serviceNodes = [];
@@ -121,7 +141,7 @@ async function processFile(filePath) {
     // with fs.writeFileSync used to overwrite the file on each iteration,
     // silently dropping every service but the last one in a multi-service file.
     /** @type {{ services: { name: string, port: number, methods: { name: string, requestType: string, responseType: string }[] }[], messages: { name: string | undefined, fields: unknown }[], enums: { name: string, values: { name: string, value: number }[] }[] }} */
-    const context = { services: [], messages: [], enums: [] };
+    const context = { services: [], messages: [], enums: [], imports: [] };
     const visitedMessages = new Set();
     const visitedEnums = new Set();
 
@@ -134,16 +154,16 @@ async function processFile(filePath) {
             if (!node.nestedArray) return;
             for (const nested of node.nestedArray) {
                 if (nested instanceof protobuf.Enum) {
-                    if (visitedEnums.has(nested.name)) continue;
+                    if (!local.owns(nested) || visitedEnums.has(nested.name)) continue;
                     visitedEnums.add(nested.name);
                     context.enums.push({
                         name: nested.name,
                         values: Object.entries(nested.values).map(([name, value]) => ({ name, value })),
                     });
                 } else if (nested instanceof protobuf.Type) {
-                    if (visitedMessages.has(nested.name)) continue;
+                    if (!local.owns(nested) || visitedMessages.has(nested.name)) continue;
                     visitedMessages.add(nested.name);
-                    context.messages.push({ name: nested.name, fields: resolveFields(nested, context.enums, visitedEnums) });
+                    context.messages.push({ name: nested.name, fields: resolveFields(nested, context.enums, visitedEnums, undefined, local) });
                 } else if (nested.nestedArray) {
                     // A wrapping namespace (e.g. the file's own `package` declaration) - recurse into it too.
                     collectTopLevel(nested);
@@ -174,13 +194,18 @@ async function processFile(filePath) {
             visitedMessages.add(typeName);
 
             const type = root.lookupType(typeName);
-            const fields = resolveFields(type, context.enums, visitedEnums, queue);
+            if (!local.owns(type)) {
+                local.importType(type);
+                continue;
+            }
+            const fields = resolveFields(type, context.enums, visitedEnums, queue, local);
             context.messages.push({ name: typeName, fields });
         }
     }
 
+    context.imports = [...imports].map(([module, names]) => ({ module, names: [...names].sort().join(', ') }));
     fs.writeFileSync(outputFile, template(context));
-    writeServiceMains(filePath, packageName, context.services);
+    writeServiceMains(filePath, path.basename(filePath, '.proto'), context.services);
     console.log(`[proto] Generated ${outputFile}`);
 }
 
@@ -199,7 +224,7 @@ function serviceStem(serviceName) {
  * in proto order, for boot.ts to place. Services without a handlers module
  * (e.g. the supervisor's, registered by hand) get neither.
  */
-function writeServiceMains(protoPath, packageName, services) {
+function writeServiceMains(protoPath, moduleName, services) {
     const servicesDir = path.join(path.dirname(protoPath), '..', 'services');
     const srcRel = (p) => path.relative(SRC_DIR, p).split(path.sep).join('/');
     const mains = [];
@@ -209,7 +234,7 @@ function writeServiceMains(protoPath, packageName, services) {
         if (!fs.existsSync(handlersFile)) continue;
         const factory = `create${service.name.replace(/Service$/, '')}Handlers`;
         const mainFile = path.join(servicesDir, `${stem}_service.ts`);
-        const protoModule = srcRel(path.join(path.dirname(protoPath), packageName));
+        const protoModule = srcRel(path.join(path.dirname(protoPath), moduleName));
         const handlersModule = srcRel(handlersFile).replace(/\.ts$/, '');
         fs.writeFileSync(mainFile, `// AUTO-GENERATED BY PROTO-GENERATOR - DO NOT EDIT
 import { NS } from "@ns";
@@ -228,12 +253,25 @@ export async function main(ns: NS): Promise<void> {
         mains.push(srcRel(mainFile).replace(/\.ts$/, '.js'));
         console.log(`[proto] Generated ${mainFile}`);
     }
-    if (mains.length === 0) return;
-    const deployFile = path.join(servicesDir, `${packageName}_deploy.ts`);
-    const constName = `${packageName.toUpperCase()}_SCRIPTS`;
+    if (mains.length > 0) writeDeployList(servicesDir);
+}
+
+/**
+ * `<servicesDir>/deploy.ts`: every generated service main in the folder
+ * (all of a domain's services, from all its .proto files), for boot.ts to
+ * place. Named <DOMAIN>_SERVICE_SCRIPTS after the folder's parent (factions
+ * -> FACTIONS_SERVICE_SCRIPTS).
+ */
+function writeDeployList(servicesDir) {
+    const generated = fs.readdirSync(servicesDir)
+        .filter((f) => f.endsWith('_service.ts') && fs.readFileSync(path.join(servicesDir, f), 'utf-8').startsWith('// AUTO-GENERATED'))
+        .sort()
+        .map((f) => path.relative(SRC_DIR, path.join(servicesDir, f)).split(path.sep).join('/').replace(/\.ts$/, '.js'));
+    const domain = path.basename(path.dirname(path.resolve(servicesDir))).toUpperCase();
+    const deployFile = path.join(servicesDir, 'deploy.ts');
     fs.writeFileSync(deployFile, `// AUTO-GENERATED BY PROTO-GENERATOR - DO NOT EDIT
-/** ${packageName}'s service scripts, in proto order - what boot.ts places. */
-export const ${constName} = ${JSON.stringify(mains, null, 2)};
+/** Every generated service main in ${path.relative(SRC_DIR, servicesDir)} - what boot.ts places. */
+export const ${domain}_SERVICE_SCRIPTS = ${JSON.stringify(generated, null, 2)};
 `);
     console.log(`[proto] Generated ${deployFile}`);
 }

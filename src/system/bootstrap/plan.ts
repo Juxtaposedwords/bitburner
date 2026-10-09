@@ -1,4 +1,4 @@
-import { FACTION_SERVICES_SCRIPTS } from "factions/services/faction_services_deploy";
+import { FACTIONS_SERVICE_SCRIPTS } from "factions/services/deploy";
 /**
  * Pure logic for the low-RAM startup (system/bootstrap/bootstrap.ts), shared with boot.ts's
  * decision to use it - no `ns` calls, so importing it adds no RAM cost.
@@ -114,7 +114,7 @@ export const HACKNET_SPEND_FRACTION = 0.5;
  * can't plan or act - BN9 after an install sat in it for hours with a 128 GB
  * home, nothing rooted beyond 16 GB servers, and the faction stack held.
  */
-export const FACTION_STACK = [...FACTION_SERVICES_SCRIPTS, "factions/faction_daemon.js"];
+export const FACTION_STACK = [...FACTIONS_SERVICE_SCRIPTS, "factions/faction_daemon.js"];
 /**
  * Whether every unit in `units` (RAM each) fits into `bins` (free RAM each),
  * first-fit decreasing - the same packing boot's placement does, biggest

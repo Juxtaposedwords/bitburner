@@ -1,6 +1,12 @@
 import type { PlayerRequirement } from "@ns";
 import { AugmentationInfo, pendingAugmentations } from "factions/faction_decisions";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as types_pb from "factions/rpc/faction_types";
+import * as standing_pb from "factions/rpc/standing";
+import * as catalog_pb from "factions/rpc/aug_catalog";
+import * as detail_pb from "factions/rpc/aug_detail";
+import * as invite_pb from "factions/rpc/invite";
+import * as work_pb from "factions/rpc/work";
+import * as crime_info_pb from "factions/rpc/crime_info";
 
 /**
  * The game as the faction daemon sees it for one tick: the snapshots its
@@ -22,25 +28,25 @@ export type CurrentWork = {
 
 /** One tick's snapshots, from the faction services (faction_services.proto). */
 export type FactionSnapshots = {
-  standing: fs_pb.StandingSnapshot;
-  catalog: fs_pb.CatalogSnapshot;
-  details: fs_pb.DetailSnapshot;
-  invites: fs_pb.InviteSnapshot;
-  work: fs_pb.WorkSnapshot;
+  standing: standing_pb.GetStandingResponse;
+  catalog: catalog_pb.GetCatalogResponse;
+  details: detail_pb.GetDetailsResponse;
+  invites: invite_pb.GetInvitesResponse;
+  work: work_pb.GetWorkResponse;
   // Absent without the crime info service: crime decisions wait then.
-  crimes?: fs_pb.CrimeSnapshot;
+  crimes?: crime_info_pb.GetCrimesResponse;
 };
 
-type AugEntry = { price: number; repReq: number; prereqs: string[]; stats: fs_pb.Stat[] };
+type AugEntry = { price: number; repReq: number; prereqs: string[]; stats: types_pb.Stat[] };
 
 export class FactionView {
   private readonly offers = new Map<string, string[]>();
   private readonly augs = new Map<string, AugEntry>();
-  private readonly standing = new Map<string, fs_pb.Standing>();
+  private readonly standing = new Map<string, types_pb.Standing>();
   private readonly companies = new Map<string, number>();
   private readonly requirements = new Map<string, PlayerRequirement[]>();
   private readonly types = new Map<string, string[]>();
-  private readonly crimeInfo = new Map<string, fs_pb.CrimeInfo>();
+  private readonly crimeInfo = new Map<string, types_pb.CrimeInfo>();
   readonly ownedWithQueued: string[];
   readonly installed: string[];
   readonly favorToDonate: number;
@@ -122,11 +128,11 @@ export class FactionView {
   }
 
   /** Every crime's stats and chance (empty without a crime snapshot). */
-  crimes(): fs_pb.CrimeInfo[] {
+  crimes(): types_pb.CrimeInfo[] {
     return [...this.crimeInfo.values()];
   }
 
-  crimeOf(crime: string): fs_pb.CrimeInfo | undefined {
+  crimeOf(crime: string): types_pb.CrimeInfo | undefined {
     return this.crimeInfo.get(crime);
   }
 }

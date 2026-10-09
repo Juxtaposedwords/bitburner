@@ -27,8 +27,8 @@ export async function main(ns: NS): Promise<void> {
   const c = factionClients(ns);
   const player = ns.getPlayer();
   const [standing, catalog] = await Promise.all([
-    c.standing.Snapshot({ factions: player.factions, companies: [] }, deadlineIn(5000)),
-    c.catalog.Snapshot({ factions: player.factions }, deadlineIn(5000)),
+    c.standing.GetStanding({ factions: player.factions, companies: [] }, deadlineIn(5000)),
+    c.catalog.GetCatalog({ factions: player.factions }, deadlineIn(5000)),
   ]);
   if (standing.status !== Codes.OK || !standing.data) return report(`FAIL: StandingService.Snapshot status ${standing.status}: ${standing.error}`);
   if (catalog.status !== Codes.OK || !catalog.data) return report(`FAIL: AugCatalogService.Snapshot status ${catalog.status}: ${catalog.error}`);

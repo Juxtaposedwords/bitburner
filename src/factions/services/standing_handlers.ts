@@ -1,13 +1,13 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/standing";
 
 type FactionNameType = Parameters<NS["singularity"]["getFactionRep"]>[0];
 type CompanyNameType = Parameters<NS["singularity"]["getCompanyRep"]>[0];
 
 /** StandingService: owned augmentations, faction rep and favor, company rep. */
-export function createStandingHandlers(ns: NS): fs_pb.StandingServiceHandlers {
+export function createStandingHandlers(ns: NS): pb.StandingServiceHandlers {
   return {
-    Snapshot: (req) => ({
+    GetStanding: (req) => ({
       standings: (req.factions ?? []).map((faction) => ({
         faction,
         rep: ns.singularity.getFactionRep(faction as FactionNameType),

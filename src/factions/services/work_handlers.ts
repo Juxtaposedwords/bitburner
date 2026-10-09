@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import * as fs_pb from "factions/rpc/faction_services";
+import * as pb from "factions/rpc/work";
 
 type FactionNameType = Parameters<NS["singularity"]["workForFaction"]>[0];
 type FactionWorkTypeType = Parameters<NS["singularity"]["workForFaction"]>[1];
@@ -9,12 +9,12 @@ type GymTypeType = Parameters<NS["singularity"]["gymWorkout"]>[1];
 type UniversityNameType = Parameters<NS["singularity"]["universityCourse"]>[0];
 type CourseNameType = Parameters<NS["singularity"]["universityCourse"]>[1];
 
-const done = (ok: boolean): fs_pb.Done => ({ ok, detail: "" });
+const done = (ok: boolean): { ok: boolean } => ({ ok });
 
 /** WorkService: the player's work slot - what's running, faction work, travel, gym, study, stop. */
-export function createWorkHandlers(ns: NS): fs_pb.WorkServiceHandlers {
+export function createWorkHandlers(ns: NS): pb.WorkServiceHandlers {
   return {
-    Snapshot: (req) => ({
+    GetWork: (req) => ({
       currentWorkJson: JSON.stringify(ns.singularity.getCurrentWork() ?? null),
       workTypes: (req.factions ?? []).map((faction) => ({ faction, types: ns.singularity.getFactionWorkTypes(faction as FactionNameType) })),
     }),

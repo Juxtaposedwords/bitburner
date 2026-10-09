@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package invite;
+
+import "faction_types.proto";
+
+// InviteService: Invitations, what each faction's invite needs, joining (10.6 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetInvitesRequest {
+  // Factions whose requirements are wanted.
+  repeated string factions = 1;
+}
+
+message GetInvitesResponse {
+  repeated string invitations = 1;
+  repeated faction_types.FactionRequirements requirements = 2;
+}
+
+message JoinRequest {
+  string faction = 1;
+}
+
+message JoinResponse {
+  bool ok = 1;
+}
+
+service InviteService {
+  rpc GetInvites (GetInvitesRequest) returns (GetInvitesResponse);
+  rpc Join (JoinRequest) returns (JoinResponse);
+}

@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package faction_types;
+
+// Building blocks the faction services' responses share. Requests and
+// responses themselves are each method's own, in that service's .proto.
+//
+// Field names stay clear of the game's function names: the game charges RAM
+// for any identifier matching one, wherever it's read.
+
+message Stat {
+  string key = 1;
+  double value = 2;
+}
+
+message FactionOffer {
+  string faction = 1;
+  repeated string augmentations = 2;
+}
+
+message AugPrice {
+  string name = 1;
+  double price = 2;
+  double repReq = 3;
+}
+
+message AugDetail {
+  string name = 1;
+  repeated string prereqs = 2;
+  repeated Stat stats = 3;
+}
+
+message Standing {
+  string faction = 1;
+  double rep = 2;
+  double favor = 3;
+}
+
+message CompanyStanding {
+  string company = 1;
+  double rep = 2;
+}
+
+message FactionRequirements {
+  string faction = 1;
+  // getFactionInviteRequirements' nested requirement tree, as JSON.
+  string requirementsJson = 2;
+}
+
+message FactionWorkTypes {
+  string faction = 1;
+  repeated string types = 2;
+}
+
+message CrimeInfo {
+  string crime = 1;
+  double karma = 2;
+  double timeMs = 3;
+  double kills = 4;
+  double chance = 5;
+}

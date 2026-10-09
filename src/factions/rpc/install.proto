@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package install;
+
+// InstallService: The install, and what it would lose (10.7 GB).
+// The faction daemon's game calls as small services - see docs/faction_split.md.
+
+message GetInstallStateRequest {}
+
+message GetInstallStateResponse {
+  // Stock positions held (long or short, any symbol); an install deletes
+  // them with no refund. 0 without TIX API access.
+  double positionsHeld = 1;
+}
+
+message InstallRequest {
+  string bootScript = 1;
+}
+
+message InstallResponse {
+  bool ok = 1;
+}
+
+service InstallService {
+  rpc GetInstallState (GetInstallStateRequest) returns (GetInstallStateResponse);
+  rpc Install (InstallRequest) returns (InstallResponse);
+}
