@@ -884,6 +884,20 @@
         "/var/claude_out/create_gang.txt"
       ],
       "note": "retry at 3.1 GB (5.1 didn't fit home's 3.3 GB free)"
+    },
+    {
+      "id": "2026-10-09-stop-sleeves-for-gang",
+      "script": "tools/kill.js",
+      "args": [
+        "sleeves/sleeve_daemon.js"
+      ],
+      "note": "free silver-helix for the gang daemon; sleeves keep studying without their daemon"
+    },
+    {
+      "id": "2026-10-09-boot-place-gang",
+      "script": "boot.js",
+      "args": [],
+      "note": "places the gang daemon on silver-helix"
     }
   ]
 }

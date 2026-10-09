@@ -1,5 +1,5 @@
 import { NS } from "@ns";
-import { EXPECTED_DAEMONS_PATH } from "system/reload_plan";
+import { EXPECTED_DAEMONS_PATH, readStoppedDaemons, STOPPED_DAEMONS_PATH } from "system/reload_plan";
 import { CORE_SCRIPTS, FACTION_STACK, fullSystemFits, requiredHomeRam, SERVICE_HOST_MIN_RAM } from "system/bootstrap/plan";
 import { bitNodeGrants, readBitNodeInfo } from "system/bitnode_info";
 import { placeDaemon, pruneDaemonHosts } from "system/remote_place";
@@ -255,8 +255,15 @@ export async function main(ns: NS): Promise<void> {
   const started = [...DAEMONS];
   // Hosts whose daemons are gone (an install ends every script) go back to the workers.
   pruneDaemonHosts(ns);
+  // Stopped on purpose (tools/kill.js): left down, not restarted - and
+  // not holding up the rest.
+  const stoppedOnPurpose = readStoppedDaemons(ns.read(STOPPED_DAEMONS_PATH));
   for (const [script, available] of ordered) {
     if (!available) continue;
+    if (stoppedOnPurpose.includes(script)) {
+      say(ns, `[Boot] ${script} was stopped on purpose (tools/kill.js); leaving it.`);
+      continue;
+    }
     // Too big for home yet: on another server instead (system/remote_place.ts)
     // - so the rest of the order still starts. BN12's third run had the
     // ~100 GB faction daemon wait 38 minutes for a $7.9M server; split into
